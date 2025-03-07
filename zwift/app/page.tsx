@@ -28,7 +28,7 @@ export default function DashboardPage() {
         setIsLoading(true)
         const dashboardStats = await getDashboardStats()
         setStats(dashboardStats)
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error fetching dashboard stats:", error)
         toast({
           title: "Error",
