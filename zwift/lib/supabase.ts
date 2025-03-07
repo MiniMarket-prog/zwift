@@ -261,3 +261,68 @@ export async function updateSale(saleId: string, sale: any, saleItems: any[]) {
   }
 }
 
+// Add this function to the end of your supabase.ts file
+
+// Get dashboard statistics
+export async function getDashboardStats() {
+  try {
+    // Get total revenue
+    const { data: salesData, error: salesError } = await supabase.from("sales").select("total")
+
+    if (salesError) throw salesError
+
+    // Calculate total revenue
+    const totalRevenue = salesData?.reduce((sum, sale) => sum + (sale.total || 0), 0) || 0
+
+    // Get total number of products
+    const { count: productsCount, error: productsError } = await supabase
+      .from("products")
+      .select("*", { count: "exact", head: true })
+
+    if (productsError) throw productsError
+
+    // Get total number of customers (profiles with role 'customer')
+    const { count: customersCount, error: customersError } = await supabase
+      .from("profiles")
+      .select("*", { count: "exact", head: true })
+
+    if (customersError) throw customersError
+
+    // Get total number of sales
+    const { count: salesCount, error: salesCountError } = await supabase
+      .from("sales")
+      .select("*", { count: "exact", head: true })
+
+    if (salesCountError) throw salesCountError
+
+    // Get low stock products
+    const { data: productsForLowStock, error: lowStockError } = await supabase.from("products").select("*")
+
+    if (lowStockError) throw lowStockError
+
+    // Filter products where stock is less than min_stock
+    const lowStockData = productsForLowStock?.filter((product) => product.stock < product.min_stock) || []
+
+    // Return dashboard stats
+    return {
+      totalRevenue,
+      productsCount: productsCount || 0,
+      customersCount: customersCount || 0,
+      salesCount: salesCount || 0,
+      lowStockCount: lowStockData?.length || 0,
+      lowStockProducts: lowStockData || [],
+    }
+  } catch (error) {
+    console.error("Error fetching dashboard stats:", error)
+    // Return default values in case of error
+    return {
+      totalRevenue: 0,
+      productsCount: 0,
+      customersCount: 0,
+      salesCount: 0,
+      lowStockCount: 0,
+      lowStockProducts: [],
+    }
+  }
+}
+
