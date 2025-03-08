@@ -1,9 +1,7 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
-import { useRouter } from "next/navigation"
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -17,7 +15,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const router = useRouter()
   const supabase = createClientComponentClient()
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -26,26 +23,23 @@ export default function LoginPage() {
     setError(null)
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
-      if (error) {
-        throw error
+      if (signInError) {
+        throw signInError
       }
 
-      if (data?.user) {
-        console.log("Login successful, redirecting to dashboard...")
-        // Force a router refresh to update auth state
-        router.refresh()
-        // Redirect to dashboard
-        router.push("/dashboard")
+      // The UserProvider will handle the redirect after successful login
+    } catch (err) {
+      console.error("Login error:", err)
+      if (err && typeof err === "object" && "message" in err && typeof err.message === "string") {
+        setError(err.message)
+      } else {
+        setError("Failed to sign in")
       }
-    } catch (error: any) {
-      console.error("Login error:", error)
-      setError(error.message || "Failed to sign in")
-    } finally {
       setLoading(false)
     }
   }
@@ -73,18 +67,18 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                disabled={loading}
               />
             </div>
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password">Password</Label>
-              </div>
+              <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                disabled={loading}
               />
             </div>
           </CardContent>

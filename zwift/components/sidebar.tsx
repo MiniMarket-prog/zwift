@@ -1,129 +1,269 @@
 "use client"
 
+import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { cn } from "@/lib/utils"
+import { usePathname, useRouter } from "next/navigation"
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
 import {
-  LayoutDashboard,
+  Home,
+  DollarSign,
   ShoppingCart,
   Package,
-  FileText,
-  Users,
+  PlusCircle,
+  User,
+  BarChart3,
+  Bell,
   Settings,
-  AlertTriangle,
-  DollarSign,
-  CreditCard,
   Menu,
+  Sun,
+  Moon,
   LogOut,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useTheme } from "next-themes"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
-import { useAuth } from "@/components/auth-provider"
+import { Badge } from "@/components/ui/badge"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { useToast } from "@/components/ui/use-toast"
 
-const navItems = [
-  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { name: "POS", href: "/pos", icon: ShoppingCart },
-  { name: "Inventory", href: "/inventory", icon: Package },
-  { name: "Sales", href: "/sales", icon: DollarSign },
-  { name: "Expenses", href: "/expenses", icon: CreditCard },
-  { name: "Reports", href: "/reports", icon: FileText },
-  { name: "Alerts", href: "/alerts", icon: AlertTriangle },
-  { name: "Users", href: "/users", icon: Users },
-  { name: "Settings", href: "/settings", icon: Settings },
-]
-
-export function Sidebar() {
+const Sidebar = () => {
+  const [isMounted, setIsMounted] = useState(false)
+  const [unreadAlerts, setUnreadAlerts] = useState(0)
+  const [isCollapsed, setIsCollapsed] = useState(false)
+  const [sidebarWidth, setSidebarWidth] = useState(256) // Default width (64px = 16rem)
+  const resizeRef = useRef<HTMLDivElement>(null)
+  const sidebarRef = useRef<HTMLDivElement>(null)
+  const isResizing = useRef(false)
   const pathname = usePathname()
-  const { signOut } = useAuth()
+  const router = useRouter()
+  const { theme, setTheme } = useTheme()
+  const supabase = createClientComponentClient()
+  const { toast } = useToast()
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
+
+  const fetchUnreadAlerts = useCallback(async () => {
+    try {
+      const { error: tableError } = await supabase.from("products").select("id").limit(1)
+
+      if (tableError) {
+        console.error("Error checking products table:", tableError)
+        setUnreadAlerts(0)
+        return
+      }
+
+      const { data: lowStockData, error } = await supabase.from("products").select("id, stock, min_stock")
+
+      if (error) {
+        console.error("Error fetching products:", error)
+        setUnreadAlerts(0)
+        return
+      }
+
+      const lowStockCount =
+        lowStockData?.filter(
+          (product) =>
+            typeof product.stock === "number" &&
+            typeof product.min_stock === "number" &&
+            product.stock < product.min_stock,
+        ).length || 0
+
+      setUnreadAlerts(lowStockCount)
+    } catch (error) {
+      console.error("Error fetching unread alerts:", error)
+      setUnreadAlerts(0)
+    }
+  }, [supabase])
+
+  useEffect(() => {
+    fetchUnreadAlerts()
+    // Set up an interval to refresh alerts every minute
+    const interval = setInterval(fetchUnreadAlerts, 60000)
+    return () => clearInterval(interval)
+  }, [fetchUnreadAlerts])
+
+  // Handle sidebar resizing
+  useEffect(() => {
+    const handleMouseDown = () => {
+      isResizing.current = true
+      document.addEventListener("mousemove", handleMouseMove)
+      document.addEventListener("mouseup", handleMouseUp)
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing.current) return
+
+      // Calculate new width based on mouse position
+      const newWidth = e.clientX
+
+      // Set min and max width constraints
+      if (newWidth >= 180 && newWidth <= 400) {
+        setSidebarWidth(newWidth)
+      }
+    }
+
+    const handleMouseUp = () => {
+      isResizing.current = false
+      document.removeEventListener("mousemove", handleMouseMove)
+      document.removeEventListener("mouseup", handleMouseUp)
+    }
+
+    const resizeHandle = resizeRef.current
+    if (resizeHandle) {
+      resizeHandle.addEventListener("mousedown", handleMouseDown)
+    }
+
+    return () => {
+      if (resizeHandle) {
+        resizeHandle.removeEventListener("mousedown", handleMouseDown)
+      }
+      document.removeEventListener("mousemove", handleMouseMove)
+      document.removeEventListener("mouseup", handleMouseUp)
+    }
+  }, [])
+
+  const toggleTheme = () => {
+    setTheme(theme === "dark" ? "light" : "dark")
+  }
+
+  const toggleCollapse = () => {
+    setIsCollapsed(!isCollapsed)
+  }
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut()
+      router.push("/auth/login")
+      toast({
+        title: "Logged out",
+        description: "You have been successfully logged out.",
+      })
+    } catch (error) {
+      console.error("Error logging out:", error)
+      toast({
+        title: "Error",
+        description: "Failed to log out. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const navItems = [
+    { href: "/dashboard", label: "Dashboard", icon: <Home className="h-5 w-5" /> },
+    { href: "/pos", label: "POS", icon: <ShoppingCart className="h-5 w-5" /> },
+    { href: "/inventory", label: "Inventory", icon: <Package className="h-5 w-5" /> },
+    { href: "/expenses", label: "Expenses", icon: <PlusCircle className="h-5 w-5" /> },
+    { href: "/reports", label: "Reports", icon: <BarChart3 className="h-5 w-5" /> },
+    { href: "/sales", label: "Sales", icon: <DollarSign className="h-5 w-5" /> },
+    { href: "/users", label: "Users", icon: <User className="h-5 w-5" /> },
+    {
+      href: "/alerts",
+      label: "Alerts",
+      icon: <Bell className="h-5 w-5" />,
+      badge: unreadAlerts > 0 ? unreadAlerts : null,
+    },
+    { href: "/settings", label: "Settings", icon: <Settings className="h-5 w-5" /> },
+  ]
+
+  const SidebarContent = () => (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between p-4">
+        {!isCollapsed && <h1 className="text-xl font-semibold">My Inventory</h1>}
+        <div className="flex items-center">
+          <Button variant="ghost" size="icon" onClick={toggleTheme} className="mr-1">
+            {isMounted && theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            <span className="sr-only">Toggle theme</span>
+          </Button>
+          <Button variant="ghost" size="icon" onClick={toggleCollapse} className="md:flex hidden">
+            {isCollapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
+            <span className="sr-only">Toggle sidebar</span>
+          </Button>
+        </div>
+      </div>
+
+      <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
+        <TooltipProvider>
+          {navItems.map((item) => (
+            <Tooltip key={item.href} delayDuration={300}>
+              <TooltipTrigger asChild>
+                <Link
+                  href={item.href}
+                  className={`flex items-center px-4 py-2 text-sm rounded-md transition-colors ${
+                    pathname === item.href
+                      ? "bg-primary text-primary-foreground font-medium shadow-sm"
+                      : "hover:bg-muted"
+                  }`}
+                >
+                  {item.icon}
+                  {!isCollapsed && <span className="ml-3">{item.label}</span>}
+                  {item.badge && (
+                    <Badge variant="destructive" className={isCollapsed ? "ml-0" : "ml-auto"}>
+                      {item.badge}
+                    </Badge>
+                  )}
+                </Link>
+              </TooltipTrigger>
+              {isCollapsed && <TooltipContent side="right">{item.label}</TooltipContent>}
+            </Tooltip>
+          ))}
+        </TooltipProvider>
+      </nav>
+
+      <div className="p-4 border-t">
+        <Button
+          variant="ghost"
+          className={`w-full justify-${isCollapsed ? "center" : "start"} text-red-500 hover:text-red-600 hover:bg-red-100 dark:hover:bg-red-900/20`}
+          onClick={handleLogout}
+        >
+          <LogOut className="h-5 w-5" />
+          {!isCollapsed && <span className="ml-3">Logout</span>}
+        </Button>
+      </div>
+
+      {!isCollapsed && (
+        <div className="p-4 text-xs text-muted-foreground">
+          &copy; {new Date().getFullYear()} My Inventory. All rights reserved.
+        </div>
+      )}
+    </div>
+  )
 
   return (
     <>
-      {/* Mobile Sidebar */}
-      <Sheet>
-        <SheetTrigger asChild>
-          <Button
-            variant="ghost"
-            className="mr-2 px-0 text-base hover:bg-transparent focus-visible:bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 md:hidden"
-          >
-            <Menu className="h-6 w-6" />
-            <span className="sr-only">Toggle Menu</span>
-          </Button>
-        </SheetTrigger>
-        <SheetContent side="left" className="pr-0">
-          <MobileNav signOut={signOut} />
-        </SheetContent>
-      </Sheet>
-      {/* Desktop Sidebar */}
-      <nav className="hidden md:flex flex-col w-64 border-r bg-background h-screen">
-        <div className="p-6">
-          <h1 className="text-xl font-bold">POS System</h1>
-        </div>
-        <div className="flex-1 px-3 py-2">
-          <div className="space-y-1">
-            {navItems.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all hover:bg-accent",
-                  pathname === item.href ? "bg-accent" : "transparent",
-                )}
-              >
-                <item.icon className="h-4 w-4" />
-                {item.name}
-              </Link>
-            ))}
-          </div>
-        </div>
-        <div className="mt-auto p-3 border-t">
-          <Button
-            variant="ghost"
-            className="w-full justify-start text-red-500 hover:text-red-600 hover:bg-red-50"
-            onClick={signOut}
-          >
-            <LogOut className="h-4 w-4 mr-2" />
-            Logout
-          </Button>
-        </div>
-      </nav>
+      {/* Desktop sidebar */}
+      <div
+        ref={sidebarRef}
+        className="fixed left-0 top-0 z-40 hidden h-screen border-r bg-background md:block transition-all duration-300"
+        style={{ width: isCollapsed ? "72px" : `${sidebarWidth}px` }}
+      >
+        <SidebarContent />
+        <div
+          ref={resizeRef}
+          className="absolute top-0 right-0 h-full w-1 cursor-ew-resize hover:bg-primary/20 active:bg-primary/40"
+        />
+      </div>
+
+      {/* Mobile sidebar */}
+      <div className="md:hidden">
+        <Sheet>
+          <SheetTrigger asChild>
+            <Button variant="ghost" size="icon" className="fixed left-4 top-4 z-40">
+              <Menu className="h-6 w-6" />
+              <span className="sr-only">Open sidebar</span>
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" className="p-0 w-64">
+            <SidebarContent />
+          </SheetContent>
+        </Sheet>
+      </div>
     </>
   )
 }
 
-function MobileNav({ signOut }: { signOut: () => Promise<void> }) {
-  const pathname = usePathname()
-
-  return (
-    <div className="flex flex-col gap-4 p-4 h-full">
-      <div className="px-3 py-2">
-        <h2 className="mb-2 px-4 text-lg font-semibold">Navigation</h2>
-        <div className="space-y-1">
-          {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all hover:bg-accent",
-                pathname === item.href ? "bg-accent" : "transparent",
-              )}
-            >
-              <item.icon className="h-4 w-4" />
-              {item.name}
-            </Link>
-          ))}
-        </div>
-      </div>
-      <div className="mt-auto px-3 pt-2 border-t">
-        <Button
-          variant="ghost"
-          className="w-full justify-start text-red-500 hover:text-red-600 hover:bg-red-50"
-          onClick={signOut}
-        >
-          <LogOut className="h-4 w-4 mr-2" />
-          Logout
-        </Button>
-      </div>
-    </div>
-  )
-}
+export default Sidebar
 

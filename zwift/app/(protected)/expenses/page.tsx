@@ -2,14 +2,25 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
-import { Calendar, ChevronDown, Download, Edit, Plus, Search, Trash2 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useState, useEffect, useCallback } from "react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  PlusCircle,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  CalendarIcon,
+  Filter,
+  X,
+  Save,
+  Loader2,
+} from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
@@ -17,644 +28,531 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
+import { Badge } from "@/components/ui/badge"
 import { format } from "date-fns"
-import { Calendar as CalendarComponent } from "@/components/ui/calendar"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { supabase } from "@/lib/supabase"
-import { useUser } from "@/components/auth/user-provider"
+import { cn } from "@/lib/utils"
 import { useToast } from "@/components/ui/use-toast"
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
+import type { Database } from "@/types/supabase"
+import { useUser } from "@/components/auth/user-provider"
 
-export default function Expenses() {
-  const [expenses, setExpenses] = useState<any[]>([])
+// Define expense type based on the database schema
+type Expense = Database["public"]["Tables"]["expenses"]["Row"]
+type Category = Database["public"]["Tables"]["categories"]["Row"]
+
+// Define a type for expenses with joined category data
+type ExpenseWithCategory = Expense & {
+  categories?: Category | null
+}
+
+export default function ExpensesPage() {
+  // State
+  const [expenses, setExpenses] = useState<ExpenseWithCategory[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState("")
-  const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
-    from: undefined,
-    to: undefined,
-  })
-  const [showAddDialog, setShowAddDialog] = useState(false)
-  const [showEditDialog, setShowEditDialog] = useState(false)
-  const [currentExpense, setCurrentExpense] = useState<any>(null)
-  const [categories, setCategories] = useState<any[]>([])
-  const [userProfiles, setUserProfiles] = useState<Record<string, any>>({})
-  const [showCategoryDialog, setShowCategoryDialog] = useState(false)
-  const [newCategoryName, setNewCategoryName] = useState("")
 
-  const { user } = useUser()
-  const { toast } = useToast()
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(5)
+  const [totalPages, setTotalPages] = useState(1)
+  const [paginatedExpenses, setPaginatedExpenses] = useState<ExpenseWithCategory[]>([])
 
-  // Form state
-  const [formData, setFormData] = useState({
+  // Filtering state
+  const [filteredExpenses, setFilteredExpenses] = useState<ExpenseWithCategory[]>([])
+  const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined)
+  const [dateTo, setDateTo] = useState<Date | undefined>(undefined)
+  const [categoryFilter, setCategoryFilter] = useState<string>("all")
+  const [isFilterActive, setIsFilterActive] = useState(false)
+
+  // New expense dialog state
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [newExpense, setNewExpense] = useState({
     amount: "",
     description: "",
     category_id: "",
-    date: new Date(),
   })
 
-  useEffect(() => {
-    fetchExpenses()
-    fetchCategories()
-    fetchUserProfiles()
-  }, [dateRange])
+  const supabase = createClientComponentClient<Database>()
+  const { toast } = useToast()
+  const { user } = useUser()
 
-  const fetchCategories = async () => {
+  // Fetch expenses and categories
+  const fetchData = useCallback(async () => {
     try {
-      const { data, error } = await supabase.from("expense_categories").select("*").order("name")
+      setIsLoading(true)
 
-      if (error) throw error
+      // Fetch expenses
+      const { data: expensesData, error: expensesError } = await supabase
+        .from("expenses")
+        .select(`
+          *,
+          categories (
+            id,
+            name
+          )
+        `)
+        .order("created_at", { ascending: false })
 
-      setCategories(data || [])
+      if (expensesError) throw expensesError
+
+      // Fetch categories
+      const { data: categoriesData, error: categoriesError } = await supabase
+        .from("categories")
+        .select("*")
+        .order("name")
+
+      if (categoriesError) throw categoriesError
+
+      setExpenses(expensesData || [])
+      setFilteredExpenses(expensesData || [])
+      setCategories(categoriesData || [])
     } catch (error) {
-      console.error("Error fetching categories:", error)
+      console.error("Error fetching data:", error)
       toast({
         title: "Error",
-        description: "Failed to load expense categories",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const fetchUserProfiles = async () => {
-    try {
-      const { data, error } = await supabase.from("profiles").select("id, full_name")
-
-      if (error) throw error
-
-      // Create a map of user IDs to profile data
-      const profileMap: Record<string, any> = {}
-      data?.forEach((profile) => {
-        profileMap[profile.id] = profile
-      })
-
-      setUserProfiles(profileMap)
-    } catch (error) {
-      console.error("Error fetching user profiles:", error)
-    }
-  }
-
-  const fetchExpenses = async () => {
-    setIsLoading(true)
-    try {
-      let query = supabase.from("expenses").select("*, category_id").order("created_at", { ascending: false })
-
-      if (searchTerm) {
-        query = query.ilike("description", `%${searchTerm}%`)
-      }
-
-      if (dateRange.from) {
-        query = query.gte("created_at", dateRange.from.toISOString())
-      }
-
-      if (dateRange.to) {
-        query = query.lte("created_at", new Date(dateRange.to.setHours(23, 59, 59, 999)).toISOString())
-      }
-
-      const { data, error } = await query
-
-      if (error) throw error
-
-      setExpenses(data || [])
-    } catch (error) {
-      console.error("Error fetching expenses:", error)
-      toast({
-        title: "Error",
-        description: "Failed to load expenses",
+        description: "Failed to load expenses data",
         variant: "destructive",
       })
     } finally {
       setIsLoading(false)
     }
-  }
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target
-    setFormData((prev) => ({ ...prev, [name]: value }))
-  }
-
-  const handleSelectChange = (name: string, value: string) => {
-    setFormData((prev) => ({ ...prev, [name]: value }))
-  }
-
-  const handleDateChange = (date: Date | undefined) => {
-    if (date) {
-      setFormData((prev) => ({ ...prev, date }))
-    }
-  }
-
-  const handleAddExpense = async () => {
-    try {
-      if (!formData.amount || !formData.description) {
-        toast({
-          title: "Missing fields",
-          description: "Please fill in all required fields",
-          variant: "destructive",
-        })
-        return
-      }
-
-      const { data, error } = await supabase
-        .from("expenses")
-        .insert({
-          amount: Number.parseFloat(formData.amount),
-          description: formData.description,
-          category_id: formData.category_id || null, // Make category optional
-          created_at: formData.date.toISOString(),
-          user_id: user?.id, // Use the current user's ID
-        })
-        .select()
-
-      if (error) throw error
-
-      toast({
-        title: "Success",
-        description: "Expense added successfully",
-      })
-
-      setShowAddDialog(false)
-      // Reset form
-      setFormData({
-        amount: "",
-        description: "",
-        category_id: "",
-        date: new Date(),
-      })
-      fetchExpenses()
-    } catch (error) {
-      console.error("Error adding expense:", error)
-      toast({
-        title: "Error",
-        description: "Failed to add expense",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const handleEditExpense = (expense: any) => {
-    setCurrentExpense(expense)
-    setFormData({
-      amount: expense.amount.toString(),
-      description: expense.description,
-      category_id: expense.category_id,
-      date: new Date(expense.created_at),
-    })
-    setShowEditDialog(true)
-  }
-
-  const handleUpdateExpense = async () => {
-    try {
-      if (!formData.amount || !formData.description) {
-        toast({
-          title: "Missing fields",
-          description: "Please fill in all required fields",
-          variant: "destructive",
-        })
-        return
-      }
-
-      const { error } = await supabase
-        .from("expenses")
-        .update({
-          amount: Number.parseFloat(formData.amount),
-          description: formData.description,
-          category_id: formData.category_id || null, // Make category optional
-          created_at: formData.date.toISOString(),
-        })
-        .eq("id", currentExpense.id)
-
-      if (error) throw error
-
-      toast({
-        title: "Success",
-        description: "Expense updated successfully",
-      })
-
-      setShowEditDialog(false)
-      fetchExpenses()
-    } catch (error) {
-      console.error("Error updating expense:", error)
-      toast({
-        title: "Error",
-        description: "Failed to update expense",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const handleDeleteExpense = async (id: string) => {
-    if (confirm("Are you sure you want to delete this expense?")) {
-      try {
-        const { error } = await supabase.from("expenses").delete().eq("id", id)
-
-        if (error) throw error
-
-        toast({
-          title: "Success",
-          description: "Expense deleted successfully",
-        })
-
-        fetchExpenses()
-      } catch (error) {
-        console.error("Error deleting expense:", error)
-        toast({
-          title: "Error",
-          description: "Failed to delete expense",
-          variant: "destructive",
-        })
-      }
-    }
-  }
-
-  const handleExportCSV = () => {
-    // Implement CSV export logic
-    alert("Exporting expenses to CSV...")
-  }
+  }, [supabase, toast])
 
   useEffect(() => {
-    const delaySearch = setTimeout(() => {
-      fetchExpenses()
-    }, 500)
+    fetchData()
+  }, [fetchData])
 
-    return () => clearTimeout(delaySearch)
-  }, [searchTerm])
+  // Filter expenses based on date range and category
+  useEffect(() => {
+    let filtered = [...expenses]
 
-  // Get the category name from the category ID
-  const getCategoryName = (categoryId: string) => {
-    const category = categories.find((c) => c.id === categoryId)
-    return category ? category.name : "Uncategorized"
+    if (dateFrom) {
+      const fromDate = new Date(dateFrom)
+      fromDate.setHours(0, 0, 0, 0)
+      filtered = filtered.filter((expense) => (expense.created_at ? new Date(expense.created_at) >= fromDate : false))
+    }
+
+    if (dateTo) {
+      const toDate = new Date(dateTo)
+      toDate.setHours(23, 59, 59, 999)
+      filtered = filtered.filter((expense) => (expense.created_at ? new Date(expense.created_at) <= toDate : false))
+    }
+
+    if (categoryFilter && categoryFilter !== "all") {
+      filtered = filtered.filter((expense) => expense.category_id === categoryFilter)
+    }
+
+    setFilteredExpenses(filtered)
+    setCurrentPage(1) // Reset to first page when filtering
+
+    // Set filter active state
+    setIsFilterActive(!!(dateFrom || dateTo || (categoryFilter && categoryFilter !== "all")))
+  }, [expenses, dateFrom, dateTo, categoryFilter])
+
+  // Calculate total pages and paginated expenses
+  const updatePaginatedExpenses = useCallback(() => {
+    const startIndex = (currentPage - 1) * pageSize
+    const endIndex = startIndex + pageSize
+    setPaginatedExpenses(filteredExpenses.slice(startIndex, endIndex))
+    setTotalPages(Math.max(1, Math.ceil(filteredExpenses.length / pageSize)))
+  }, [currentPage, pageSize, filteredExpenses])
+
+  // Update paginated expenses when page, page size, or filtered expenses change
+  useEffect(() => {
+    updatePaginatedExpenses()
+  }, [currentPage, pageSize, filteredExpenses, updatePaginatedExpenses])
+
+  // Handle page size change
+  const handlePageSizeChange = (value: string) => {
+    setPageSize(Number.parseInt(value))
+    setCurrentPage(1) // Reset to first page when changing page size
   }
 
-  // Get the user's name from the profiles map
-  const getUserName = (userId: string) => {
-    return userProfiles[userId]?.full_name || "Unknown"
+  // Handle page navigation
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
   }
 
-  const createCategory = async () => {
-    if (!newCategoryName.trim()) {
+  // Clear all filters
+  const clearFilters = () => {
+    setDateFrom(undefined)
+    setDateTo(undefined)
+    setCategoryFilter("all")
+  }
+
+  // Handle input change for new expense
+  const handleNewExpenseChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target
+    setNewExpense((prev) => ({
+      ...prev,
+      [name]: value,
+    }))
+  }
+
+  // Add new expense
+  const handleAddExpense = async () => {
+    if (!user) return
+
+    setIsSaving(true)
+
+    // Validate form
+    if (!newExpense.category_id || !newExpense.amount || !newExpense.description) {
       toast({
-        title: "Error",
-        description: "Category name cannot be empty",
+        title: "Validation Error",
+        description: "Please fill in all required fields.",
         variant: "destructive",
       })
+      setIsSaving(false)
       return
     }
 
     try {
-      const { data, error } = await supabase
-        .from("expense_categories")
-        .insert({ name: newCategoryName.trim() })
-        .select()
+      const { error } = await supabase.from("expenses").insert({
+        amount: Number.parseFloat(newExpense.amount),
+        description: newExpense.description,
+        category_id: newExpense.category_id,
+        user_id: user.id,
+      })
 
       if (error) throw error
 
       toast({
-        title: "Success",
-        description: "Category created successfully",
+        title: "Expense Added",
+        description: "The expense has been added successfully.",
       })
 
-      setNewCategoryName("")
-      setShowCategoryDialog(false)
-      fetchCategories()
+      // Reset form and close dialog
+      setNewExpense({
+        amount: "",
+        description: "",
+        category_id: "",
+      })
+      setIsAddDialogOpen(false)
+
+      // Refresh expenses
+      fetchData()
     } catch (error) {
-      console.error("Error creating category:", error)
+      console.error("Error adding expense:", error)
       toast({
         title: "Error",
-        description: "Failed to create category",
+        description: "Failed to add expense. Please try again.",
         variant: "destructive",
       })
+    } finally {
+      setIsSaving(false)
     }
   }
 
-  return (
-    <div className="flex flex-col">
-      <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-3xl font-bold tracking-tight">Expense Management</h2>
-          <div className="flex gap-2">
-            <Button onClick={handleExportCSV}>
-              <Download className="mr-2 h-4 w-4" /> Export CSV
-            </Button>
-            <Button onClick={() => setShowAddDialog(true)}>
-              <Plus className="mr-2 h-4 w-4" /> Add Expense
-            </Button>
-          </div>
-        </div>
+  // Calculate totals
+  const currentPageTotal = paginatedExpenses.reduce((sum, expense) => sum + expense.amount, 0)
+  const allExpensesTotal = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0)
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle>Expenses</CardTitle>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 mt-2">
-              <div className="relative flex-1 w-full">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+  // Get category name by id
+  const getCategoryName = (categoryId: string | null) => {
+    if (!categoryId) return "Uncategorized"
+    const category = categories.find((c) => c.id === categoryId)
+    return category?.name || "Uncategorized"
+  }
+
+  return (
+    <div className="p-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+        <h1 className="text-3xl font-bold">Expenses</h1>
+        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Add Expense
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Add New Expense</DialogTitle>
+              <DialogDescription>Enter the details of the expense to add it to your records.</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="category" className="text-right">
+                  Category
+                </Label>
+                <Select
+                  value={newExpense.category_id}
+                  onValueChange={(value) => setNewExpense((prev) => ({ ...prev, category_id: value }))}
+                >
+                  <SelectTrigger id="category" className="col-span-3">
+                    <SelectValue placeholder="Select a category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map((category) => (
+                      <SelectItem key={category.id} value={category.id}>
+                        {category.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="amount" className="text-right">
+                  Amount
+                </Label>
                 <Input
-                  type="search"
-                  placeholder="Search by description..."
-                  className="pl-8 w-full"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  id="amount"
+                  name="amount"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={newExpense.amount}
+                  onChange={handleNewExpenseChange}
+                  className="col-span-3"
+                  required
                 />
               </div>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full sm:w-auto">
-                    <Calendar className="mr-2 h-4 w-4" />
-                    {dateRange.from ? (
-                      dateRange.to ? (
-                        <>
-                          {format(dateRange.from, "LLL dd, y")} - {format(dateRange.to, "LLL dd, y")}
-                        </>
-                      ) : (
-                        format(dateRange.from, "LLL dd, y")
-                      )
-                    ) : (
-                      "Date Range"
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="end">
-                  <CalendarComponent
-                    initialFocus
-                    mode="range"
-                    defaultMonth={dateRange.from}
-                    selected={dateRange}
-                    onSelect={(range: any) => setDateRange(range)}
-                    numberOfMonths={2}
-                  />
-                </PopoverContent>
-              </Popover>
+              <div className="grid grid-cols-4 items-start gap-4">
+                <Label htmlFor="description" className="text-right pt-2">
+                  Description
+                </Label>
+                <Textarea
+                  id="description"
+                  name="description"
+                  value={newExpense.description}
+                  onChange={handleNewExpenseChange}
+                  className="col-span-3"
+                  rows={3}
+                  required
+                />
+              </div>
             </div>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Added By</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-10">
-                      Loading expenses...
-                    </TableCell>
-                  </TableRow>
-                ) : expenses.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-10">
-                      No expenses found. Add your first expense to get started.
-                    </TableCell>
-                  </TableRow>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleAddExpense} disabled={isSaving}>
+                {isSaving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
                 ) : (
-                  expenses.map((expense) => (
-                    <TableRow key={expense.id}>
-                      <TableCell>{format(new Date(expense.created_at), "MMM d, yyyy")}</TableCell>
-                      <TableCell className="max-w-[300px] truncate">{expense.description}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{getCategoryName(expense.category_id)}</Badge>
-                      </TableCell>
-                      <TableCell>{getUserName(expense.user_id)}</TableCell>
-                      <TableCell className="text-right font-medium">${expense.amount.toFixed(2)}</TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <ChevronDown className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleEditExpense(expense)}>
-                              <Edit className="mr-2 h-4 w-4" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => handleDeleteExpense(expense.id)}
-                              className="text-destructive"
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  <>
+                    <Save className="mr-2 h-4 w-4" />
+                    Save Expense
+                  </>
                 )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
-      {/* Add Expense Dialog */}
-      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add New Expense</DialogTitle>
-            <DialogDescription>Add a new expense to track your business costs.</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="amount">Amount</Label>
-              <Input
-                id="amount"
-                name="amount"
-                type="number"
-                step="0.01"
-                value={formData.amount}
-                onChange={handleInputChange}
-                placeholder="0.00"
-                required
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                name="description"
-                value={formData.description}
-                onChange={handleInputChange}
-                placeholder="Enter expense description"
-                rows={3}
-                required
-              />
-            </div>
-            <div className="grid gap-2">
-              <div className="flex justify-between items-center">
-                <Label htmlFor="category">Category</Label>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowCategoryDialog(true)}
-                  className="h-8 px-2 text-xs"
-                >
-                  + New Category
-                </Button>
-              </div>
-              <Select value={formData.category_id} onValueChange={(value) => handleSelectChange("category_id", value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder={categories.length ? "Select category" : "No categories available"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.length === 0 ? (
-                    <div className="flex items-center justify-center p-4 text-sm text-muted-foreground">
-                      No categories available
-                    </div>
-                  ) : (
-                    categories.map((category) => (
-                      <SelectItem key={category.id} value={category.id}>
-                        {category.name}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label>Date</Label>
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Filter Expenses</CardTitle>
+          <CardDescription>Filter expenses by date range and category</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="grid w-full max-w-sm items-center gap-1.5">
+              <Label htmlFor="from-date">From Date</Label>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start text-left font-normal">
-                    <Calendar className="mr-2 h-4 w-4" />
-                    {formData.date ? format(formData.date, "PPP") : "Select date"}
+                  <Button
+                    variant="outline"
+                    className={cn("w-full justify-start text-left font-normal", !dateFrom && "text-muted-foreground")}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {dateFrom ? format(dateFrom, "PPP") : "Select date"}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <CalendarComponent mode="single" selected={formData.date} onSelect={handleDateChange} initialFocus />
+                <PopoverContent className="w-auto p-0">
+                  <Calendar mode="single" selected={dateFrom} onSelect={setDateFrom} initialFocus />
                 </PopoverContent>
               </Popover>
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleAddExpense}>Add Expense</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Expense Dialog */}
-      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Edit Expense</DialogTitle>
-            <DialogDescription>Update expense information.</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="edit-amount">Amount</Label>
-              <Input
-                id="edit-amount"
-                name="amount"
-                type="number"
-                step="0.01"
-                value={formData.amount}
-                onChange={handleInputChange}
-                required
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="edit-description">Description</Label>
-              <Textarea
-                id="edit-description"
-                name="description"
-                value={formData.description}
-                onChange={handleInputChange}
-                rows={3}
-                required
-              />
-            </div>
-            <div className="grid gap-2">
-              <div className="flex justify-between items-center">
-                <Label htmlFor="edit-category">Category</Label>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowCategoryDialog(true)}
-                  className="h-8 px-2 text-xs"
-                >
-                  + New Category
-                </Button>
-              </div>
-              <Select value={formData.category_id} onValueChange={(value) => handleSelectChange("category_id", value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder={categories.length ? "Select category" : "No categories available"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.length === 0 ? (
-                    <div className="flex items-center justify-center p-4 text-sm text-muted-foreground">
-                      No categories available
-                    </div>
-                  ) : (
-                    categories.map((category) => (
-                      <SelectItem key={category.id} value={category.id}>
-                        {category.name}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label>Date</Label>
+            <div className="grid w-full max-w-sm items-center gap-1.5">
+              <Label htmlFor="to-date">To Date</Label>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start text-left font-normal">
-                    <Calendar className="mr-2 h-4 w-4" />
-                    {formData.date ? format(formData.date, "PPP") : "Select date"}
+                  <Button
+                    variant="outline"
+                    className={cn("w-full justify-start text-left font-normal", !dateTo && "text-muted-foreground")}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {dateTo ? format(dateTo, "PPP") : "Select date"}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <CalendarComponent mode="single" selected={formData.date} onSelect={handleDateChange} initialFocus />
+                <PopoverContent className="w-auto p-0">
+                  <Calendar mode="single" selected={dateTo} onSelect={setDateTo} initialFocus />
                 </PopoverContent>
               </Popover>
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEditDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleUpdateExpense}>Update Expense</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Category Dialog */}
-      <Dialog open={showCategoryDialog} onOpenChange={setShowCategoryDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Create New Category</DialogTitle>
-            <DialogDescription>Add a new expense category.</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="category-name">Category Name</Label>
-              <Input
-                id="category-name"
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                placeholder="Enter category name"
-              />
+            <div className="grid w-full max-w-sm items-center gap-1.5">
+              <Label htmlFor="category-filter">Category</Label>
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger id="category-filter">
+                  <SelectValue placeholder="All Categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {categories.map((category) => (
+                    <SelectItem key={category.id} value={category.id}>
+                      {category.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCategoryDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={createCategory}>Create Category</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </CardContent>
+        <CardFooter className="flex justify-between">
+          <div>
+            {isFilterActive && (
+              <Badge variant="outline" className="flex gap-1 items-center">
+                <Filter className="h-3 w-3" />
+                Filters applied
+              </Badge>
+            )}
+          </div>
+          <Button variant="outline" onClick={clearFilters} disabled={!isFilterActive}>
+            <X className="mr-2 h-4 w-4" />
+            Clear Filters
+          </Button>
+        </CardFooter>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle>Expense Records</CardTitle>
+            <CardDescription>
+              {isFilterActive ? "Showing filtered expense records" : "Showing all expense records"}
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <Label htmlFor="pageSize">Show</Label>
+            <Select value={pageSize.toString()} onValueChange={handlePageSizeChange}>
+              <SelectTrigger id="pageSize" className="w-[80px]">
+                <SelectValue placeholder={pageSize.toString()} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="5">5</SelectItem>
+                <SelectItem value="10">10</SelectItem>
+                <SelectItem value="15">15</SelectItem>
+                <SelectItem value="20">20</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="text-sm text-muted-foreground">entries</span>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-md border">
+            <table className="min-w-full divide-y divide-border">
+              <thead>
+                <tr className="bg-muted/50">
+                  <th className="px-4 py-3 text-left text-sm font-medium">Date</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Category</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Description</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center">
+                      <Loader2 className="h-8 w-8 animate-spin mx-auto" />
+                    </td>
+                  </tr>
+                ) : paginatedExpenses.length > 0 ? (
+                  paginatedExpenses.map((expense) => (
+                    <tr key={expense.id} className="hover:bg-muted/50">
+                      <td className="px-4 py-3 text-sm">
+                        {expense.created_at ? format(new Date(expense.created_at), "PPP") : "-"}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        <Badge variant="outline">
+                          {expense.categories ? expense.categories.name : getCategoryName(expense.category_id)}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-sm">{expense.description}</td>
+                      <td className="px-4 py-3 text-sm text-right font-medium">${expense.amount.toFixed(2)}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      No expenses found matching your criteria.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+              <tfoot>
+                <tr className="bg-muted/50">
+                  <td colSpan={3} className="px-4 py-3 text-sm font-medium text-right">
+                    Page Total
+                  </td>
+                  <td className="px-4 py-3 text-sm font-medium text-right">${currentPageTotal.toFixed(2)}</td>
+                </tr>
+                <tr className="bg-muted/50">
+                  <td colSpan={3} className="px-4 py-3 text-sm font-medium text-right">
+                    Grand Total {isFilterActive ? "(Filtered)" : "(All)"}
+                  </td>
+                  <td className="px-4 py-3 text-sm font-medium text-right">${allExpensesTotal.toFixed(2)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {/* Pagination controls */}
+          <div className="flex items-center justify-between mt-4">
+            <div className="text-sm text-muted-foreground">
+              Showing{" "}
+              {filteredExpenses.length > 0 ? Math.min(filteredExpenses.length, (currentPage - 1) * pageSize + 1) : 0} to{" "}
+              {Math.min(filteredExpenses.length, currentPage * pageSize)} of {filteredExpenses.length} entries
+            </div>
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => handlePageChange(1)}
+                disabled={currentPage === 1 || filteredExpenses.length === 0}
+              >
+                <ChevronsLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={currentPage === 1 || filteredExpenses.length === 0}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm">
+                Page {filteredExpenses.length > 0 ? currentPage : 0} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={currentPage === totalPages || filteredExpenses.length === 0}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => handlePageChange(totalPages)}
+                disabled={currentPage === totalPages || filteredExpenses.length === 0}
+              >
+                <ChevronsRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

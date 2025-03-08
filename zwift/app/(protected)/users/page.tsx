@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Search, Edit, Trash2, UserPlus } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -25,19 +25,38 @@ import { useToast } from "@/components/ui/use-toast"
 import { supabase } from "@/lib/supabase"
 import { useUser } from "@/components/auth/user-provider"
 
+// Define proper types for user data
+interface UserProfile {
+  id: string
+  full_name?: string | null
+  role?: string | null
+  created_at?: string | null
+  is_active?: boolean
+}
+
+// Form data type
+interface UserFormData {
+  email: string
+  full_name: string
+  password: string
+  confirmPassword: string
+  role: string
+  is_active: boolean
+}
+
 export default function UsersPage() {
-  const [users, setUsers] = useState<any[]>([])
+  const [users, setUsers] = useState<UserProfile[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [isLoading, setIsLoading] = useState(true)
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [showEditDialog, setShowEditDialog] = useState(false)
-  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null)
   const [roleFilter, setRoleFilter] = useState("all")
   const { toast } = useToast()
   const { user: currentAuthUser } = useUser()
 
   // Form state
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<UserFormData>({
     email: "",
     full_name: "",
     password: "",
@@ -46,11 +65,8 @@ export default function UsersPage() {
     is_active: true,
   })
 
-  useEffect(() => {
-    fetchUsers()
-  }, [])
-
-  const fetchUsers = async () => {
+  // Use useCallback to define fetchUsers to avoid dependency issues
+  const fetchUsers = useCallback(async () => {
     setIsLoading(true)
     try {
       // Fetch profiles from the database
@@ -69,7 +85,11 @@ export default function UsersPage() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [toast])
+
+  useEffect(() => {
+    fetchUsers()
+  }, [fetchUsers])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
@@ -158,17 +178,18 @@ export default function UsersPage() {
         is_active: true,
       })
       fetchUsers()
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error adding user:", error)
+      const errorMessage = error instanceof Error ? error.message : "Failed to add user. Please try again."
       toast({
         title: "Error",
-        description: error.message || "Failed to add user. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       })
     }
   }
 
-  const handleEditUser = (user: any) => {
+  const handleEditUser = (user: UserProfile) => {
     setCurrentUser(user)
     setFormData({
       email: "", // We don't have email in the profiles table
@@ -176,7 +197,7 @@ export default function UsersPage() {
       password: "",
       confirmPassword: "",
       role: user.role || "cashier",
-      is_active: true, // Assuming all users in the list are active
+      is_active: user.is_active || true, // Assuming all users in the list are active
     })
     setShowEditDialog(true)
   }
@@ -191,6 +212,8 @@ export default function UsersPage() {
         })
         return
       }
+
+      if (!currentUser) return
 
       const { error } = await supabase
         .from("profiles")
@@ -209,11 +232,12 @@ export default function UsersPage() {
 
       setShowEditDialog(false)
       fetchUsers()
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error updating user:", error)
+      const errorMessage = error instanceof Error ? error.message : "Failed to update user. Please try again."
       toast({
         title: "Error",
-        description: error.message || "Failed to update user. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       })
     }
@@ -243,11 +267,12 @@ export default function UsersPage() {
         })
 
         fetchUsers()
-      } catch (error: any) {
+      } catch (error) {
         console.error("Error deleting user:", error)
+        const errorMessage = error instanceof Error ? error.message : "Failed to delete user. Please try again."
         toast({
           title: "Error",
-          description: error.message || "Failed to delete user. Please try again.",
+          description: errorMessage,
           variant: "destructive",
         })
       }
@@ -330,7 +355,7 @@ export default function UsersPage() {
                           <Avatar>
                             <AvatarImage
                               src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user.full_name || "User")}&background=random`}
-                              alt={user.full_name}
+                              alt={user.full_name || undefined}
                             />
                             <AvatarFallback>
                               {user.full_name

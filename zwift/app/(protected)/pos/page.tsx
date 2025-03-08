@@ -1,775 +1,807 @@
 "use client"
 
-import { Label } from "@/components/ui/label"
-
 import type React from "react"
 
-import { useState, useEffect, useRef } from "react"
-import { AlertTriangle, Barcode, Plus, Search, ShoppingCart, Trash2, X, Printer, Save } from "lucide-react"
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
+import { useToast } from "@/components/ui/use-toast"
+import { Switch } from "@/components/ui/switch"
+import {
+  Loader2,
+  Search,
+  ShoppingCart,
+  Plus,
+  Minus,
+  Trash2,
+  CreditCard,
+  Banknote,
+  CheckCircle2,
+  AlertTriangle,
+  Save,
+  Barcode,
+} from "lucide-react"
+import Image from "next/image"
+import type { Database } from "@/types/supabase"
+import { createSale, getLowStockProducts } from "@/lib/supabase"
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useToast } from "@/components/ui/use-toast"
-import { useUser } from "@/components/auth/user-provider"
-import { getProducts, getLowStockProducts, createSale, getSale, updateSale } from "@/lib/supabase"
-import Image from "next/image"
-import { useRouter, useSearchParams } from "next/navigation"
+import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
 
-type CartItem = {
+// Define types
+type Product = {
   id: string
   name: string
   price: number
-  quantity: number
+  barcode: string
+  stock: number
+  min_stock: number
+  category_id?: string | null
   image?: string | null
-  stock?: number
+  purchase_price?: number | null
 }
 
-export default function POS() {
+type CartItem = {
+  id: string
+  product: Product
+  quantity: number
+  price: number
+}
+
+type Settings = {
+  id: string
+  tax_rate: number
+  store_name: string
+  currency: string
+}
+
+const POSPage = () => {
+  const [products, setProducts] = useState<Product[]>([])
+  const [filteredProducts, setFilteredProducts] = useState<Product[]>([])
+  const [lowStockProducts, setLowStockProducts] = useState<Product[]>([])
+  const [editedStockLevels, setEditedStockLevels] = useState<Record<string, number>>({})
   const [searchTerm, setSearchTerm] = useState("")
   const [cart, setCart] = useState<CartItem[]>([])
-  const [lowStockProducts, setLowStockProducts] = useState<any[]>([])
-  const [showLowStockDialog, setShowLowStockDialog] = useState(false)
-  const [paymentMethod, setPaymentMethod] = useState("cash")
-  const [filteredProducts, setFilteredProducts] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false)
-  const [showReceiptDialog, setShowReceiptDialog] = useState(false)
-  const [lastSaleId, setLastSaleId] = useState<string | null>(null)
-  const [isEditing, setIsEditing] = useState(false)
-  const [editingSaleId, setEditingSaleId] = useState<string | null>(null)
-  const [receiptData, setReceiptData] = useState<any>(null)
-
-  const barcodeInputRef = useRef<HTMLInputElement>(null)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [isSavingStock, setIsSavingStock] = useState(false)
+  const [paymentMethod, setPaymentMethod] = useState<string>("cash") // Default to cash
+  const [showLowStockDialog, setShowLowStockDialog] = useState(false)
+  const [autoAddOnBarcode, setAutoAddOnBarcode] = useState(true) // Auto-add feature enabled by default
+  const [settings, setSettings] = useState<Settings>({
+    id: "1",
+    tax_rate: 0,
+    store_name: "My Store",
+    currency: "USD",
+  })
+  const [lastAddedProduct, setLastAddedProduct] = useState<Product | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null) // Ref for search input to focus after adding
   const { toast } = useToast()
-  const { user } = useUser()
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const editSaleId = searchParams.get("edit")
+  const supabase = createClientComponentClient<Database>()
 
-  // Calculate cart totals
-  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
-  const tax = subtotal * 0.07 // 7% tax
-  const total = subtotal + tax
+  // Track the last notification to prevent duplicates
+  const lastNotificationRef = useRef<{ productId: string; timestamp: number }>({ productId: "", timestamp: 0 })
 
+  // Play beep sound when a product is added via barcode
   useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true)
+    if (lastAddedProduct && autoAddOnBarcode) {
       try {
-        // Fetch products
-        const productsData = await getProducts(searchTerm)
-        setFilteredProducts(productsData)
+        const AudioContextClass =
+          window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+        const audioContext = new AudioContextClass()
+        const oscillator = audioContext.createOscillator()
+        const gainNode = audioContext.createGain()
 
-        // Fetch low stock products
-        const lowStockData = await getLowStockProducts()
-        setLowStockProducts(lowStockData)
-      } catch (error) {
-        console.error("Error fetching data:", error)
-        toast({
-          title: "Error",
-          description: "Failed to fetch products. Please try again.",
-          variant: "destructive",
-        })
-      } finally {
-        setIsLoading(false)
+        oscillator.type = "sine"
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime)
+
+        gainNode.gain.setValueAtTime(0.5, audioContext.currentTime)
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3)
+
+        oscillator.connect(gainNode)
+        gainNode.connect(audioContext.destination)
+
+        oscillator.start()
+        oscillator.stop(audioContext.currentTime + 0.3)
+      } catch (e) {
+        console.error("Audio play failed:", e)
       }
+
+      // Reset the last added product
+      setLastAddedProduct(null)
     }
+  }, [lastAddedProduct, autoAddOnBarcode])
 
-    fetchData()
-  }, [searchTerm, toast])
-
-  // Check if we're editing an existing sale
-  useEffect(() => {
-    if (editSaleId) {
-      loadSaleForEditing(editSaleId)
-    }
-  }, [editSaleId])
-
-  const loadSaleForEditing = async (saleId: string) => {
+  // Fetch products and settings
+  const fetchData = useCallback(async () => {
+    setIsLoading(true)
     try {
-      setIsLoading(true)
-      setIsEditing(true)
-      setEditingSaleId(saleId)
+      // Fetch products
+      const { data: productsData, error: productsError } = await supabase.from("products").select("*").order("name")
 
-      // Fetch the sale and its items
-      const { sale, items } = await getSale(saleId)
+      if (productsError) throw productsError
 
-      if (!sale || !items) {
-        throw new Error("Sale not found")
-      }
+      // Fetch settings - handle this differently since the table might not exist
+      try {
+        const { data: settingsData, error: settingsError } = await supabase.from("settings").select("*").single()
 
-      // Set payment method
-      setPaymentMethod(sale.payment_method || "cash")
-
-      // Convert sale items to cart items
-      const cartItems: CartItem[] = []
-
-      for (const item of items) {
-        // Fetch product details for each item
-        const productData =
-          filteredProducts.find((p) => p.id === item.product_id) || (await getProducts("", item.product_id))
-
-        if (productData) {
-          cartItems.push({
-            id: item.product_id,
-            name: productData.name || "Unknown Product",
-            price: item.price,
-            quantity: item.quantity,
-            image: productData.image,
-            stock: productData.stock,
+        if (!settingsError && settingsData) {
+          setSettings({
+            id: settingsData.id,
+            tax_rate: settingsData.tax_rate || 0,
+            store_name: settingsData.store_name || "My Store",
+            currency: settingsData.currency || "USD",
           })
         }
+      } catch (settingsError) {
+        console.error("Error fetching settings:", settingsError)
+        // Keep using default settings
       }
 
-      setCart(cartItems)
+      // Set products state with proper typing
+      if (productsData) {
+        setProducts(productsData as Product[])
+        setFilteredProducts(productsData as Product[])
+      }
 
-      toast({
-        title: "Sale Loaded",
-        description: "You are now editing an existing sale.",
+      // Fetch low stock products
+      const lowStock = await getLowStockProducts()
+      setLowStockProducts(lowStock as Product[])
+
+      // Initialize edited stock levels
+      const initialStockLevels: Record<string, number> = {}
+      lowStock.forEach((product: Product) => {
+        initialStockLevels[product.id] = product.stock
       })
+      setEditedStockLevels(initialStockLevels)
     } catch (error) {
-      console.error("Error loading sale:", error)
+      console.error("Error fetching data:", error)
       toast({
         title: "Error",
-        description: "Failed to load sale for editing.",
+        description: "Failed to load products",
         variant: "destructive",
       })
     } finally {
       setIsLoading(false)
     }
+  }, [supabase, toast])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  // Filter products based on search term
+  useEffect(() => {
+    if (searchTerm.trim() === "") {
+      setFilteredProducts(products)
+    } else {
+      const term = searchTerm.toLowerCase()
+      const filtered = products.filter(
+        (product) => product.name.toLowerCase().includes(term) || product.barcode.toLowerCase().includes(term),
+      )
+      setFilteredProducts(filtered)
+    }
+  }, [searchTerm, products])
+
+  // Handle search input change with barcode auto-add functionality
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    setSearchTerm(value)
+
+    // If auto-add is enabled, check for exact barcode match
+    if (autoAddOnBarcode && value.trim() !== "") {
+      const exactBarcodeMatch = products.find((product) => product.barcode.toLowerCase() === value.toLowerCase())
+
+      if (exactBarcodeMatch) {
+        // Add product to cart with notification
+        addToCart(exactBarcodeMatch, true)
+
+        // Set last added product for beep sound
+        setLastAddedProduct(exactBarcodeMatch)
+
+        // Clear search field
+        setSearchTerm("")
+        // Focus the search input again for the next scan
+        if (searchInputRef.current) {
+          searchInputRef.current.focus()
+        }
+      }
+    }
+  }
+
+  // Handle search input keydown for Enter key
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && autoAddOnBarcode && searchTerm.trim() !== "") {
+      const exactBarcodeMatch = products.find((product) => product.barcode.toLowerCase() === searchTerm.toLowerCase())
+
+      if (exactBarcodeMatch) {
+        // Add product to cart with notification
+        addToCart(exactBarcodeMatch, true)
+
+        // Set last added product for beep sound
+        setLastAddedProduct(exactBarcodeMatch)
+
+        // Clear search field
+        setSearchTerm("")
+        // Prevent form submission
+        e.preventDefault()
+      }
+    }
   }
 
   // Add product to cart
-  const addToCart = (product: any) => {
-    setCart((prevCart) => {
-      const existingItem = prevCart.find((item) => item.id === product.id)
+  const addToCart = (product: Product, showNotification = true): boolean => {
+    if (product.stock <= 0) {
+      toast({
+        title: "Out of stock",
+        description: `${product.name} is out of stock.`,
+        variant: "destructive",
+      })
+      return false
+    }
 
-      if (existingItem) {
-        return prevCart.map((item) => (item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item))
-      } else {
-        return [
-          ...prevCart,
-          {
-            id: product.id,
-            name: product.name,
-            price: product.price,
-            quantity: 1,
-            image: product.image,
-            stock: product.stock,
-          },
-        ]
+    let wasAdded = false
+    const now = Date.now()
+
+    // Check if we should show a notification (debounce)
+    const shouldShowNotification =
+      showNotification &&
+      (lastNotificationRef.current.productId !== product.id || now - lastNotificationRef.current.timestamp > 500)
+
+    // Find if the product already exists in the cart before updating state
+    const existingItem = cart.find((item) => item.product.id === product.id)
+
+    if (existingItem) {
+      // Check if we have enough stock
+      if (existingItem.quantity >= product.stock) {
+        toast({
+          title: "Stock limit reached",
+          description: `Only ${product.stock} units of ${product.name} available.`,
+          variant: "destructive",
+        })
+        return false
       }
-    })
+
+      // Show notification for adding another unit
+      if (shouldShowNotification) {
+        toast({
+          title: "Product updated",
+          description: `Added another ${product.name} to cart (${existingItem.quantity + 1})`,
+        })
+
+        // Update the last notification reference
+        lastNotificationRef.current = {
+          productId: product.id,
+          timestamp: now,
+        }
+      }
+
+      // Update cart with increased quantity
+      setCart((prevCart) =>
+        prevCart.map((item) => (item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item)),
+      )
+
+      wasAdded = true
+    } else {
+      // Show notification for adding new product
+      if (shouldShowNotification) {
+        toast({
+          title: "Product added",
+          description: `${product.name} has been added to cart`,
+        })
+
+        // Update the last notification reference
+        lastNotificationRef.current = {
+          productId: product.id,
+          timestamp: now,
+        }
+      }
+
+      // Add new product to cart
+      setCart((prevCart) => [
+        ...prevCart,
+        {
+          id: product.id,
+          product,
+          quantity: 1,
+          price: product.price,
+        },
+      ])
+
+      wasAdded = true
+    }
+
+    return wasAdded
   }
 
   // Remove item from cart
-  const removeFromCart = (id: string) => {
-    setCart((prevCart) => prevCart.filter((item) => item.id !== id))
+  const removeFromCart = (itemId: string) => {
+    // Find the item before removing it to show in notification
+    const itemToRemove = cart.find((item) => item.id === itemId)
+
+    setCart((prevCart) => prevCart.filter((item) => item.id !== itemId))
+
+    // Show notification for removing product
+    if (itemToRemove) {
+      toast({
+        title: "Product removed",
+        description: `${itemToRemove.product.name} has been removed from cart`,
+      })
+    }
   }
 
   // Update item quantity
-  const updateQuantity = (id: string, quantity: number) => {
-    if (quantity < 1) return
+  const updateQuantity = (itemId: string, newQuantity: number) => {
+    if (newQuantity < 1) return
 
-    setCart((prevCart) => prevCart.map((item) => (item.id === id ? { ...item, quantity } : item)))
+    setCart((prevCart) =>
+      prevCart.map((item) => {
+        if (item.id === itemId) {
+          // Check stock limit
+          if (newQuantity > item.product.stock) {
+            toast({
+              title: "Stock limit reached",
+              description: `Only ${item.product.stock} units of ${item.product.name} available.`,
+              variant: "destructive",
+            })
+            return item
+          }
+
+          // Show notification for quantity update
+          toast({
+            title: "Quantity updated",
+            description: `${item.product.name} quantity changed to ${newQuantity}`,
+          })
+
+          return { ...item, quantity: newQuantity }
+        }
+        return item
+      }),
+    )
   }
 
-  // Clear cart
-  const clearCart = () => {
-    setCart([])
+  // Handle stock level change
+  const handleStockChange = (productId: string, value: string) => {
+    const newStock = Number.parseInt(value, 10)
+    if (!isNaN(newStock) && newStock >= 0) {
+      setEditedStockLevels((prev) => ({
+        ...prev,
+        [productId]: newStock,
+      }))
+    }
   }
 
-  // Handle barcode scanning
-  const handleBarcodeScanner = () => {
-    setShowBarcodeScanner(true)
-    setTimeout(() => {
-      if (barcodeInputRef.current) {
-        barcodeInputRef.current.focus()
-      }
-    }, 100)
-  }
-
-  const handleBarcodeSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!searchTerm) return
-
-    // Find product by barcode
-    const product = filteredProducts.find((p) => p.barcode === searchTerm)
-
-    if (product) {
-      addToCart(product)
-      setSearchTerm("")
-      toast({
-        title: "Product Added",
-        description: `${product.name} added to cart.`,
+  // Save updated stock levels
+  const saveStockLevels = async () => {
+    setIsSavingStock(true)
+    try {
+      // Create an array of updates to perform
+      const updates = Object.entries(editedStockLevels).map(([productId, stock]) => {
+        return supabase.from("products").update({ stock }).eq("id", productId)
       })
-    } else {
+
+      // Execute all updates
+      await Promise.all(updates)
+
       toast({
-        title: "Product Not Found",
-        description: "No product found with that barcode.",
+        title: "Stock updated",
+        description: "Product stock levels have been updated successfully.",
+      })
+
+      // Refresh data
+      await fetchData()
+
+      // Close dialog
+      setShowLowStockDialog(false)
+    } catch (error) {
+      console.error("Error updating stock levels:", error)
+      toast({
+        title: "Error",
+        description: "Failed to update stock levels",
         variant: "destructive",
       })
+    } finally {
+      setIsSavingStock(false)
     }
+  }
 
-    setShowBarcodeScanner(false)
+  // Calculate subtotal
+  const calculateSubtotal = () => {
+    return cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
+  }
+
+  // Calculate tax
+  const calculateTax = () => {
+    return calculateSubtotal() * (settings.tax_rate / 100)
+  }
+
+  // Calculate total
+  const calculateTotal = () => {
+    return calculateSubtotal() + calculateTax()
+  }
+
+  // Select payment method
+  const selectPaymentMethod = (method: string) => {
+    setPaymentMethod(method)
   }
 
   // Process payment
-  const processPayment = async () => {
-    if (cart.length === 0) {
+  const completeSale = async () => {
+    if (!paymentMethod) {
       toast({
-        title: "Cart is empty",
-        description: "Please add products to your cart before completing the sale.",
+        title: "Payment method required",
+        description: "Please select a payment method first.",
         variant: "destructive",
       })
       return
     }
 
+    if (cart.length === 0) {
+      toast({
+        title: "Empty cart",
+        description: "Please add items to the cart before checkout.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsProcessing(true)
+
     try {
       // Create sale object
       const sale = {
-        total: total,
-        tax: tax,
+        total: calculateTotal(),
+        tax: calculateTax(),
         payment_method: paymentMethod,
-        user_id: user?.id,
       }
 
       // Create sale items
       const saleItems = cart.map((item) => ({
-        product_id: item.id,
+        product_id: item.product.id,
         quantity: item.quantity,
         price: item.price,
       }))
 
-      let result
+      // Call createSale function to save the sale to the database
+      const { error } = await createSale(sale, saleItems)
 
-      if (isEditing && editingSaleId) {
-        // Update existing sale
-        result = await updateSale(editingSaleId, sale, saleItems)
-        toast({
-          title: "Sale Updated",
-          description: `Total: $${total.toFixed(2)}`,
-        })
-      } else {
-        // Process new sale
-        result = await createSale(sale, saleItems)
-        toast({
-          title: "Sale Completed",
-          description: `Total: $${total.toFixed(2)}`,
-        })
+      if (error) {
+        throw error
       }
 
-      if (result.error) {
-        throw result.error
-      }
-
-      // Store the sale ID for receipt generation
-      setLastSaleId(result.data?.id || null)
-
-      // Show receipt dialog
-      setReceiptData({
-        saleId: result.data?.id,
-        date: new Date().toLocaleString(),
-        items: cart,
-        subtotal,
-        tax,
-        total,
-        paymentMethod,
+      toast({
+        title: "Sale completed",
+        description: `Total: $${calculateTotal().toFixed(2)}`,
       })
-      setShowReceiptDialog(true)
 
-      // Reset editing state
-      setIsEditing(false)
-      setEditingSaleId(null)
+      // Clear cart and reset payment method to cash (default)
+      setCart([])
+      setPaymentMethod("cash")
 
-      // Clear cart
-      clearCart()
+      // Refresh products to update stock levels
+      fetchData()
     } catch (error) {
-      console.error("Error processing sale:", error)
+      console.error("Error processing payment:", error)
       toast({
         title: "Error",
-        description: "Failed to process sale. Please try again.",
+        description: "Failed to process payment",
         variant: "destructive",
       })
-    }
-  }
-
-  // Print receipt
-  const printReceipt = () => {
-    const receiptWindow = window.open("", "_blank", "width=400,height=600")
-
-    if (receiptWindow) {
-      receiptWindow.document.write(`
-        <html>
-          <head>
-            <title>Receipt</title>
-            <style>
-              body { font-family: monospace; margin: 20px; }
-              .header { text-align: center; margin-bottom: 20px; }
-              .item { display: flex; justify-content: space-between; margin-bottom: 5px; }
-              .total { margin-top: 10px; border-top: 1px solid #000; padding-top: 10px; font-weight: bold; }
-              .footer { margin-top: 30px; text-align: center; font-size: 12px; }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <h2>RECEIPT</h2>
-              <p>Sale ID: ${receiptData.saleId || "N/A"}</p>
-              <p>${receiptData.date}</p>
-            </div>
-            
-            <div class="items">
-              ${receiptData.items
-                .map(
-                  (item: CartItem) => `
-                <div class="item">
-                  <span>${item.quantity} x ${item.name}</span>
-                  <span>$${(item.price * item.quantity).toFixed(2)}</span>
-                </div>
-              `,
-                )
-                .join("")}
-            </div>
-            
-            <div class="total">
-              <div class="item">
-                <span>Subtotal:</span>
-                <span>$${receiptData.subtotal.toFixed(2)}</span>
-              </div>
-              <div class="item">
-                <span>Tax (7%):</span>
-                <span>$${receiptData.tax.toFixed(2)}</span>
-              </div>
-              <div class="item">
-                <span>Total:</span>
-                <span>$${receiptData.total.toFixed(2)}</span>
-              </div>
-              <div class="item">
-                <span>Payment Method:</span>
-                <span>${receiptData.paymentMethod.toUpperCase()}</span>
-              </div>
-            </div>
-            
-            <div class="footer">
-              <p>Thank you for your purchase!</p>
-            </div>
-          </body>
-        </html>
-      `)
-
-      receiptWindow.document.close()
-      receiptWindow.focus()
-      receiptWindow.print()
+    } finally {
+      setIsProcessing(false)
     }
   }
 
   return (
-    <div className="flex flex-col">
-      <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-3xl font-bold tracking-tight">{isEditing ? "Edit Sale" : "Point of Sale"}</h2>
-          {isEditing && (
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsEditing(false)
-                setEditingSaleId(null)
-                clearCart()
-                router.push("/pos")
-              }}
-            >
-              Cancel Editing
-            </Button>
-          )}
-        </div>
-
-        {lowStockProducts.length > 0 && (
-          <Alert variant="destructive" className="border-destructive">
-            <AlertTriangle className="h-4 w-4" />
-            <div className="flex items-center justify-between w-full">
-              <div>
-                <AlertTitle>Low Stock Alert</AlertTitle>
-                <AlertDescription>{lowStockProducts.length} products are below minimum stock levels.</AlertDescription>
+    <div className="flex flex-col h-[calc(100vh-4rem)] gap-4 p-4">
+      {/* Low stock alert banner */}
+      {lowStockProducts.length > 0 && (
+        <Dialog open={showLowStockDialog} onOpenChange={setShowLowStockDialog}>
+          <DialogTrigger asChild>
+            <div className="flex items-center justify-between p-3 mb-2 border border-red-500 bg-red-50 dark:bg-red-950/20 rounded-md cursor-pointer">
+              <div className="flex items-center">
+                <AlertTriangle className="h-5 w-5 text-red-500 mr-2" />
+                <span className="font-medium text-red-700 dark:text-red-400">Low Stock Alert</span>
               </div>
-              <Button variant="destructive" onClick={() => setShowLowStockDialog(true)}>
-                View{" "}
-                <Badge variant="outline" className="ml-2 bg-white text-destructive">
-                  {lowStockProducts.length}
-                </Badge>
-              </Button>
+              <Badge variant="destructive">{lowStockProducts.length}</Badge>
             </div>
-          </Alert>
-        )}
-
-        <div className="grid gap-4 md:grid-cols-12">
-          {/* Product Search and List */}
-          <Card className="md:col-span-8">
-            <CardHeader className="space-y-0 pb-2">
-              <CardTitle>Products</CardTitle>
-              <div className="flex items-center gap-2 mt-2">
-                <div className="relative flex-1">
-                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    type="search"
-                    placeholder="Search products by name or scan barcode..."
-                    className="pl-8"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                </div>
-                <Button variant="outline" className="gap-1" onClick={handleBarcodeScanner}>
-                  <Barcode className="h-4 w-4" />
-                  Scan
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="p-4">
-              {isLoading ? (
-                <div className="flex justify-center items-center h-64">
-                  <p>Loading products...</p>
-                </div>
-              ) : filteredProducts.length === 0 ? (
-                <div className="flex justify-center items-center h-64">
-                  <p>No products found. Try a different search term.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {filteredProducts.map((product) => (
-                    <Card key={product.id} className="overflow-hidden">
-                      <CardContent className="p-0">
-                        <div className="relative aspect-square">
-                          <Image
-                            src={product.image || "/placeholder.svg?height=80&width=80"}
-                            alt={product.name}
-                            fill
-                            className="object-cover"
-                          />
-                          {product.stock < product.min_stock && (
-                            <Badge variant="destructive" className="absolute top-2 right-2">
-                              Low Stock: {product.stock}
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="p-3">
-                          <h3 className="font-medium truncate">{product.name}</h3>
-                          <div className="flex items-center justify-between mt-1">
-                            <p className="text-sm font-bold">${product.price.toFixed(2)}</p>
-                            <Button size="sm" onClick={() => addToCart(product)}>
-                              <Plus className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Shopping Cart */}
-          <Card className="md:col-span-4">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <ShoppingCart className="h-5 w-5" />
-                  {isEditing ? "Edit Sale" : "Cart"}
-                </CardTitle>
-                {cart.length > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={clearCart}
-                    className="h-8 text-destructive hover:text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4 mr-1" />
-                    Clear
-                  </Button>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              {cart.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
-                  <ShoppingCart className="h-12 w-12 text-muted-foreground mb-2" />
-                  <p className="text-muted-foreground">Your cart is empty</p>
-                  <p className="text-xs text-muted-foreground mt-1">Add products by clicking on them</p>
-                </div>
-              ) : (
-                <div className="max-h-[calc(100vh-26rem)] overflow-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Item</TableHead>
-                        <TableHead className="text-right">Qty</TableHead>
-                        <TableHead className="text-right">Price</TableHead>
-                        <TableHead className="w-[50px]"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {cart.map((item) => (
-                        <TableRow key={item.id}>
-                          <TableCell className="font-medium">{item.name}</TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end">
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                className="h-6 w-6 rounded-full"
-                                onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                              >
-                                -
-                              </Button>
-                              <span className="w-8 text-center">{item.quantity}</span>
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                className="h-6 w-6 rounded-full"
-                                onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                              >
-                                +
-                              </Button>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right">${(item.price * item.quantity).toFixed(2)}</TableCell>
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => removeFromCart(item.id)}
-                              className="h-6 w-6 text-destructive hover:text-destructive"
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </CardContent>
-            {cart.length > 0 && (
-              <CardFooter className="flex flex-col p-4">
-                <div className="w-full space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Subtotal</span>
-                    <span>${subtotal.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Tax (7%)</span>
-                    <span>${tax.toFixed(2)}</span>
-                  </div>
-                  <Separator />
-                  <div className="flex justify-between font-bold">
-                    <span>Total</span>
-                    <span>${total.toFixed(2)}</span>
-                  </div>
-
-                  <div className="pt-4 space-y-2">
-                    <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Payment Method" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="cash">Cash</SelectItem>
-                        <SelectItem value="credit">Credit Card</SelectItem>
-                        <SelectItem value="debit">Debit Card</SelectItem>
-                        <SelectItem value="mobile">Mobile Payment</SelectItem>
-                      </SelectContent>
-                    </Select>
-
-                    <Button className="w-full" onClick={processPayment}>
-                      {isEditing ? (
-                        <>
-                          <Save className="mr-2 h-4 w-4" />
-                          Update Sale
-                        </>
-                      ) : (
-                        <>Complete Sale</>
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              </CardFooter>
-            )}
-          </Card>
-        </div>
-      </div>
-
-      {/* Barcode Scanner Dialog */}
-      <Dialog open={showBarcodeScanner} onOpenChange={setShowBarcodeScanner}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Scan Barcode</DialogTitle>
-            <DialogDescription>Scan a product barcode or enter it manually.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleBarcodeSubmit}>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="barcode">Barcode</Label>
-                <Input
-                  id="barcode"
-                  ref={barcodeInputRef}
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Scan or enter barcode"
-                  className="text-center text-xl"
-                  autoComplete="off"
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button type="submit">Add to Cart</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Low Stock Dialog */}
-      <Dialog open={showLowStockDialog} onOpenChange={setShowLowStockDialog}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Low Stock Products</DialogTitle>
-            <DialogDescription>
-              These products are below their minimum stock threshold and need to be restocked.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="max-h-[60vh] overflow-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Current Stock</TableHead>
-                  <TableHead>Min Stock</TableHead>
-                  <TableHead>Action</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Low Stock Products</DialogTitle>
+              <DialogDescription>Adjust stock levels directly or add products to cart.</DialogDescription>
+            </DialogHeader>
+            <div className="max-h-[60vh] overflow-auto">
+              <div className="space-y-3 mt-4">
                 {lowStockProducts.map((product) => (
-                  <TableRow key={product.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <Image
-                          src={product.image || "/placeholder.svg?height=40&width=40"}
-                          alt={product.name}
-                          width={40}
-                          height={40}
-                          className="rounded-md"
-                        />
-                        <div>
-                          <p className="font-medium">{product.name}</p>
-                          <p className="text-xs text-muted-foreground">${product.price.toFixed(2)}</p>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-destructive font-medium">{product.stock}</TableCell>
-                    <TableCell>{product.min_stock}</TableCell>
-                    <TableCell>
+                  <div key={product.id} className="p-3 border rounded-md">
+                    <div className="flex justify-between items-center mb-2">
+                      <p className="font-medium">{product.name}</p>
                       <Button
                         size="sm"
+                        variant="outline"
                         onClick={() => {
                           addToCart(product)
                           setShowLowStockDialog(false)
                         }}
                       >
+                        <ShoppingCart className="h-4 w-4 mr-1" />
                         Add to Cart
                       </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowLowStockDialog(false)}>
-              Close
-            </Button>
-            <Button asChild>
-              <a href="/inventory">Manage Inventory</a>
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Receipt Dialog */}
-      <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Receipt</DialogTitle>
-            <DialogDescription>Sale completed successfully.</DialogDescription>
-          </DialogHeader>
-          {receiptData && (
-            <div className="space-y-4">
-              <div className="border rounded-md p-4 bg-muted/20">
-                <div className="text-center mb-4">
-                  <h3 className="font-bold">RECEIPT</h3>
-                  <p className="text-sm text-muted-foreground">Sale ID: {receiptData.saleId || "N/A"}</p>
-                  <p className="text-sm text-muted-foreground">{receiptData.date}</p>
-                </div>
-
-                <div className="space-y-2">
-                  {receiptData.items.map((item: CartItem, index: number) => (
-                    <div key={index} className="flex justify-between text-sm">
-                      <span>
-                        {item.quantity} x {item.name}
-                      </span>
-                      <span>${(item.price * item.quantity).toFixed(2)}</span>
                     </div>
-                  ))}
-                </div>
-
-                <Separator className="my-2" />
-
-                <div className="space-y-1">
-                  <div className="flex justify-between text-sm">
-                    <span>Subtotal:</span>
-                    <span>${receiptData.subtotal.toFixed(2)}</span>
+                    <div className="flex items-end gap-4">
+                      <div className="flex-1">
+                        <Label htmlFor={`stock-${product.id}`} className="text-sm">
+                          Current Stock
+                        </Label>
+                        <div className="flex items-center mt-1">
+                          <Input
+                            id={`stock-${product.id}`}
+                            type="number"
+                            min="0"
+                            value={editedStockLevels[product.id] || 0}
+                            onChange={(e) => handleStockChange(product.id, e.target.value)}
+                            className="w-full"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Min Stock</p>
+                        <Badge variant="outline">{product.min_stock}</Badge>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Tax (7%):</span>
-                    <span>${receiptData.tax.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between font-bold">
-                    <span>Total:</span>
-                    <span>${receiptData.total.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Payment Method:</span>
-                    <span className="capitalize">{receiptData.paymentMethod}</span>
-                  </div>
-                </div>
-
-                <div className="text-center mt-4 text-sm text-muted-foreground">
-                  <p>Thank you for your purchase!</p>
-                </div>
+                ))}
               </div>
             </div>
+            <div className="flex justify-end mt-4">
+              <Button onClick={saveStockLevels} disabled={isSavingStock}>
+                {isSavingStock ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="mr-2 h-4 w-4" />
+                    Save Stock Levels
+                  </>
+                )}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      <div className="flex flex-col lg:flex-row h-full gap-4">
+        {/* Products section */}
+        <div className="lg:w-2/3 overflow-auto">
+          <div className="mb-4 sticky top-0 z-10 bg-background pt-2 pb-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+              <Input
+                ref={searchInputRef}
+                placeholder="Search products by name or barcode..."
+                value={searchTerm}
+                onChange={handleSearch}
+                onKeyDown={handleSearchKeyDown}
+                className="pl-10"
+                autoComplete="off"
+              />
+            </div>
+            <div className="flex items-center justify-end mt-2">
+              <div className="flex items-center space-x-2">
+                <Switch id="barcode-mode" checked={autoAddOnBarcode} onCheckedChange={setAutoAddOnBarcode} />
+                <Label htmlFor="barcode-mode" className="text-sm flex items-center cursor-pointer">
+                  <Barcode className="h-4 w-4 mr-1" />
+                  Auto-add on exact barcode match
+                </Label>
+              </div>
+            </div>
+          </div>
+
+          {isLoading ? (
+            <div className="flex justify-center items-center h-64">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : filteredProducts.length === 0 ? (
+            <div className="text-center py-10">
+              <p className="text-muted-foreground">No products found</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {filteredProducts.map((product) => (
+                <Card
+                  key={product.id}
+                  className="cursor-pointer hover:shadow-md transition-shadow"
+                  onClick={() => addToCart(product)}
+                >
+                  <CardContent className="p-4">
+                    <div className="aspect-square relative mb-2 bg-muted rounded-md overflow-hidden">
+                      {product.image ? (
+                        <Image
+                          src={product.image || "/placeholder.svg"}
+                          alt={product.name}
+                          fill
+                          className="object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-muted">
+                          <ShoppingCart className="h-12 w-12 text-muted-foreground" />
+                        </div>
+                      )}
+                      {product.stock <= 0 && (
+                        <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
+                          <p className="text-destructive font-semibold">Out of Stock</p>
+                        </div>
+                      )}
+                    </div>
+                    <h3 className="font-medium line-clamp-1">{product.name}</h3>
+                    <div className="flex justify-between items-center mt-1">
+                      <p className="font-bold">${product.price.toFixed(2)}</p>
+                      <p className="text-sm text-muted-foreground">Stock: {product.stock}</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1 truncate">Barcode: {product.barcode}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowReceiptDialog(false)}>
-              Close
-            </Button>
-            <Button onClick={printReceipt}>
-              <Printer className="mr-2 h-4 w-4" />
-              Print Receipt
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+
+        {/* Cart section */}
+        <div className="lg:w-1/3 flex flex-col border rounded-lg overflow-hidden h-full">
+          <CardHeader className="bg-muted py-3">
+            <CardTitle className="flex justify-between items-center text-lg">
+              <span>Shopping Cart</span>
+              <span>{cart.length} items</span>
+            </CardTitle>
+          </CardHeader>
+
+          <div className="flex-1 overflow-auto p-4">
+            {cart.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-64 text-center">
+                <ShoppingCart className="h-12 w-12 text-muted-foreground mb-2" />
+                <p className="text-muted-foreground">Your cart is empty</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {cart.map((item) => (
+                  <div key={item.id} className="flex items-center gap-3 border-b pb-3">
+                    <div className="h-16 w-16 relative bg-muted rounded overflow-hidden flex-shrink-0">
+                      {item.product.image ? (
+                        <Image
+                          src={item.product.image || "/placeholder.svg"}
+                          alt={item.product.name}
+                          fill
+                          className="object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <ShoppingCart className="h-6 w-6 text-muted-foreground" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-medium text-sm line-clamp-1">{item.product.name}</h4>
+                      <p className="text-sm text-muted-foreground">${item.price.toFixed(2)} each</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            updateQuantity(item.id, item.quantity - 1)
+                          }}
+                        >
+                          <Minus className="h-3 w-3" />
+                        </Button>
+                        <span className="text-sm w-6 text-center">{item.quantity}</span>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            updateQuantity(item.id, item.quantity + 1)
+                          }}
+                        >
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-medium">${(item.price * item.quantity).toFixed(2)}</p>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          removeFromCart(item.id)
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <CardFooter className="flex-col border-t p-4">
+            <div className="w-full space-y-2 mb-4">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Subtotal</span>
+                <span>${calculateSubtotal().toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Tax ({settings.tax_rate}%)</span>
+                <span>${calculateTax().toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between font-bold text-lg">
+                <span>Total</span>
+                <span>${calculateTotal().toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div className="w-full space-y-4">
+              <div className="grid grid-cols-2 gap-2 w-full">
+                <Button
+                  variant={paymentMethod === "cash" ? "default" : "outline"}
+                  className="w-full"
+                  onClick={() => selectPaymentMethod("cash")}
+                  disabled={isProcessing || cart.length === 0}
+                >
+                  <Banknote className="mr-2 h-4 w-4" />
+                  Cash
+                </Button>
+                <Button
+                  variant={paymentMethod === "card" ? "default" : "outline"}
+                  className="w-full"
+                  onClick={() => selectPaymentMethod("card")}
+                  disabled={isProcessing || cart.length === 0}
+                >
+                  <CreditCard className="mr-2 h-4 w-4" />
+                  Card
+                </Button>
+              </div>
+
+              <Button
+                className="w-full h-12 text-lg"
+                onClick={completeSale}
+                disabled={isProcessing || cart.length === 0 || !paymentMethod}
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="mr-2 h-5 w-5" />
+                    Complete Sale
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardFooter>
+        </div>
+      </div>
     </div>
   )
 }
+
+export default POSPage
 

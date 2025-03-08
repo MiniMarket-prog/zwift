@@ -16,6 +16,34 @@ type ProductFormData = {
   image?: string | null
 }
 
+// Define interfaces for sales data
+interface Sale {
+  id?: string
+  created_at?: string
+  total: number
+  tax?: number
+  payment_method: string
+  customer_id?: string | null
+}
+
+// Define a more specific type for product properties
+type ProductProperty = string | number | boolean | null | undefined
+
+interface SaleItem {
+  id?: string
+  sale_id?: string
+  product_id: string
+  quantity: number
+  price: number
+  product?: {
+    id: string
+    name: string
+    price: number
+    stock: number
+    [key: string]: ProductProperty // Replace 'any' with a more specific type
+  }
+}
+
 // Get all products with optional search
 export async function getProducts(searchTerm = "", productId?: string) {
   try {
@@ -143,7 +171,7 @@ export async function getCategories() {
   }
 }
 
-export async function createSale(sale: any, saleItems: any[]) {
+export async function createSale(sale: Sale, saleItems: SaleItem[]) {
   try {
     // Insert the sale
     const { data: saleData, error: saleError } = await supabase.from("sales").insert(sale).select().single()
@@ -206,7 +234,7 @@ export async function getSale(saleId: string) {
 }
 
 // Update an existing sale
-export async function updateSale(saleId: string, sale: any, saleItems: any[]) {
+export async function updateSale(saleId: string, sale: Sale, saleItems: SaleItem[]) {
   try {
     // Update the sale
     const { data: saleData, error: saleError } = await supabase
@@ -323,6 +351,121 @@ export async function getDashboardStats() {
       lowStockCount: 0,
       lowStockProducts: [],
     }
+  }
+}
+
+// Add this function to optimize fetching all data at once
+export async function getPOSPageData() {
+  try {
+    // Fetch products
+    const { data: products, error: productsError } = await supabase.from("products").select("*").order("name")
+    if (productsError) throw productsError
+
+    // Fetch settings - handle errors with try/catch instead of .catch()
+    let settings = {
+      id: "1",
+      tax_rate: 0,
+      store_name: "My Store",
+      currency: "USD",
+    }
+
+    try {
+      const { data: settingsData, error: settingsError } = await supabase.from("settings").select("*").single()
+      if (!settingsError && settingsData) {
+        settings = settingsData
+      }
+    } catch (settingsError) {
+      console.error("Error fetching settings:", settingsError)
+      // Keep using default settings
+    }
+
+    // Calculate low stock products client-side instead of making another request
+    const lowStockProducts = products?.filter((product) => product.stock < product.min_stock) || []
+
+    return {
+      products: products || [],
+      settings,
+      lowStockProducts,
+      error: null,
+    }
+  } catch (error) {
+    console.error("Error fetching POS data:", error)
+    return {
+      products: [],
+      settings: {
+        id: "1",
+        tax_rate: 0,
+        store_name: "My Store",
+        currency: "USD",
+      },
+      lowStockProducts: [],
+      error,
+    }
+  }
+}
+
+// Add this function to handle authentication with rate limiting
+export async function signInWithRateLimiting(email: string, password: string) {
+  try {
+    // Check local storage for rate limiting
+    const rateLimitKey = `auth_rate_limit_${email.toLowerCase()}`
+    const rateLimitData = localStorage.getItem(rateLimitKey)
+
+    if (rateLimitData) {
+      const { attempts, timestamp, blocked } = JSON.parse(rateLimitData)
+      const now = Date.now()
+
+      // If blocked and block time hasn't expired
+      if (blocked && now - timestamp < 30000) {
+        // 30 seconds block
+        return {
+          error: {
+            message: "Rate limit reached. Please try again later.",
+            status: 429,
+          },
+          data: null,
+        }
+      }
+
+      // If too many attempts in a short period
+      if (attempts >= 5 && now - timestamp < 60000) {
+        // 5 attempts within 1 minute
+        // Set as blocked
+        localStorage.setItem(rateLimitKey, JSON.stringify({ attempts: attempts + 1, timestamp: now, blocked: true }))
+
+        return {
+          error: {
+            message: "Rate limit reached. Please try again in 30 seconds.",
+            status: 429,
+          },
+          data: null,
+        }
+      }
+
+      // Reset counter if it's been more than 1 minute
+      if (now - timestamp > 60000) {
+        localStorage.setItem(rateLimitKey, JSON.stringify({ attempts: 1, timestamp: now, blocked: false }))
+      } else {
+        // Increment attempt counter
+        localStorage.setItem(rateLimitKey, JSON.stringify({ attempts: attempts + 1, timestamp, blocked: false }))
+      }
+    } else {
+      // First attempt
+      localStorage.setItem(rateLimitKey, JSON.stringify({ attempts: 1, timestamp: Date.now(), blocked: false }))
+    }
+
+    // Proceed with actual authentication
+    const result = await supabase.auth.signInWithPassword({ email, password })
+
+    // If successful, clear rate limit data
+    if (!result.error) {
+      localStorage.removeItem(rateLimitKey)
+    }
+
+    return result
+  } catch (error) {
+    console.error("Sign in error:", error)
+    return { error, data: null }
   }
 }
 
