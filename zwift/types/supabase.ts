@@ -47,7 +47,7 @@ export interface Database {
           {
             foreignKeyName: "expenses_category_id_fkey"
             columns: ["category_id"]
-            referencedRelation: "categories"
+            referencedRelation: "expense_categories"
             referencedColumns: ["id"]
           },
           {
@@ -57,6 +57,21 @@ export interface Database {
             referencedColumns: ["id"]
           },
         ]
+      }
+      expense_categories: {
+        Row: {
+          id: string
+          name: string
+        }
+        Insert: {
+          id?: string
+          name: string
+        }
+        Update: {
+          id?: string
+          name?: string
+        }
+        Relationships: []
       }
       products: {
         Row: {

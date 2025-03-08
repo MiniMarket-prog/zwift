@@ -7,9 +7,23 @@ import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, Tabl
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ShoppingCart, Loader2 } from "lucide-react"
+import { ShoppingCart, Loader2, AlertCircle } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { supabase } from "@/lib/supabase"
+
+// First, let's add imports for the dialog and other components we'll need
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Plus, Minus, Save } from "lucide-react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 
 // Add these types at the top of the file, after the imports
 type Product = {
@@ -23,15 +37,6 @@ type Product = {
   image?: string | null
 }
 
-type ExpiringProduct = {
-  id: string
-  name: string
-  expiry_date: string
-  stock: number
-  category_id?: string | null
-  image?: string | null
-}
-
 type Category = {
   id: string
   name: string
@@ -40,12 +45,17 @@ type Category = {
 const AlertsPage = () => {
   const [lowStockProducts, setLowStockProducts] = useState<Product[]>([])
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([])
-  const [expiringProducts, setExpiringProducts] = useState<ExpiringProduct[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("")
   const [categories, setCategories] = useState<Category[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const { toast } = useToast()
+
+  // Add state for the stock adjustment dialog
+  const [isAdjustDialogOpen, setIsAdjustDialogOpen] = useState(false)
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+  const [adjustedStock, setAdjustedStock] = useState(0)
+  const [isAdjusting, setIsAdjusting] = useState(false)
 
   // Fetch low stock products from Supabase
   const fetchLowStockProducts = useCallback(async () => {
@@ -92,27 +102,16 @@ const AlertsPage = () => {
     }
   }, [])
 
-  // For now, we'll use mock data for expiring products since we don't have that table yet
-  const fetchExpiringProducts = useCallback(() => {
-    // Mock data for expiring products - in a real app, this would fetch from Supabase
-    const mockExpiringProducts: ExpiringProduct[] = [
-      { id: "4", name: "Product D", expiry_date: "2023-12-31", stock: 20, category_id: null },
-      { id: "5", name: "Product E", expiry_date: "2024-01-15", stock: 15, category_id: null },
-    ]
-    setExpiringProducts(mockExpiringProducts)
-  }, [])
-
   useEffect(() => {
     fetchLowStockProducts()
-    fetchExpiringProducts()
     fetchCategories()
-  }, [fetchLowStockProducts, fetchExpiringProducts, fetchCategories])
+  }, [fetchLowStockProducts, fetchCategories])
 
   // Filter products based on search term and category
   useEffect(() => {
     let filtered = lowStockProducts.filter((product) => product.name.toLowerCase().includes(searchTerm.toLowerCase()))
 
-    if (categoryFilter) {
+    if (categoryFilter && categoryFilter !== "all") {
       filtered = filtered.filter((product) => product.category_id === categoryFilter)
     }
 
@@ -161,131 +160,211 @@ const AlertsPage = () => {
     }
   }
 
+  // Add a function to handle opening the adjust stock dialog
+  const handleAdjustClick = (product: Product) => {
+    setSelectedProduct(product)
+    setAdjustedStock(product.stock)
+    setIsAdjustDialogOpen(true)
+  }
+
+  // Add a function to handle stock adjustment
+  const handleStockAdjustment = async () => {
+    if (!selectedProduct) return
+
+    setIsAdjusting(true)
+    try {
+      const { error } = await supabase.from("products").update({ stock: adjustedStock }).eq("id", selectedProduct.id)
+
+      if (error) throw error
+
+      toast({
+        title: "Stock Updated",
+        description: `${selectedProduct.name} stock has been updated to ${adjustedStock} units.`,
+      })
+
+      // Close dialog and refresh products
+      setIsAdjustDialogOpen(false)
+      fetchLowStockProducts()
+    } catch (error) {
+      console.error("Error adjusting stock:", error)
+      toast({
+        title: "Error",
+        description: "Failed to update stock level",
+        variant: "destructive",
+      })
+    } finally {
+      setIsAdjusting(false)
+    }
+  }
+
+  // Add a function to increment/decrement stock
+  const adjustStock = (amount: number) => {
+    setAdjustedStock((prev) => Math.max(0, prev + amount))
+  }
+
+  // Get category name by ID
+  const getCategoryName = (categoryId: string | null) => {
+    if (!categoryId) return "Uncategorized"
+    const category = categories.find((c) => c.id === categoryId)
+    return category ? category.name : "Uncategorized"
+  }
+
   return (
     <div className="container mx-auto py-6">
-      <h1 className="text-3xl font-bold mb-6">Alerts</h1>
-
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <Input type="text" placeholder="Search products..." onChange={handleSearch} className="max-w-xs" />
-        <Select onValueChange={handleCategoryFilter} value={categoryFilter}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Filter by Category" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Categories</SelectItem>
-            {categories.map((category) => (
-              <SelectItem key={category.id} value={category.id}>
-                {category.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
+        <h1 className="text-3xl font-bold mb-4 md:mb-0">Low Stock Alerts</h1>
+        <Badge variant="outline" className="text-sm py-1 px-3 flex items-center">
+          <AlertCircle className="h-4 w-4 mr-1" />
+          {lowStockProducts.length} Items Below Minimum Stock
+        </Badge>
       </div>
 
-      <div className="mb-8">
-        <h2 className="text-xl font-semibold mb-4">Low Stock Products</h2>
-        {isLoading ? (
-          <div className="flex justify-center items-center py-8">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <Card className="mb-6">
+        <CardHeader className="pb-3">
+          <CardTitle>Low Stock Products</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+            <Input type="text" placeholder="Search products..." onChange={handleSearch} className="max-w-xs" />
+            <Select onValueChange={handleCategoryFilter} value={categoryFilter}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Filter by Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                {categories.map((category) => (
+                  <SelectItem key={category.id} value={category.id}>
+                    {category.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-        ) : (
-          <div className="border rounded-lg overflow-hidden">
-            <Table>
-              <TableCaption>Products that are below minimum stock level.</TableCaption>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Price</TableHead>
-                  <TableHead>Current Stock</TableHead>
-                  <TableHead>Min. Stock</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredProducts.length > 0 ? (
-                  filteredProducts.map((product) => (
-                    <TableRow key={product.id}>
-                      <TableCell className="font-medium">{product.name}</TableCell>
-                      <TableCell>${product.price.toFixed(2)}</TableCell>
-                      <TableCell className="text-destructive">{product.stock}</TableCell>
-                      <TableCell>{product.min_stock}</TableCell>
-                      <TableCell className="text-right space-x-2">
-                        <Button variant="outline" size="sm" onClick={() => handleAddToCart(product)}>
-                          <ShoppingCart className="h-4 w-4 mr-1" />
-                          Add to Cart
-                        </Button>
-                        <Button size="sm" onClick={() => handleRestock(product)}>
-                          Restock
-                        </Button>
+
+          {isLoading ? (
+            <div className="flex justify-center items-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : (
+            <div className="border rounded-lg overflow-hidden">
+              <Table>
+                <TableCaption>Products that are below minimum stock level.</TableCaption>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Price</TableHead>
+                    <TableHead className="text-center">Current Stock</TableHead>
+                    <TableHead className="text-center">Min. Stock</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredProducts.length > 0 ? (
+                    filteredProducts.map((product) => (
+                      <TableRow key={product.id}>
+                        <TableCell className="font-medium">{product.name}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{getCategoryName(product.category_id)}</Badge>
+                        </TableCell>
+                        <TableCell>${product.price.toFixed(2)}</TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant="destructive">{product.stock}</Badge>
+                        </TableCell>
+                        <TableCell className="text-center">{product.min_stock}</TableCell>
+                        <TableCell className="text-right space-x-2">
+                          <Button variant="outline" size="sm" onClick={() => handleAddToCart(product)}>
+                            <ShoppingCart className="h-4 w-4 mr-1" />
+                            Add to Cart
+                          </Button>
+                          <Button size="sm" onClick={() => handleRestock(product)}>
+                            Restock
+                          </Button>
+                          <Button variant="secondary" size="sm" onClick={() => handleAdjustClick(product)}>
+                            Adjust
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-4">
+                        No low stock products found.
                       </TableCell>
                     </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center py-4">
-                      No low stock products found.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </div>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-      <div>
-        <h2 className="text-xl font-semibold mb-4">Expiring Products</h2>
-        <div className="border rounded-lg overflow-hidden">
-          <Table>
-            <TableCaption>Products that are expiring soon.</TableCaption>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Expiry Date</TableHead>
-                <TableHead>Stock</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {expiringProducts.length > 0 ? (
-                expiringProducts.map((product) => (
-                  <TableRow key={product.id}>
-                    <TableCell className="font-medium">{product.name}</TableCell>
-                    <TableCell>{new Date(product.expiry_date).toLocaleDateString()}</TableCell>
-                    <TableCell>{product.stock}</TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          handleAddToCart({
-                            id: product.id,
-                            name: product.name,
-                            price: 0, // Add a default price since expiring products don't have one
-                            stock: product.stock,
-                            min_stock: 0, // Add a default min_stock
-                            image: product.image,
-                            category_id: product.category_id,
-                          })
-                        }
-                      >
-                        <ShoppingCart className="h-4 w-4 mr-1" />
-                        Add to Cart
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))
+      {/* Stock Adjustment Dialog */}
+      <Dialog open={isAdjustDialogOpen} onOpenChange={setIsAdjustDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Adjust Stock Level</DialogTitle>
+            <DialogDescription>
+              {selectedProduct ? `Update stock level for ${selectedProduct.name}` : "Update stock level"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="stock" className="text-right">
+                Current Stock
+              </Label>
+              <div className="col-span-3 flex items-center space-x-2">
+                <Button variant="outline" size="icon" onClick={() => adjustStock(-1)} disabled={adjustedStock <= 0}>
+                  <Minus className="h-4 w-4" />
+                </Button>
+                <Input
+                  id="stock"
+                  type="number"
+                  min="0"
+                  value={adjustedStock}
+                  onChange={(e) => setAdjustedStock(Math.max(0, Number.parseInt(e.target.value) || 0))}
+                  className="w-20 text-center"
+                />
+                <Button variant="outline" size="icon" onClick={() => adjustStock(1)}>
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            {selectedProduct && (
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label className="text-right">Min. Stock</Label>
+                <div className="col-span-3">
+                  <span className="text-sm font-medium">{selectedProduct.min_stock}</span>
+                  {adjustedStock < selectedProduct.min_stock && (
+                    <p className="text-xs text-amber-500 mt-1">
+                      Warning: New stock level is below minimum stock threshold.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAdjustDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleStockAdjustment} disabled={isAdjusting}>
+              {isAdjusting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
               ) : (
-                <TableRow>
-                  <TableCell colSpan={4} className="text-center py-4">
-                    No products expiring soon.
-                  </TableCell>
-                </TableRow>
+                <>
+                  <Save className="mr-2 h-4 w-4" />
+                  Save Changes
+                </>
               )}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
