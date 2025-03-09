@@ -17,6 +17,8 @@ import {
   Save,
   AlertCircle,
   ShoppingCart,
+  Loader2,
+  RefreshCw,
 } from "lucide-react"
 import Image from "next/image"
 
@@ -82,11 +84,10 @@ interface Sale {
 }
 
 const SalesPage = () => {
-  const [sales, setSales] = useState<Sale[]>([])
-  const [filteredSales, setFilteredSales] = useState<Sale[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [date, setDate] = useState<Date | undefined>(undefined)
   const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
@@ -99,50 +100,104 @@ const SalesPage = () => {
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([])
   const [isLoadingProducts, setIsLoadingProducts] = useState(false)
   const [activeTab, setActiveTab] = useState("items")
+  const [isLoadingSaleDetails, setIsLoadingSaleDetails] = useState(false)
 
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [paginatedSales, setPaginatedSales] = useState<Sale[]>([])
   const [totalPages, setTotalPages] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
 
   const supabase = createClientComponentClient()
   const { toast } = useToast()
 
-  // Use useCallback to define fetchSales to avoid dependency issues
+  // Fetch sales with pagination and filtering
   const fetchSales = useCallback(async () => {
     try {
       setIsLoading(true)
-      const { data: salesData, error: salesError } = await supabase
+
+      // Build the query with filters
+      let query = supabase
         .from("sales")
-        .select("*")
+        .select("id, created_at, total, payment_method", { count: "exact" })
         .order("created_at", { ascending: false })
+
+      // Apply date filter if set
+      if (date) {
+        const dateStr = format(date, "yyyy-MM-dd")
+        query = query.gte("created_at", `${dateStr}T00:00:00`).lt("created_at", `${dateStr}T23:59:59`)
+      }
+
+      // Apply search term filter if set
+      if (searchTerm) {
+        // Search by ID or payment method
+        query = query.or(`id.ilike.%${searchTerm}%,payment_method.ilike.%${searchTerm}%`)
+      }
+
+      // Apply pagination
+      const from = (currentPage - 1) * pageSize
+      const to = from + pageSize - 1
+      query = query.range(from, to)
+
+      // Execute the query
+      const { data: salesData, error: salesError, count } = await query
 
       if (salesError) throw salesError
 
-      const salesWithItems: Sale[] = []
-
-      for (const sale of salesData || []) {
-        const { data: itemsData, error: itemsError } = await supabase
-          .from("sale_items")
-          .select("*, products(*)")
-          .eq("sale_id", sale.id)
-
-        if (itemsError) throw itemsError
-
-        salesWithItems.push({
-          ...sale,
-          items: itemsData || [],
-        })
+      // Update total count and pages
+      if (count !== null) {
+        setTotalCount(count)
+        setTotalPages(Math.max(1, Math.ceil(count / pageSize)))
       }
 
-      setSales(salesWithItems)
-      setFilteredSales(salesWithItems)
+      // Set the sales without items (we'll fetch items only when needed)
+      const salesWithoutItems =
+        salesData?.map((sale) => ({
+          ...sale,
+          items: [],
+        })) || []
+
+      setPaginatedSales(salesWithoutItems)
     } catch (error) {
       console.error("Error fetching sales:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load sales data",
+        variant: "destructive",
+      })
     } finally {
       setIsLoading(false)
     }
-  }, [supabase])
+  }, [supabase, currentPage, pageSize, date, searchTerm, toast])
+
+  // Fetch sale items for a specific sale
+  const fetchSaleItems = useCallback(
+    async (saleId: string) => {
+      try {
+        setIsLoadingSaleDetails(true)
+
+        const { data: itemsData, error: itemsError } = await supabase
+          .from("sale_items")
+          .select("*, products(*)")
+          .eq("sale_id", saleId)
+
+        if (itemsError) throw itemsError
+
+        return itemsData || []
+      } catch (error) {
+        console.error("Error fetching sale items:", error)
+        toast({
+          title: "Error",
+          description: "Failed to load sale details",
+          variant: "destructive",
+        })
+        return []
+      } finally {
+        setIsLoadingSaleDetails(false)
+      }
+    },
+    [supabase, toast],
+  )
 
   // Fetch available products for adding to sales
   const fetchAvailableProducts = useCallback(async () => {
@@ -166,15 +221,26 @@ const SalesPage = () => {
     }
   }, [toast])
 
+  // Initial data load
   useEffect(() => {
     fetchSales()
   }, [fetchSales])
 
+  // Handle search input change
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const term = e.target.value.toLowerCase()
-    setSearchTerm(term)
-    filterSales(term, date)
+    setSearchTerm(e.target.value)
+    // Reset to first page when searching
+    setCurrentPage(1)
   }
+
+  // Apply search after a short delay to avoid too many requests
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchSales()
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [searchTerm, fetchSales])
 
   const handleProductSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const term = e.target.value.toLowerCase()
@@ -194,45 +260,14 @@ const SalesPage = () => {
 
   const handleDateChange = (newDate: Date | undefined) => {
     setDate(newDate)
-    filterSales(searchTerm, newDate)
+    // Reset to first page when changing date
+    setCurrentPage(1)
   }
 
-  const filterSales = useCallback(
-    (term: string, selectedDate: Date | undefined) => {
-      let filtered = [...sales]
-
-      if (term) {
-        filtered = filtered.filter((sale) => {
-          const hasMatchingProduct = sale.items?.some((item) => item.product?.name.toLowerCase().includes(term))
-          return (
-            sale.id.toLowerCase().includes(term) ||
-            sale.payment_method.toLowerCase().includes(term) ||
-            hasMatchingProduct
-          )
-        })
-      }
-
-      if (selectedDate) {
-        const dateStr = format(selectedDate, "yyyy-MM-dd")
-        filtered = filtered.filter((sale) => sale.created_at.startsWith(dateStr))
-      }
-
-      setFilteredSales(filtered)
-      setCurrentPage(1) // Reset to first page when filtering
-    },
-    [sales],
-  )
-
-  const updatePaginatedSales = useCallback(() => {
-    const startIndex = (currentPage - 1) * pageSize
-    const endIndex = startIndex + pageSize
-    setPaginatedSales(filteredSales.slice(startIndex, endIndex))
-    setTotalPages(Math.max(1, Math.ceil(filteredSales.length / pageSize)))
-  }, [currentPage, pageSize, filteredSales])
-
+  // Apply date filter
   useEffect(() => {
-    updatePaginatedSales()
-  }, [filteredSales, pageSize, currentPage, updatePaginatedSales])
+    fetchSales()
+  }, [date, fetchSales])
 
   const handlePageSizeChange = (value: string) => {
     setPageSize(Number.parseInt(value))
@@ -243,20 +278,56 @@ const SalesPage = () => {
     setCurrentPage(page)
   }
 
-  const handleViewDetails = (sale: Sale) => {
-    setSelectedSale(sale)
+  // Refetch when page size or current page changes
+  useEffect(() => {
+    fetchSales()
+  }, [pageSize, currentPage, fetchSales])
+
+  const handleViewDetails = async (sale: Sale) => {
+    // Only fetch items if they haven't been fetched yet
+    let saleWithItems = sale
+
+    if (!sale.items || sale.items.length === 0) {
+      const items = await fetchSaleItems(sale.id)
+      saleWithItems = {
+        ...sale,
+        items,
+      }
+
+      // Update the sale in the list with the fetched items
+      setPaginatedSales((prevSales) => prevSales.map((s) => (s.id === sale.id ? saleWithItems : s)))
+    }
+
+    setSelectedSale(saleWithItems)
     setIsDetailsOpen(true)
   }
 
-  const handleEditClick = (sale: Sale) => {
-    setSelectedSale(sale)
+  const handleEditClick = async (sale: Sale) => {
+    // Fetch items if they haven't been fetched yet
+    let saleWithItems = sale
+
+    if (!sale.items || sale.items.length === 0) {
+      const items = await fetchSaleItems(sale.id)
+      saleWithItems = {
+        ...sale,
+        items,
+      }
+
+      // Update the sale in the list with the fetched items
+      setPaginatedSales((prevSales) => prevSales.map((s) => (s.id === sale.id ? saleWithItems : s)))
+    }
+
+    setSelectedSale(saleWithItems)
+
     // Create a deep copy of the sale for editing
     setEditedSale({
-      ...sale,
-      items: sale.items?.map((item) => ({ ...item })),
+      ...saleWithItems,
+      items: saleWithItems.items?.map((item) => ({ ...item })),
     })
+
     setIsEditOpen(true)
     setActiveTab("items")
+
     // Fetch available products when opening edit dialog
     fetchAvailableProducts()
   }
@@ -446,50 +517,87 @@ const SalesPage = () => {
     }
   }
 
-  const exportToCSV = () => {
-    // Create CSV content
-    const headers = ["Sale ID", "Date", "Total", "Payment Method", "Products"]
-    const csvRows = [headers]
+  const exportToCSV = async () => {
+    try {
+      setIsLoadingMore(true)
+      toast({
+        title: "Preparing export",
+        description: "Gathering all sales data for export...",
+      })
 
-    filteredSales.forEach((sale) => {
-      const productsList = sale.items
-        ?.map((item) => `${item.product?.name} (${item.quantity} x $${item.price})`)
-        .join(", ")
+      // Fetch all sales for export (without pagination)
+      let query = supabase
+        .from("sales")
+        .select("id, created_at, total, payment_method")
+        .order("created_at", { ascending: false })
 
-      const row = [
-        sale.id,
-        format(new Date(sale.created_at), "yyyy-MM-dd HH:mm:ss"),
-        `$${sale.total.toFixed(2)}`,
-        sale.payment_method,
-        productsList || "",
-      ]
+      // Apply date filter if set
+      if (date) {
+        const dateStr = format(date, "yyyy-MM-dd")
+        query = query.gte("created_at", `${dateStr}T00:00:00`).lt("created_at", `${dateStr}T23:59:59`)
+      }
 
-      csvRows.push(row)
-    })
+      // Apply search term filter if set
+      if (searchTerm) {
+        query = query.or(`id.ilike.%${searchTerm}%,payment_method.ilike.%${searchTerm}%`)
+      }
 
-    // Convert to CSV string
-    const csvContent = "data:text/csv;charset=utf-8," + csvRows.map((row) => row.join(",")).join("\n")
+      const { data: allSales, error } = await query
 
-    // Create download link
-    const encodedUri = encodeURI(csvContent)
-    const link = document.createElement("a")
-    link.setAttribute("href", encodedUri)
-    link.setAttribute("download", `sales_report_${format(new Date(), "yyyy-MM-dd")}.csv`)
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
+      if (error) throw error
 
-  // Use useEffect with proper dependencies
-  useEffect(() => {
-    if (sales.length > 0) {
-      filterSales(searchTerm, date)
+      // Create CSV content
+      const headers = ["Sale ID", "Date", "Total", "Payment Method"]
+
+      const csvRows = [headers]
+
+      allSales?.forEach((sale) => {
+        const row = [
+          sale.id,
+          format(new Date(sale.created_at), "yyyy-MM-dd HH:mm:ss"),
+          `$${sale.total.toFixed(2)}`,
+          sale.payment_method,
+        ]
+
+        csvRows.push(row)
+      })
+
+      // Convert to CSV string
+      const csvContent = "data:text/csv;charset=utf-8," + csvRows.map((row) => row.join(",")).join("\n")
+
+      // Create download link
+      const encodedUri = encodeURI(csvContent)
+      const link = document.createElement("a")
+      link.setAttribute("href", encodedUri)
+      link.setAttribute("download", `sales_report_${format(new Date(), "yyyy-MM-dd")}.csv`)
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+
+      toast({
+        title: "Export Complete",
+        description: `Exported ${allSales?.length || 0} sales records to CSV.`,
+      })
+    } catch (error) {
+      console.error("Error exporting sales:", error)
+      toast({
+        title: "Export Failed",
+        description: "There was an error exporting the sales data.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoadingMore(false)
     }
-  }, [sales, searchTerm, date, filterSales])
+  }
 
   // Function to get the total number of items in a sale
   const getTotalItems = (sale: Sale) => {
-    return sale.items?.reduce((total, item) => total + item.quantity, 0) || 0
+    if (sale.items && sale.items.length > 0) {
+      return sale.items.reduce((total, item) => total + item.quantity, 0)
+    }
+
+    // If items haven't been loaded yet, show a placeholder
+    return "-"
   }
 
   return (
@@ -515,18 +623,32 @@ const SalesPage = () => {
               <Calendar mode="single" selected={date} onSelect={handleDateChange} initialFocus />
             </PopoverContent>
           </Popover>
-          <Button variant="outline" className="w-full md:w-auto" onClick={exportToCSV}>
-            <Download className="mr-2 h-4 w-4" />
-            Export CSV
+          <Button variant="outline" className="w-full md:w-auto" onClick={exportToCSV} disabled={isLoadingMore}>
+            {isLoadingMore ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Exporting...
+              </>
+            ) : (
+              <>
+                <Download className="mr-2 h-4 w-4" />
+                Export CSV
+              </>
+            )}
+          </Button>
+          <Button variant="outline" className="w-full md:w-auto" onClick={() => fetchSales()} disabled={isLoading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+            Refresh
           </Button>
         </div>
       </div>
 
       {isLoading ? (
         <div className="flex justify-center items-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin mr-2" />
           <p>Loading sales data...</p>
         </div>
-      ) : filteredSales.length === 0 ? (
+      ) : paginatedSales.length === 0 ? (
         <div className="text-center py-10">
           <p className="text-muted-foreground">No sales found</p>
         </div>
@@ -534,8 +656,8 @@ const SalesPage = () => {
         <>
           <div className="flex justify-between items-center mb-4">
             <div className="text-sm text-muted-foreground">
-              Showing {Math.min(filteredSales.length, (currentPage - 1) * pageSize + 1)} to{" "}
-              {Math.min(filteredSales.length, currentPage * pageSize)} of {filteredSales.length} entries
+              Showing {(currentPage - 1) * pageSize + 1} to {Math.min(totalCount, currentPage * pageSize)} of{" "}
+              {totalCount} entries
             </div>
             <div className="flex items-center gap-2">
               <span className="text-sm">Show</span>
@@ -580,12 +702,30 @@ const SalesPage = () => {
                     <TableCell className="text-right font-medium">${sale.total.toFixed(2)}</TableCell>
                     <TableCell>
                       <div className="flex justify-center gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => handleViewDetails(sale)}>
-                          <Eye className="h-4 w-4" />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleViewDetails(sale)}
+                          disabled={isLoadingSaleDetails && selectedSale?.id === sale.id}
+                        >
+                          {isLoadingSaleDetails && selectedSale?.id === sale.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Eye className="h-4 w-4" />
+                          )}
                           <span className="sr-only">View</span>
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleEditClick(sale)}>
-                          <Pencil className="h-4 w-4" />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEditClick(sale)}
+                          disabled={isLoadingSaleDetails && selectedSale?.id === sale.id}
+                        >
+                          {isLoadingSaleDetails && selectedSale?.id === sale.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Pencil className="h-4 w-4" />
+                          )}
                           <span className="sr-only">Edit</span>
                         </Button>
                         <Button variant="ghost" size="sm" onClick={() => handleDeleteClick(sale)}>
@@ -663,38 +803,45 @@ const SalesPage = () => {
 
                   <div className="border-t pt-4">
                     <h3 className="font-medium mb-2">Items</h3>
-                    <div className="space-y-3 max-h-[300px] overflow-y-auto">
-                      {selectedSale.items?.map((item) => (
-                        <div key={item.id} className="flex items-center justify-between py-2 border-b last:border-0">
-                          <div className="flex items-center">
-                            {item.product?.image ? (
-                              <div className="h-10 w-10 rounded overflow-hidden mr-3">
-                                <Image
-                                  src={item.product.image || "/placeholder.svg"}
-                                  alt={item.product?.name || "Product"}
-                                  width={40}
-                                  height={40}
-                                  className="object-cover"
-                                />
-                              </div>
-                            ) : (
-                              <div className="h-10 w-10 bg-muted rounded flex items-center justify-center mr-3">
-                                <span className="text-xs">No img</span>
-                              </div>
-                            )}
-                            <div>
-                              <p className="font-medium">{item.product?.name}</p>
-                              <div className="flex items-center text-sm text-muted-foreground">
-                                <span>
-                                  ${item.price.toFixed(2)} × {item.quantity}
-                                </span>
+                    {isLoadingSaleDetails ? (
+                      <div className="flex justify-center items-center py-8">
+                        <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                        <p>Loading sale details...</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 max-h-[300px] overflow-y-auto">
+                        {selectedSale.items?.map((item) => (
+                          <div key={item.id} className="flex items-center justify-between py-2 border-b last:border-0">
+                            <div className="flex items-center">
+                              {item.product?.image ? (
+                                <div className="h-10 w-10 rounded overflow-hidden mr-3">
+                                  <Image
+                                    src={item.product.image || "/placeholder.svg"}
+                                    alt={item.product?.name || "Product"}
+                                    width={40}
+                                    height={40}
+                                    className="object-cover"
+                                  />
+                                </div>
+                              ) : (
+                                <div className="h-10 w-10 bg-muted rounded flex items-center justify-center mr-3">
+                                  <span className="text-xs">No img</span>
+                                </div>
+                              )}
+                              <div>
+                                <p className="font-medium">{item.product?.name}</p>
+                                <div className="flex items-center text-sm text-muted-foreground">
+                                  <span>
+                                    ${item.price.toFixed(2)} × {item.quantity}
+                                  </span>
+                                </div>
                               </div>
                             </div>
+                            <p className="font-medium">${(item.price * item.quantity).toFixed(2)}</p>
                           </div>
-                          <p className="font-medium">${(item.price * item.quantity).toFixed(2)}</p>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div className="border-t mt-4 pt-4">
@@ -823,6 +970,7 @@ const SalesPage = () => {
                       <div className="flex-1 overflow-y-auto">
                         {isLoadingProducts ? (
                           <div className="flex justify-center items-center h-40">
+                            <Loader2 className="h-6 w-6 animate-spin mr-2" />
                             <p>Loading products...</p>
                           </div>
                         ) : filteredProducts.length === 0 ? (
@@ -883,7 +1031,7 @@ const SalesPage = () => {
                     <Button onClick={handleSaveEdit} disabled={isSaving}>
                       {isSaving ? (
                         <>
-                          <Save className="mr-2 h-4 w-4 animate-spin" />
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Saving...
                         </>
                       ) : (

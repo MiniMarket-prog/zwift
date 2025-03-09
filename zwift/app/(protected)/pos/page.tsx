@@ -91,6 +91,9 @@ const POSPage = () => {
   // Track the last notification to prevent duplicates
   const lastNotificationRef = useRef<{ productId: string; timestamp: number }>({ productId: "", timestamp: 0 })
 
+  // Add a new state for recently sold products after the other state declarations
+  const [recentSales, setRecentSales] = useState<Product[]>([])
+
   // Play beep sound when a product is added via barcode
   useEffect(() => {
     if (lastAddedProduct && autoAddOnBarcode) {
@@ -125,8 +128,12 @@ const POSPage = () => {
   const fetchData = useCallback(async () => {
     setIsLoading(true)
     try {
-      // Fetch products
-      const { data: productsData, error: productsError } = await supabase.from("products").select("*").order("name")
+      // Fetch products - limit to 10 products for better performance
+      const { data: productsData, error: productsError } = await supabase
+        .from("products")
+        .select("*")
+        .order("name")
+        .limit(10) // Limit to 10 products
 
       if (productsError) throw productsError
 
@@ -175,19 +182,78 @@ const POSPage = () => {
     }
   }, [supabase, toast])
 
+  // Add a function to fetch recent sales after the fetchData function
+  const fetchRecentSales = useCallback(async () => {
+    try {
+      // Fetch the 10 most recent sales with their items and products
+      const { data: salesData, error: salesError } = await supabase
+        .from("sales")
+        .select(`
+        id, 
+        created_at,
+        sale_items(
+          id,
+          product_id,
+          quantity,
+          products(*)
+        )
+      `)
+        .order("created_at", { ascending: false })
+        .limit(10)
+
+      if (salesError) throw salesError
+
+      // Extract unique products from the sales data
+      const recentProducts: Product[] = []
+      const productIds = new Set<string>()
+
+      // Define a proper type for sale_items
+      interface SaleItem {
+        id: string
+        product_id: string
+        quantity: number
+        products: Product
+      }
+
+      salesData?.forEach((sale) => {
+        if (sale.sale_items) {
+          sale.sale_items.forEach((item: SaleItem) => {
+            if (item.products && !productIds.has(item.products.id)) {
+              productIds.add(item.products.id)
+              recentProducts.push(item.products as Product)
+
+              // Limit to 10 products
+              if (recentProducts.length >= 10) {
+                return
+              }
+            }
+          })
+        }
+      })
+
+      setRecentSales(recentProducts)
+    } catch (error) {
+      console.error("Error fetching recent sales:", error)
+    }
+  }, [supabase])
+
+  // Update the useEffect to also call fetchRecentSales
   useEffect(() => {
     fetchData()
-  }, [fetchData])
+    fetchRecentSales()
+  }, [fetchData, fetchRecentSales])
 
   // Filter products based on search term
   useEffect(() => {
     if (searchTerm.trim() === "") {
-      setFilteredProducts(products)
+      // When no search term, don't show any products in search results
+      setFilteredProducts([])
     } else {
       const term = searchTerm.toLowerCase()
-      const filtered = products.filter(
-        (product) => product.name.toLowerCase().includes(term) || product.barcode.toLowerCase().includes(term),
-      )
+      // Filter products and limit to 10 results
+      const filtered = products
+        .filter((product) => product.name.toLowerCase().includes(term) || product.barcode.toLowerCase().includes(term))
+        .slice(0, 10) // Limit to 10 results
       setFilteredProducts(filtered)
     }
   }, [searchTerm, products])
@@ -489,6 +555,8 @@ const POSPage = () => {
 
       // Refresh products to update stock levels
       fetchData()
+      // Add this line at the end of the try block in completeSale, after fetchData()
+      fetchRecentSales()
     } catch (error) {
       console.error("Error processing payment:", error)
       toast({
@@ -501,6 +569,8 @@ const POSPage = () => {
     }
   }
 
+  // Now modify the return statement to swap the order of cart and products sections
+  // and add a recent products section
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] gap-4 p-4">
       {/* Low stock alert banner */}
@@ -583,82 +653,7 @@ const POSPage = () => {
       )}
 
       <div className="flex flex-col lg:flex-row h-full gap-4">
-        {/* Products section */}
-        <div className="lg:w-2/3 overflow-auto">
-          <div className="mb-4 sticky top-0 z-10 bg-background pt-2 pb-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
-              <Input
-                ref={searchInputRef}
-                placeholder="Search products by name or barcode..."
-                value={searchTerm}
-                onChange={handleSearch}
-                onKeyDown={handleSearchKeyDown}
-                className="pl-10"
-                autoComplete="off"
-              />
-            </div>
-            <div className="flex items-center justify-end mt-2">
-              <div className="flex items-center space-x-2">
-                <Switch id="barcode-mode" checked={autoAddOnBarcode} onCheckedChange={setAutoAddOnBarcode} />
-                <Label htmlFor="barcode-mode" className="text-sm flex items-center cursor-pointer">
-                  <Barcode className="h-4 w-4 mr-1" />
-                  Auto-add on exact barcode match
-                </Label>
-              </div>
-            </div>
-          </div>
-
-          {isLoading ? (
-            <div className="flex justify-center items-center h-64">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-          ) : filteredProducts.length === 0 ? (
-            <div className="text-center py-10">
-              <p className="text-muted-foreground">No products found</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {filteredProducts.map((product) => (
-                <Card
-                  key={product.id}
-                  className="cursor-pointer hover:shadow-md transition-shadow"
-                  onClick={() => addToCart(product)}
-                >
-                  <CardContent className="p-4">
-                    <div className="aspect-square relative mb-2 bg-muted rounded-md overflow-hidden">
-                      {product.image ? (
-                        <Image
-                          src={product.image || "/placeholder.svg"}
-                          alt={product.name}
-                          fill
-                          className="object-cover"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-muted">
-                          <ShoppingCart className="h-12 w-12 text-muted-foreground" />
-                        </div>
-                      )}
-                      {product.stock <= 0 && (
-                        <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
-                          <p className="text-destructive font-semibold">Out of Stock</p>
-                        </div>
-                      )}
-                    </div>
-                    <h3 className="font-medium line-clamp-1">{product.name}</h3>
-                    <div className="flex justify-between items-center mt-1">
-                      <p className="font-bold">${product.price.toFixed(2)}</p>
-                      <p className="text-sm text-muted-foreground">Stock: {product.stock}</p>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1 truncate">Barcode: {product.barcode}</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Cart section */}
+        {/* Cart section - now on the left */}
         <div className="lg:w-1/3 flex flex-col border rounded-lg overflow-hidden h-full">
           <CardHeader className="bg-muted py-3">
             <CardTitle className="flex justify-between items-center text-lg">
@@ -797,6 +792,133 @@ const POSPage = () => {
               </Button>
             </div>
           </CardFooter>
+        </div>
+
+        {/* Products section - now on the right */}
+        <div className="lg:w-2/3 overflow-auto">
+          <div className="mb-4 sticky top-0 z-10 bg-background pt-2 pb-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+              <Input
+                ref={searchInputRef}
+                placeholder="Search products by name or barcode..."
+                value={searchTerm}
+                onChange={handleSearch}
+                onKeyDown={handleSearchKeyDown}
+                className="pl-10"
+                autoComplete="off"
+              />
+            </div>
+            <div className="flex items-center justify-between mt-2">
+              <div className="flex items-center space-x-2">
+                <Switch id="barcode-mode" checked={autoAddOnBarcode} onCheckedChange={setAutoAddOnBarcode} />
+                <Label htmlFor="barcode-mode" className="text-sm flex items-center cursor-pointer">
+                  <Barcode className="h-4 w-4 mr-1" />
+                  Auto-add on exact barcode match
+                </Label>
+              </div>
+            </div>
+          </div>
+
+          {/* Recent Sales Section */}
+          {recentSales.length > 0 && (
+            <div className="mb-6">
+              <h3 className="text-lg font-medium mb-3">Recently Sold Products</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-6">
+                {recentSales.map((product) => (
+                  <Card
+                    key={`recent-${product.id}`}
+                    className="cursor-pointer hover:shadow-md transition-shadow"
+                    onClick={() => addToCart(product)}
+                  >
+                    <CardContent className="p-4">
+                      <div className="aspect-square relative mb-2 bg-muted rounded-md overflow-hidden">
+                        {product.image ? (
+                          <Image
+                            src={product.image || "/placeholder.svg"}
+                            alt={product.name}
+                            fill
+                            className="object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-muted">
+                            <ShoppingCart className="h-12 w-12 text-muted-foreground" />
+                          </div>
+                        )}
+                        {product.stock <= 0 && (
+                          <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
+                            <p className="text-destructive font-semibold">Out of Stock</p>
+                          </div>
+                        )}
+                      </div>
+                      <h3 className="font-medium line-clamp-1">{product.name}</h3>
+                      <div className="flex justify-between items-center mt-1">
+                        <p className="font-bold">${product.price.toFixed(2)}</p>
+                        <p className="text-sm text-muted-foreground">Stock: {product.stock}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+              <div className="border-b mb-6"></div>
+            </div>
+          )}
+
+          {/* Search Results Section */}
+          <div>
+            {searchTerm.trim() !== "" && (
+              <>
+                <h3 className="text-lg font-medium mb-3">Search Results</h3>
+                {isLoading ? (
+                  <div className="flex justify-center items-center h-64">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                ) : filteredProducts.length === 0 ? (
+                  <div className="text-center py-10">
+                    <p className="text-muted-foreground">No products found matching &quot;{searchTerm}&quot;</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {filteredProducts.map((product) => (
+                      <Card
+                        key={product.id}
+                        className="cursor-pointer hover:shadow-md transition-shadow"
+                        onClick={() => addToCart(product)}
+                      >
+                        <CardContent className="p-4">
+                          <div className="aspect-square relative mb-2 bg-muted rounded-md overflow-hidden">
+                            {product.image ? (
+                              <Image
+                                src={product.image || "/placeholder.svg"}
+                                alt={product.name}
+                                fill
+                                className="object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-muted">
+                                <ShoppingCart className="h-12 w-12 text-muted-foreground" />
+                              </div>
+                            )}
+                            {product.stock <= 0 && (
+                              <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
+                                <p className="text-destructive font-semibold">Out of Stock</p>
+                              </div>
+                            )}
+                          </div>
+                          <h3 className="font-medium line-clamp-1">{product.name}</h3>
+                          <div className="flex justify-between items-center mt-1">
+                            <p className="font-bold">${product.price.toFixed(2)}</p>
+                            <p className="text-sm text-muted-foreground">Stock: {product.stock}</p>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1 truncate">Barcode: {product.barcode}</p>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>

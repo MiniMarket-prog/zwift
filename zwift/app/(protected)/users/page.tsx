@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect, useCallback } from "react"
-import { Search, Edit, Trash2, UserPlus } from "lucide-react"
+import { Search, Edit, Trash2, UserPlus, Loader2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -32,6 +32,7 @@ interface UserProfile {
   role?: string | null
   created_at?: string | null
   is_active?: boolean
+  email?: string | null
 }
 
 // Form data type
@@ -48,6 +49,7 @@ export default function UsersPage() {
   const [users, setUsers] = useState<UserProfile[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [isLoading, setIsLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [showEditDialog, setShowEditDialog] = useState(false)
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null)
@@ -69,12 +71,57 @@ export default function UsersPage() {
   const fetchUsers = useCallback(async () => {
     setIsLoading(true)
     try {
-      // Fetch profiles from the database
-      const { data, error } = await supabase.from("profiles").select("*").order("created_at", { ascending: false })
+      // First, fetch profiles from the database
+      const { data: profilesData, error: profilesError } = await supabase
+        .from("profiles")
+        .select("*")
+        .order("created_at", { ascending: false })
 
-      if (error) throw error
+      if (profilesError) throw profilesError
 
-      setUsers(data || [])
+      // If we have profiles, fetch the corresponding user emails
+      if (profilesData && profilesData.length > 0) {
+        try {
+          // Fetch user emails from our API endpoint
+          const response = await fetch("/api/admin/users")
+
+          if (!response.ok) {
+            throw new Error(`Error fetching users: ${response.statusText}`)
+          }
+
+          const { users: authUsers } = await response.json()
+
+          if (authUsers && authUsers.length > 0) {
+            // Map auth users to a dictionary for quick lookup
+            const userMap = new Map<string, { id: string; email: string }>()
+
+            authUsers.forEach((user: { id: string; email: string }) => {
+              userMap.set(user.id, { id: user.id, email: user.email })
+            })
+
+            // Combine profile data with email from auth users
+            const usersWithEmail = profilesData.map((profile) => ({
+              ...profile,
+              email: userMap.get(profile.id)?.email || null,
+            }))
+
+            setUsers(usersWithEmail)
+          } else {
+            setUsers(profilesData)
+          }
+        } catch (error) {
+          console.error("Error in auth users fetch:", error)
+          toast({
+            title: "Limited User Information",
+            description: "Unable to fetch email addresses. User information may be incomplete.",
+            variant: "default",
+          })
+          // Continue with profiles only if we can't get emails
+          setUsers(profilesData)
+        }
+      } else {
+        setUsers([])
+      }
     } catch (error) {
       console.error("Error fetching users:", error)
       toast({
@@ -82,6 +129,7 @@ export default function UsersPage() {
         description: "Failed to fetch users. Please try again.",
         variant: "destructive",
       })
+      setUsers([])
     } finally {
       setIsLoading(false)
     }
@@ -106,6 +154,8 @@ export default function UsersPage() {
 
   const handleAddUser = async () => {
     try {
+      setIsSubmitting(true)
+
       // Validate form
       if (!formData.email || !formData.full_name || !formData.password) {
         toast({
@@ -126,46 +176,29 @@ export default function UsersPage() {
         return
       }
 
-      // Create a new user in Supabase Auth using signUp
-      const { data, error } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          data: {
-            full_name: formData.full_name,
-            role: formData.role,
-          },
+      // Use our API endpoint to create the user
+      const response = await fetch("/api/admin/users/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          full_name: formData.full_name,
+          role: formData.role,
+        }),
       })
 
-      if (error) throw error
-
-      if (!data.user) {
-        throw new Error("Failed to create user")
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to create user")
       }
 
-      // Explicitly create a profile for the user
-      const { error: profileError } = await supabase.from("profiles").insert({
-        id: data.user.id,
-        full_name: formData.full_name,
-        role: formData.role,
+      toast({
+        title: "User Created",
+        description: `User account for ${formData.email} has been created successfully.`,
       })
-
-      if (profileError) {
-        console.error("Error creating profile:", profileError)
-        toast({
-          title: "Partial Success",
-          description: "User account created but profile setup failed. Some features may not work correctly.",
-          variant: "destructive",
-        })
-      } else {
-        toast({
-          title: "User Created",
-          description: `User account for ${formData.email} has been created successfully. ${
-            data.session ? "" : "The user may need to confirm their email before logging in."
-          }`,
-        })
-      }
 
       setShowAddDialog(false)
       // Reset form
@@ -186,24 +219,28 @@ export default function UsersPage() {
         description: errorMessage,
         variant: "destructive",
       })
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
   const handleEditUser = (user: UserProfile) => {
     setCurrentUser(user)
     setFormData({
-      email: "", // We don't have email in the profiles table
+      email: user.email || "",
       full_name: user.full_name || "",
       password: "",
       confirmPassword: "",
       role: user.role || "cashier",
-      is_active: user.is_active || true, // Assuming all users in the list are active
+      is_active: user.is_active || true,
     })
     setShowEditDialog(true)
   }
 
   const handleUpdateUser = async () => {
     try {
+      setIsSubmitting(true)
+
       if (!formData.full_name) {
         toast({
           title: "Missing fields",
@@ -215,15 +252,34 @@ export default function UsersPage() {
 
       if (!currentUser) return
 
-      const { error } = await supabase
-        .from("profiles")
-        .update({
+      // Validate passwords match if provided
+      if (formData.password && formData.password !== formData.confirmPassword) {
+        toast({
+          title: "Passwords don't match",
+          description: "Please make sure your passwords match.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Use our API endpoint to update the user
+      const response = await fetch("/api/admin/users/update", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: currentUser.id,
           full_name: formData.full_name,
           role: formData.role,
-        })
-        .eq("id", currentUser.id)
+          password: formData.password || undefined,
+        }),
+      })
 
-      if (error) throw error
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to update user")
+      }
 
       toast({
         title: "User Updated",
@@ -240,6 +296,8 @@ export default function UsersPage() {
         description: errorMessage,
         variant: "destructive",
       })
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -256,10 +314,23 @@ export default function UsersPage() {
 
     if (confirm("Are you sure you want to delete this user? This action cannot be undone.")) {
       try {
-        // Delete the user from the profiles table
-        const { error } = await supabase.from("profiles").delete().eq("id", id)
+        setIsSubmitting(true)
 
-        if (error) throw error
+        // Use our API endpoint to delete the user
+        const response = await fetch("/api/admin/users/delete", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            id,
+          }),
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || "Failed to delete user")
+        }
 
         toast({
           title: "User Deleted",
@@ -275,6 +346,8 @@ export default function UsersPage() {
           description: errorMessage,
           variant: "destructive",
         })
+      } finally {
+        setIsSubmitting(false)
       }
     }
   }
@@ -282,7 +355,8 @@ export default function UsersPage() {
   // Filter users based on search term and role filter
   const filteredUsers = users.filter(
     (user) =>
-      user.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) &&
+      (user.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        user.email?.toLowerCase().includes(searchTerm.toLowerCase())) &&
       (roleFilter === "all" || user.role === roleFilter),
   )
 
@@ -338,7 +412,10 @@ export default function UsersPage() {
                 {isLoading ? (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center py-10">
-                      Loading users...
+                      <div className="flex justify-center items-center">
+                        <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                        Loading users...
+                      </div>
                     </TableCell>
                   </TableRow>
                 ) : filteredUsers.length === 0 ? (
@@ -368,6 +445,7 @@ export default function UsersPage() {
                           </Avatar>
                           <div>
                             <p className="font-medium">{user.full_name || "Unnamed User"}</p>
+                            <p className="text-sm text-muted-foreground">{user.email}</p>
                           </div>
                         </div>
                       </TableCell>
@@ -390,7 +468,12 @@ export default function UsersPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="icon" onClick={() => handleEditUser(user)}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleEditUser(user)}
+                            disabled={isSubmitting}
+                          >
                             <Edit className="h-4 w-4" />
                           </Button>
                           <Button
@@ -398,7 +481,7 @@ export default function UsersPage() {
                             size="icon"
                             className="text-destructive hover:text-destructive"
                             onClick={() => handleDeleteUser(user.id)}
-                            disabled={currentAuthUser?.id === user.id}
+                            disabled={currentAuthUser?.id === user.id || isSubmitting}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -491,10 +574,19 @@ export default function UsersPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
+            <Button variant="outline" onClick={() => setShowAddDialog(false)} disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button onClick={handleAddUser}>Create User</Button>
+            <Button onClick={handleAddUser} disabled={isSubmitting}>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                "Create User"
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -531,6 +623,28 @@ export default function UsersPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="grid gap-2">
+              <Label htmlFor="edit-password">New Password</Label>
+              <Input
+                id="edit-password"
+                name="password"
+                type="password"
+                value={formData.password}
+                onChange={handleInputChange}
+                placeholder="Leave blank to keep current password"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="edit-confirmPassword">Confirm New Password</Label>
+              <Input
+                id="edit-confirmPassword"
+                name="confirmPassword"
+                type="password"
+                value={formData.confirmPassword}
+                onChange={handleInputChange}
+                placeholder="Leave blank to keep current password"
+              />
+            </div>
             <div className="flex items-center gap-2">
               <Switch
                 id="edit-is_active"
@@ -541,10 +655,19 @@ export default function UsersPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEditDialog(false)}>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)} disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button onClick={handleUpdateUser}>Update User</Button>
+            <Button onClick={handleUpdateUser} disabled={isSubmitting}>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                "Update User"
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
