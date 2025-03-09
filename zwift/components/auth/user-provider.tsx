@@ -5,15 +5,28 @@ import { createContext, useContext, useEffect, useState, useMemo } from "react"
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
 import type { User } from "@supabase/auth-helpers-nextjs"
 import { useRouter } from "next/navigation"
+import type { Database } from "@/types/supabase"
 
-// Define the profile type
+// Define the profile type to match what's actually returned from the database
 type UserProfile = {
   id: string
+  updated_at?: string | null
   username?: string | null
   full_name?: string | null
   avatar_url?: string | null
-  role?: string | null
-  // Add other profile fields as needed
+  website?: string | null
+  role?: string | null // Make role optional since it might not be in the returned data
+}
+
+// Define the type for the raw profile data from the database
+type DatabaseProfile = {
+  id: string
+  updated_at: string
+  username: string | null
+  full_name: string | null
+  avatar_url: string | null
+  website: string | null
+  // Note: role is not included here as it doesn't exist in the database
 }
 
 type UserContextType = {
@@ -43,7 +56,7 @@ export function UserProvider({
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [isLoading, setIsLoading] = useState(!!initialUser) // Loading if we have an initial user but no profile yet
   const router = useRouter()
-  const supabase = useMemo(() => createClientComponentClient(), [])
+  const supabase = createClientComponentClient<Database>()
 
   // Fetch user profile when user changes
   useEffect(() => {
@@ -58,13 +71,50 @@ export function UserProvider({
       console.log("Fetching profile for user:", user.id)
 
       try {
-        const { data, error } = await supabase.from("profiles").select("*").eq("id", user.id).single()
+        // First check if profile exists
+        const { data: existingProfile, error: fetchError } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", user.id)
+          .single()
 
-        if (error) {
-          console.error("Error fetching user profile:", error)
-          setProfile(null)
+        if (fetchError) {
+          if (fetchError.code === "PGRST116") {
+            // Profile doesn't exist, create it with only the fields that exist in the table
+            const { data: newProfile, error: insertError } = await supabase
+              .from("profiles")
+              .insert([
+                {
+                  id: user.id,
+                  full_name: user.user_metadata?.full_name || null,
+                  // Only include fields that exist in the profiles table
+                },
+              ])
+              .select()
+              .single()
+
+            if (insertError) {
+              console.error("Error creating user profile:", insertError)
+              setProfile(null)
+            } else {
+              // Add a default role property
+              const profileWithRole: UserProfile = {
+                ...(newProfile as DatabaseProfile),
+                role: "cashier", // Add default role
+              }
+              setProfile(profileWithRole)
+            }
+          } else {
+            console.error("Error fetching user profile:", fetchError)
+            setProfile(null)
+          }
         } else {
-          setProfile(data as UserProfile)
+          // Add a default role property
+          const profileWithRole: UserProfile = {
+            ...(existingProfile as DatabaseProfile),
+            role: "cashier", // Add default role
+          }
+          setProfile(profileWithRole)
         }
       } catch (error) {
         console.error("Error in profile fetch:", error)
@@ -87,7 +137,7 @@ export function UserProvider({
       if (event === "SIGNED_OUT") {
         setUser(null)
         setProfile(null)
-        window.location.href = "/auth/login"
+        router.push("/auth/login")
         return
       }
 
@@ -98,7 +148,7 @@ export function UserProvider({
 
           // Only redirect if we're on the login page
           if (window.location.pathname === "/auth/login") {
-            window.location.href = "/dashboard"
+            router.push("/dashboard")
           }
         }
       }

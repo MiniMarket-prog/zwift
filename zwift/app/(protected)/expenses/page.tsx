@@ -1,17 +1,30 @@
 "use client"
 
+import { DialogTrigger } from "@/components/ui/dialog"
+
 import type React from "react"
 
-import { useEffect, useState, useCallback } from "react"
-import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { useState, useEffect, useCallback } from "react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  PlusCircle,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  CalendarIcon,
+  Filter,
+  X,
+  Save,
+  Loader2,
+  Pencil,
+  Trash2,
+} from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ShoppingCart, Loader2, AlertCircle } from "lucide-react"
-import { useToast } from "@/components/ui/use-toast"
-import { supabase } from "@/lib/supabase"
-
-// First, let's add imports for the dialog and other components we'll need
 import {
   Dialog,
   DialogContent,
@@ -20,337 +33,737 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import { Plus, Minus, Save } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
 import { Badge } from "@/components/ui/badge"
+import { format } from "date-fns"
+import { cn } from "@/lib/utils"
+import { useToast } from "@/components/ui/use-toast"
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
+import type { Database } from "@/types/supabase"
+import { useUser } from "@/components/auth/user-provider"
+import { Plus } from "lucide-react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
-// Add these types at the top of the file, after the imports
-type Product = {
-  id: string
-  name: string
-  price: number
-  barcode?: string
-  stock: number
-  min_stock: number
-  category_id?: string | null
-  image?: string | null
+// Define expense type based on the database schema
+type Expense = Database["public"]["Tables"]["expenses"]["Row"]
+type Category = Database["public"]["Tables"]["expense_categories"]["Row"]
+
+// Define a type for expenses with joined category data
+type ExpenseWithCategory = Expense & {
+  expense_categories?: Category | null
 }
 
-type Category = {
-  id: string
-  name: string
-}
-
-const AlertsPage = () => {
-  const [lowStockProducts, setLowStockProducts] = useState<Product[]>([])
-  const [filteredProducts, setFilteredProducts] = useState<Product[]>([])
-  const [searchTerm, setSearchTerm] = useState("")
-  const [categoryFilter, setCategoryFilter] = useState("")
+export default function ExpensesPage() {
+  // State
+  const [expenses, setExpenses] = useState<ExpenseWithCategory[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [isLoading, setIsLoading] = useState(true)
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(5)
+  const [totalPages, setTotalPages] = useState(1)
+  const [paginatedExpenses, setPaginatedExpenses] = useState<ExpenseWithCategory[]>([])
+
+  // Filtering state
+  const [filteredExpenses, setFilteredExpenses] = useState<ExpenseWithCategory[]>([])
+  const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined)
+  const [dateTo, setDateTo] = useState<Date | undefined>(undefined)
+  const [categoryFilter, setCategoryFilter] = useState<string>("all")
+  const [isFilterActive, setIsFilterActive] = useState(false)
+
+  // New expense dialog state
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [newExpense, setNewExpense] = useState({
+    amount: "",
+    description: "",
+    category_id: "",
+  })
+
+  // Add state for new category dialog
+  const [isAddCategoryDialogOpen, setIsAddCategoryDialogOpen] = useState(false)
+  const [newCategoryName, setNewCategoryName] = useState("")
+  const [isSavingCategory, setIsSavingCategory] = useState(false)
+
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [selectedExpense, setSelectedExpense] = useState<ExpenseWithCategory | null>(null)
+
+  const supabase = createClientComponentClient<Database>()
   const { toast } = useToast()
+  const { user } = useUser()
 
-  // Add state for the stock adjustment dialog
-  const [isAdjustDialogOpen, setIsAdjustDialogOpen] = useState(false)
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
-  const [adjustedStock, setAdjustedStock] = useState(0)
-  const [isAdjusting, setIsAdjusting] = useState(false)
-
-  // Fetch low stock products from Supabase
-  const fetchLowStockProducts = useCallback(async () => {
+  // Fetch expenses and categories
+  const fetchData = useCallback(async () => {
     try {
       setIsLoading(true)
-      // Fetch all products
-      const { data, error } = await supabase.from("products").select("*")
 
-      if (error) {
-        throw error
-      }
+      // Fetch expenses
+      const { data: expensesData, error: expensesError } = await supabase
+        .from("expenses")
+        .select("*, expense_categories(id, name)")
+        .order("created_at", { ascending: false })
 
-      // Filter products where stock is less than min_stock
-      const lowStock = data?.filter((product) => product.stock < product.min_stock) || []
-      setLowStockProducts(lowStock as Product[])
-      setFilteredProducts(lowStock as Product[])
+      if (expensesError) throw expensesError
+
+      // Fetch categories
+      const { data: categoriesData, error: categoriesError } = await supabase
+        .from("expense_categories")
+        .select("*")
+        .order("name")
+
+      if (categoriesError) throw categoriesError
+
+      setExpenses(expensesData || [])
+      setFilteredExpenses(expensesData || [])
+      setCategories(categoriesData || [])
     } catch (error) {
-      console.error("Error fetching low stock products:", error)
+      console.error("Error fetching data:", error)
       toast({
         title: "Error",
-        description: "Failed to fetch low stock products",
+        description: "Failed to load expenses data",
         variant: "destructive",
       })
-      setLowStockProducts([])
-      setFilteredProducts([])
     } finally {
       setIsLoading(false)
     }
-  }, [toast])
+  }, [supabase, toast])
 
-  // Fetch categories from Supabase
-  const fetchCategories = useCallback(async () => {
-    try {
-      const { data, error } = await supabase.from("categories").select("*").order("name")
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
 
-      if (error) {
-        throw error
-      }
+  // Filter expenses based on date range and category
+  useEffect(() => {
+    let filtered = [...expenses]
 
-      setCategories(data as Category[])
-    } catch (error) {
-      console.error("Error fetching categories:", error)
-      setCategories([])
+    if (dateFrom) {
+      const fromDate = new Date(dateFrom)
+      fromDate.setHours(0, 0, 0, 0)
+      filtered = filtered.filter((expense) => (expense.created_at ? new Date(expense.created_at) >= fromDate : false))
     }
-  }, [])
 
-  useEffect(() => {
-    fetchLowStockProducts()
-    fetchCategories()
-  }, [fetchLowStockProducts, fetchCategories])
-
-  // Filter products based on search term and category
-  useEffect(() => {
-    let filtered = lowStockProducts.filter((product) => product.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    if (dateTo) {
+      const toDate = new Date(dateTo)
+      toDate.setHours(23, 59, 59, 999)
+      filtered = filtered.filter((expense) => (expense.created_at ? new Date(expense.created_at) <= toDate : false))
+    }
 
     if (categoryFilter && categoryFilter !== "all") {
-      filtered = filtered.filter((product) => product.category_id === categoryFilter)
+      filtered = filtered.filter((expense) => expense.category_id === categoryFilter)
     }
 
-    setFilteredProducts(filtered)
-  }, [searchTerm, categoryFilter, lowStockProducts])
+    setFilteredExpenses(filtered)
+    setCurrentPage(1) // Reset to first page when filtering
 
-  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchTerm(e.target.value)
+    // Set filter active state
+    setIsFilterActive(!!(dateFrom || dateTo || (categoryFilter && categoryFilter !== "all")))
+  }, [expenses, dateFrom, dateTo, categoryFilter])
+
+  // Calculate total pages and paginated expenses
+  const updatePaginatedExpenses = useCallback(() => {
+    const startIndex = (currentPage - 1) * pageSize
+    const endIndex = startIndex + pageSize
+    setPaginatedExpenses(filteredExpenses.slice(startIndex, endIndex))
+    setTotalPages(Math.max(1, Math.ceil(filteredExpenses.length / pageSize)))
+  }, [currentPage, pageSize, filteredExpenses])
+
+  // Update paginated expenses when page, page size, or filtered expenses change
+  useEffect(() => {
+    updatePaginatedExpenses()
+  }, [currentPage, pageSize, filteredExpenses, updatePaginatedExpenses])
+
+  // Handle page size change
+  const handlePageSizeChange = (value: string) => {
+    setPageSize(Number.parseInt(value))
+    setCurrentPage(1) // Reset to first page when changing page size
   }
 
-  const handleCategoryFilter = (value: string) => {
-    setCategoryFilter(value)
+  // Handle page navigation
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
   }
 
-  const handleAddToCart = (product: Product) => {
-    // Implement add to cart functionality
-    toast({
-      title: "Added to cart",
-      description: `${product.name} has been added to the cart.`,
-    })
+  // Clear all filters
+  const clearFilters = () => {
+    setDateFrom(undefined)
+    setDateTo(undefined)
+    setCategoryFilter("all")
   }
 
-  const handleRestock = async (product: Product) => {
-    try {
-      // Update the product stock to min_stock + 5 (or some other logic)
-      const newStock = product.min_stock + 5
+  // Handle input change for new expense
+  const handleNewExpenseChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target
+    setNewExpense((prev) => ({
+      ...prev,
+      [name]: value,
+    }))
+  }
 
-      const { error } = await supabase.from("products").update({ stock: newStock }).eq("id", product.id)
-
-      if (error) throw error
-
+  // Add function to handle category creation
+  const handleAddCategory = async () => {
+    if (!newCategoryName.trim()) {
       toast({
-        title: "Restocked",
-        description: `${product.name} has been restocked to ${newStock} units.`,
-      })
-
-      // Refresh the product list
-      fetchLowStockProducts()
-    } catch (error) {
-      console.error("Error restocking product:", error)
-      toast({
-        title: "Error",
-        description: "Failed to restock product",
+        title: "Validation Error",
+        description: "Please enter a category name.",
         variant: "destructive",
       })
+      return
     }
-  }
 
-  // Add a function to handle opening the adjust stock dialog
-  const handleAdjustClick = (product: Product) => {
-    setSelectedProduct(product)
-    setAdjustedStock(product.stock)
-    setIsAdjustDialogOpen(true)
-  }
-
-  // Add a function to handle stock adjustment
-  const handleStockAdjustment = async () => {
-    if (!selectedProduct) return
-
-    setIsAdjusting(true)
+    setIsSavingCategory(true)
     try {
-      const { error } = await supabase.from("products").update({ stock: adjustedStock }).eq("id", selectedProduct.id)
+      const { error } = await supabase.from("expense_categories").insert({ name: newCategoryName.trim() })
 
       if (error) throw error
 
       toast({
-        title: "Stock Updated",
-        description: `${selectedProduct.name} stock has been updated to ${adjustedStock} units.`,
+        title: "Category Added",
+        description: "The category has been added successfully.",
       })
 
-      // Close dialog and refresh products
-      setIsAdjustDialogOpen(false)
-      fetchLowStockProducts()
+      // Reset form and close dialog
+      setNewCategoryName("")
+      setIsAddCategoryDialogOpen(false)
+
+      // Refresh categories
+      fetchData()
     } catch (error) {
-      console.error("Error adjusting stock:", error)
+      console.error("Error adding category:", error)
       toast({
         title: "Error",
-        description: "Failed to update stock level",
+        description: "Failed to add category. Please try again.",
         variant: "destructive",
       })
     } finally {
-      setIsAdjusting(false)
+      setIsSavingCategory(false)
     }
   }
 
-  // Add a function to increment/decrement stock
-  const adjustStock = (amount: number) => {
-    setAdjustedStock((prev) => Math.max(0, prev + amount))
+  // Add new expense
+  const handleAddExpense = async () => {
+    if (!user) return
+
+    setIsSaving(true)
+
+    // Validate form
+    if (!newExpense.category_id || !newExpense.amount || !newExpense.description) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill in all required fields.",
+        variant: "destructive",
+      })
+      setIsSaving(false)
+      return
+    }
+
+    try {
+      const { error } = await supabase.from("expenses").insert({
+        amount: Number.parseFloat(newExpense.amount),
+        description: newExpense.description,
+        category_id: newExpense.category_id,
+        user_id: user.id,
+      })
+
+      if (error) throw error
+
+      toast({
+        title: "Expense Added",
+        description: "The expense has been added successfully.",
+      })
+
+      // Reset form and close dialog
+      setNewExpense({
+        amount: "",
+        description: "",
+        category_id: "",
+      })
+      setIsAddDialogOpen(false)
+
+      // Refresh expenses
+      fetchData()
+    } catch (error) {
+      console.error("Error adding expense:", error)
+      toast({
+        title: "Error",
+        description: "Failed to add expense. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSaving(false)
+    }
   }
 
-  // Get category name by ID
+  // Calculate totals
+  const currentPageTotal = paginatedExpenses.reduce((sum, expense) => sum + expense.amount, 0)
+  const allExpensesTotal = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0)
+
+  // Get category name by id
   const getCategoryName = (categoryId: string | null) => {
     if (!categoryId) return "Uncategorized"
     const category = categories.find((c) => c.id === categoryId)
-    return category ? category.name : "Uncategorized"
+    return category?.name || "Uncategorized"
+  }
+
+  // Handle edit button click
+  const handleEditClick = (expense: ExpenseWithCategory) => {
+    setSelectedExpense(expense)
+    setNewExpense({
+      amount: expense.amount.toString(),
+      description: expense.description,
+      category_id: expense.category_id || "",
+    })
+    setIsEditDialogOpen(true)
+  }
+
+  // Handle delete button click
+  const handleDeleteClick = (expense: ExpenseWithCategory) => {
+    setSelectedExpense(expense)
+    setIsDeleteDialogOpen(true)
+  }
+
+  // Handle update expense
+  const handleUpdateExpense = async () => {
+    if (!selectedExpense) return
+
+    setIsSaving(true)
+
+    // Validate form
+    if (!newExpense.category_id || !newExpense.amount || !newExpense.description) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill in all required fields.",
+        variant: "destructive",
+      })
+      setIsSaving(false)
+      return
+    }
+
+    try {
+      const { error } = await supabase
+        .from("expenses")
+        .update({
+          amount: Number.parseFloat(newExpense.amount),
+          description: newExpense.description,
+          category_id: newExpense.category_id,
+        })
+        .eq("id", selectedExpense.id)
+
+      if (error) throw error
+
+      toast({
+        title: "Expense Updated",
+        description: "The expense has been updated successfully.",
+      })
+
+      // Reset form and close dialog
+      setNewExpense({
+        amount: "",
+        description: "",
+        category_id: "",
+      })
+      setIsEditDialogOpen(false)
+      setSelectedExpense(null)
+
+      // Refresh expenses
+      fetchData()
+    } catch (error) {
+      console.error("Error updating expense:", error)
+      toast({
+        title: "Error",
+        description: "Failed to update expense. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Handle delete expense
+  const handleDeleteExpense = async () => {
+    if (!selectedExpense) return
+
+    try {
+      const { error } = await supabase.from("expenses").delete().eq("id", selectedExpense.id)
+
+      if (error) throw error
+
+      toast({
+        title: "Expense Deleted",
+        description: "The expense has been deleted successfully.",
+      })
+
+      setIsDeleteDialogOpen(false)
+      setSelectedExpense(null)
+
+      // Refresh expenses
+      fetchData()
+    } catch (error) {
+      console.error("Error deleting expense:", error)
+      toast({
+        title: "Error",
+        description: "Failed to delete expense. Please try again.",
+        variant: "destructive",
+      })
+    }
   }
 
   return (
-    <div className="container mx-auto py-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
-        <h1 className="text-3xl font-bold mb-4 md:mb-0">Low Stock Alerts</h1>
-        <Badge variant="outline" className="text-sm py-1 px-3 flex items-center">
-          <AlertCircle className="h-4 w-4 mr-1" />
-          {lowStockProducts.length} Items Below Minimum Stock
-        </Badge>
+    <div className="p-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+        <h1 className="text-3xl font-bold">Expenses</h1>
+        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Add Expense
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Add New Expense</DialogTitle>
+              <DialogDescription>Enter the details of the expense to add it to your records.</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="category" className="text-right">
+                  Category
+                </Label>
+                <div className="col-span-3 flex gap-2">
+                  <Select
+                    value={newExpense.category_id}
+                    onValueChange={(value) => setNewExpense((prev) => ({ ...prev, category_id: value }))}
+                  >
+                    <SelectTrigger id="category" className="flex-1">
+                      <SelectValue placeholder="Select a category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.length === 0 ? (
+                        <div className="flex items-center justify-center p-2 text-sm text-muted-foreground">
+                          No categories available
+                        </div>
+                      ) : (
+                        categories.map((category) => (
+                          <SelectItem key={category.id} value={category.id}>
+                            {category.name}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <Button type="button" variant="outline" size="icon" onClick={() => setIsAddCategoryDialogOpen(true)}>
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="amount" className="text-right">
+                  Amount
+                </Label>
+                <Input
+                  id="amount"
+                  name="amount"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={newExpense.amount}
+                  onChange={handleNewExpenseChange}
+                  className="col-span-3"
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-4 items-start gap-4">
+                <Label htmlFor="description" className="text-right pt-2">
+                  Description
+                </Label>
+                <Textarea
+                  id="description"
+                  name="description"
+                  value={newExpense.description}
+                  onChange={handleNewExpenseChange}
+                  className="col-span-3"
+                  rows={3}
+                  required
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleAddExpense} disabled={isSaving}>
+                {isSaving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="mr-2 h-4 w-4" />
+                    Save Expense
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <Card className="mb-6">
-        <CardHeader className="pb-3">
-          <CardTitle>Low Stock Products</CardTitle>
+        <CardHeader>
+          <CardTitle>Filter Expenses</CardTitle>
+          <CardDescription>Filter expenses by date range and category</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-            <Input type="text" placeholder="Search products..." onChange={handleSearch} className="max-w-xs" />
-            <Select onValueChange={handleCategoryFilter} value={categoryFilter}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Filter by Category" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                {categories.map((category) => (
-                  <SelectItem key={category.id} value={category.id}>
-                    {category.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="grid w-full max-w-sm items-center gap-1.5">
+              <Label htmlFor="from-date">From Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn("w-full justify-start text-left font-normal", !dateFrom && "text-muted-foreground")}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {dateFrom ? format(dateFrom, "PPP") : "Select date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar mode="single" selected={dateFrom} onSelect={setDateFrom} initialFocus />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="grid w-full max-w-sm items-center gap-1.5">
+              <Label htmlFor="to-date">To Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn("w-full justify-start text-left font-normal", !dateTo && "text-muted-foreground")}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {dateTo ? format(dateTo, "PPP") : "Select date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar mode="single" selected={dateTo} onSelect={setDateTo} initialFocus />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="grid w-full max-w-sm items-center gap-1.5">
+              <Label htmlFor="category-filter">Category</Label>
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger id="category-filter">
+                  <SelectValue placeholder="All Categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {categories.map((category) => (
+                    <SelectItem key={category.id} value={category.id}>
+                      {category.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-
-          {isLoading ? (
-            <div className="flex justify-center items-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-          ) : (
-            <div className="border rounded-lg overflow-hidden">
-              <Table>
-                <TableCaption>Products that are below minimum stock level.</TableCaption>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Price</TableHead>
-                    <TableHead className="text-center">Current Stock</TableHead>
-                    <TableHead className="text-center">Min. Stock</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredProducts.length > 0 ? (
-                    filteredProducts.map((product) => (
-                      <TableRow key={product.id}>
-                        <TableCell className="font-medium">{product.name}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{getCategoryName(product.category_id)}</Badge>
-                        </TableCell>
-                        <TableCell>${product.price.toFixed(2)}</TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant="destructive">{product.stock}</Badge>
-                        </TableCell>
-                        <TableCell className="text-center">{product.min_stock}</TableCell>
-                        <TableCell className="text-right space-x-2">
-                          <Button variant="outline" size="sm" onClick={() => handleAddToCart(product)}>
-                            <ShoppingCart className="h-4 w-4 mr-1" />
-                            Add to Cart
-                          </Button>
-                          <Button size="sm" onClick={() => handleRestock(product)}>
-                            Restock
-                          </Button>
-                          <Button variant="secondary" size="sm" onClick={() => handleAdjustClick(product)}>
-                            Adjust
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-4">
-                        No low stock products found.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          )}
         </CardContent>
+        <CardFooter className="flex justify-between">
+          <div>
+            {isFilterActive && (
+              <Badge variant="outline" className="flex gap-1 items-center">
+                <Filter className="h-3 w-3" />
+                Filters applied
+              </Badge>
+            )}
+          </div>
+          <Button variant="outline" onClick={clearFilters} disabled={!isFilterActive}>
+            <X className="mr-2 h-4 w-4" />
+            Clear Filters
+          </Button>
+        </CardFooter>
       </Card>
 
-      {/* Stock Adjustment Dialog */}
-      <Dialog open={isAdjustDialogOpen} onOpenChange={setIsAdjustDialogOpen}>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle>Expense Records</CardTitle>
+            <CardDescription>
+              {isFilterActive ? "Showing filtered expense records" : "Showing all expense records"}
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <Label htmlFor="pageSize">Show</Label>
+            <Select value={pageSize.toString()} onValueChange={handlePageSizeChange}>
+              <SelectTrigger id="pageSize" className="w-[80px]">
+                <SelectValue placeholder={pageSize.toString()} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="5">5</SelectItem>
+                <SelectItem value="10">10</SelectItem>
+                <SelectItem value="15">15</SelectItem>
+                <SelectItem value="20">20</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="text-sm text-muted-foreground">entries</span>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-md border">
+            <table className="min-w-full divide-y divide-border">
+              <thead>
+                <tr className="bg-muted/50">
+                  <th className="px-4 py-3 text-left text-sm font-medium">Date</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Category</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Description</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium">Amount</th>
+                  <th className="px-4 py-3 text-center text-sm font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center">
+                      <Loader2 className="h-8 w-8 animate-spin mx-auto" />
+                    </td>
+                  </tr>
+                ) : paginatedExpenses.length > 0 ? (
+                  paginatedExpenses.map((expense) => (
+                    <tr key={expense.id} className="hover:bg-muted/50">
+                      <td className="px-4 py-3 text-sm">
+                        {expense.created_at ? format(new Date(expense.created_at), "PPP") : "-"}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        <Badge variant="outline">
+                          {expense.expense_categories
+                            ? expense.expense_categories.name
+                            : getCategoryName(expense.category_id)}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-sm">{expense.description}</td>
+                      <td className="px-4 py-3 text-sm text-right font-medium">${expense.amount.toFixed(2)}</td>
+                      <td className="px-4 py-3 text-sm text-center">
+                        <div className="flex justify-center space-x-2">
+                          <Button variant="ghost" size="icon" onClick={() => handleEditClick(expense)}>
+                            <Pencil className="h-4 w-4" />
+                            <span className="sr-only">Edit</span>
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => handleDeleteClick(expense)}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                            <span className="sr-only">Delete</span>
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      No expenses found matching your criteria.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+              <tfoot>
+                <tr className="bg-muted/50">
+                  <td colSpan={3} className="px-4 py-3 text-sm font-medium text-right">
+                    Page Total
+                  </td>
+                  <td className="px-4 py-3 text-sm font-medium text-right">${currentPageTotal.toFixed(2)}</td>
+                </tr>
+                <tr className="bg-muted/50">
+                  <td colSpan={3} className="px-4 py-3 text-sm font-medium text-right">
+                    Grand Total {isFilterActive ? "(Filtered)" : "(All)"}
+                  </td>
+                  <td className="px-4 py-3 text-sm font-medium text-right">${allExpensesTotal.toFixed(2)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {/* Pagination controls */}
+          <div className="flex items-center justify-between mt-4">
+            <div className="text-sm text-muted-foreground">
+              Showing{" "}
+              {filteredExpenses.length > 0 ? Math.min(filteredExpenses.length, (currentPage - 1) * pageSize + 1) : 0} to{" "}
+              {Math.min(filteredExpenses.length, currentPage * pageSize)} of {filteredExpenses.length} entries
+            </div>
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => handlePageChange(1)}
+                disabled={currentPage === 1 || filteredExpenses.length === 0}
+              >
+                <ChevronsLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={currentPage === 1 || filteredExpenses.length === 0}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm">
+                Page {filteredExpenses.length > 0 ? currentPage : 0} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={currentPage === totalPages || filteredExpenses.length === 0}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => handlePageChange(totalPages)}
+                disabled={currentPage === totalPages || filteredExpenses.length === 0}
+              >
+                <ChevronsRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      <Dialog open={isAddCategoryDialogOpen} onOpenChange={setIsAddCategoryDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Adjust Stock Level</DialogTitle>
-            <DialogDescription>
-              {selectedProduct ? `Update stock level for ${selectedProduct.name}` : "Update stock level"}
-            </DialogDescription>
+            <DialogTitle>Add Category</DialogTitle>
+            <DialogDescription>Create a new category for expenses.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="stock" className="text-right">
-                Current Stock
+              <Label htmlFor="name" className="text-right">
+                Name
               </Label>
-              <div className="col-span-3 flex items-center space-x-2">
-                <Button variant="outline" size="icon" onClick={() => adjustStock(-1)} disabled={adjustedStock <= 0}>
-                  <Minus className="h-4 w-4" />
-                </Button>
-                <Input
-                  id="stock"
-                  type="number"
-                  min="0"
-                  value={adjustedStock}
-                  onChange={(e) => setAdjustedStock(Math.max(0, Number.parseInt(e.target.value) || 0))}
-                  className="w-20 text-center"
-                />
-                <Button variant="outline" size="icon" onClick={() => adjustStock(1)}>
-                  <Plus className="h-4 w-4" />
-                </Button>
-              </div>
+              <Input
+                id="name"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                className="col-span-3"
+              />
             </div>
-            {selectedProduct && (
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label className="text-right">Min. Stock</Label>
-                <div className="col-span-3">
-                  <span className="text-sm font-medium">{selectedProduct.min_stock}</span>
-                  {adjustedStock < selectedProduct.min_stock && (
-                    <p className="text-xs text-amber-500 mt-1">
-                      Warning: New stock level is below minimum stock threshold.
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAdjustDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setIsAddCategoryDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleStockAdjustment} disabled={isAdjusting}>
-              {isAdjusting ? (
+            <Button onClick={handleAddCategory} disabled={isSavingCategory}>
+              {isSavingCategory ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Saving...
@@ -358,16 +771,121 @@ const AlertsPage = () => {
               ) : (
                 <>
                   <Save className="mr-2 h-4 w-4" />
-                  Save Changes
+                  Save Category
                 </>
               )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Edit Expense</DialogTitle>
+            <DialogDescription>Update the details of this expense.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-category" className="text-right">
+                Category
+              </Label>
+              <div className="col-span-3 flex gap-2">
+                <Select
+                  value={newExpense.category_id}
+                  onValueChange={(value) => setNewExpense((prev) => ({ ...prev, category_id: value }))}
+                >
+                  <SelectTrigger id="edit-category" className="flex-1">
+                    <SelectValue placeholder="Select a category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.length === 0 ? (
+                      <div className="flex items-center justify-center p-2 text-sm text-muted-foreground">
+                        No categories available
+                      </div>
+                    ) : (
+                      categories.map((category) => (
+                        <SelectItem key={category.id} value={category.id}>
+                          {category.name}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+                <Button type="button" variant="outline" size="icon" onClick={() => setIsAddCategoryDialogOpen(true)}>
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-amount" className="text-right">
+                Amount
+              </Label>
+              <Input
+                id="edit-amount"
+                name="amount"
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={newExpense.amount}
+                onChange={handleNewExpenseChange}
+                className="col-span-3"
+                required
+              />
+            </div>
+            <div className="grid grid-cols-4 items-start gap-4">
+              <Label htmlFor="edit-description" className="text-right pt-2">
+                Description
+              </Label>
+              <Textarea
+                id="edit-description"
+                name="description"
+                value={newExpense.description}
+                onChange={handleNewExpenseChange}
+                className="col-span-3"
+                rows={3}
+                required
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpdateExpense} disabled={isSaving}>
+              {isSaving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="mr-2 h-4 w-4" />
+                  Update Expense
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the expense
+              {selectedExpense && ` for $${selectedExpense.amount.toFixed(2)}`}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteExpense} className="bg-destructive text-destructive-foreground">
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
-
-export default AlertsPage
 

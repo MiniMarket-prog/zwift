@@ -103,7 +103,7 @@ const SalesPage = () => {
   const [isLoadingSaleDetails, setIsLoadingSaleDetails] = useState(false)
 
   const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
+  const [pageSize, setPageSize] = useState(5)
   const [paginatedSales, setPaginatedSales] = useState<Sale[]>([])
   const [totalPages, setTotalPages] = useState(1)
   const [totalCount, setTotalCount] = useState(0)

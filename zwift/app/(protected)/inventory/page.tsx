@@ -100,7 +100,7 @@ export default function InventoryPage() {
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
+  const [pageSize, setPageSize] = useState(5)
   const [totalPages, setTotalPages] = useState(1)
   const [paginatedProducts, setPaginatedProducts] = useState<Product[]>([])
 

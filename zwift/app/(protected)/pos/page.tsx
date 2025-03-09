@@ -64,6 +64,36 @@ type Settings = {
   currency: string
 }
 
+// Helper function to format currency
+const formatCurrency = (amount: number, currency: string) => {
+  console.log(`Formatting amount ${amount} with currency ${currency}`) // Debug log
+
+  // Basic currency formatting based on currency code
+  const currencySymbols: Record<string, string> = {
+    USD: "$",
+    EUR: "€",
+    GBP: "£",
+    JPY: "¥",
+    CAD: "C$",
+    AUD: "A$",
+    INR: "₹",
+    CNY: "¥",
+    BRL: "R$",
+    MAD: "DH",
+  }
+
+  // Default to the currency code if no symbol is found
+  const symbol = currencySymbols[currency] || currency
+
+  // For MAD (Moroccan Dirham), the symbol comes after the amount
+  if (currency === "MAD") {
+    return `${amount.toFixed(2)} ${symbol}`
+  }
+
+  // For other currencies, the symbol comes before the amount
+  return `${symbol}${amount.toFixed(2)}`
+}
+
 const POSPage = () => {
   const [products, setProducts] = useState<Product[]>([])
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([])
@@ -139,15 +169,39 @@ const POSPage = () => {
 
       // Fetch settings - handle this differently since the table might not exist
       try {
-        const { data: settingsData, error: settingsError } = await supabase.from("settings").select("*").single()
+        console.log("Fetching settings...")
+
+        // Fetch system settings
+        const { data: settingsData, error: settingsError } = await supabase
+          .from("settings")
+          .select("*")
+          .eq("type", "system")
+          .single()
 
         if (!settingsError && settingsData) {
+          console.log("Loaded settings:", settingsData)
           setSettings({
             id: settingsData.id,
-            tax_rate: settingsData.tax_rate || 0,
+            tax_rate:
+              settingsData.settings &&
+              typeof settingsData.settings === "object" &&
+              settingsData.settings !== null &&
+              "taxRate" in settingsData.settings &&
+              typeof settingsData.settings.taxRate === "number"
+                ? settingsData.settings.taxRate
+                : 0,
             store_name: settingsData.store_name || "My Store",
-            currency: settingsData.currency || "USD",
+            currency:
+              settingsData.settings &&
+              typeof settingsData.settings === "object" &&
+              settingsData.settings !== null &&
+              "currency" in settingsData.settings &&
+              typeof settingsData.settings.currency === "string"
+                ? settingsData.settings.currency
+                : "USD",
           })
+        } else {
+          console.error("Settings error or no data:", settingsError)
         }
       } catch (settingsError) {
         console.error("Error fetching settings:", settingsError)
@@ -242,6 +296,70 @@ const POSPage = () => {
     fetchData()
     fetchRecentSales()
   }, [fetchData, fetchRecentSales])
+
+  // Add this effect to refresh settings when the page gets focus
+  useEffect(() => {
+    // Function to refresh settings
+    const refreshSettings = async () => {
+      try {
+        const { data: settingsData, error: settingsError } = await supabase
+          .from("settings")
+          .select("*")
+          .eq("type", "global") // Change from "system" to "global" to match the currency selector
+          .single()
+
+        if (!settingsError && settingsData) {
+          console.log("Refreshed settings:", settingsData)
+
+          // First check if settings.settings exists and has currency
+          let currencyValue = "USD"
+          let taxRateValue = 0
+
+          if (settingsData.settings && typeof settingsData.settings === "object" && settingsData.settings !== null) {
+            // Check for currency in settings.settings
+            if ("currency" in settingsData.settings && typeof settingsData.settings.currency === "string") {
+              currencyValue = settingsData.settings.currency
+            }
+
+            // Check for taxRate in settings.settings
+            if ("taxRate" in settingsData.settings && typeof settingsData.settings.taxRate === "number") {
+              taxRateValue = settingsData.settings.taxRate
+            }
+          }
+
+          // Fallback to top-level currency field if it exists
+          if (settingsData.currency && typeof settingsData.currency === "string") {
+            currencyValue = settingsData.currency
+          }
+
+          // Fallback to top-level tax_rate field if it exists
+          if (typeof settingsData.tax_rate === "number") {
+            taxRateValue = settingsData.tax_rate
+          }
+
+          setSettings({
+            id: settingsData.id,
+            tax_rate: taxRateValue,
+            store_name: settingsData.store_name || "My Store",
+            currency: currencyValue,
+          })
+        }
+      } catch (error) {
+        console.error("Error refreshing settings:", error)
+      }
+    }
+
+    // Refresh settings when the page gets focus
+    window.addEventListener("focus", refreshSettings)
+
+    // Initial refresh
+    refreshSettings()
+
+    // Cleanup
+    return () => {
+      window.removeEventListener("focus", refreshSettings)
+    }
+  }, [supabase])
 
   // Filter products based on search term
   useEffect(() => {
@@ -546,7 +664,7 @@ const POSPage = () => {
 
       toast({
         title: "Sale completed",
-        description: `Total: $${calculateTotal().toFixed(2)}`,
+        description: `Total: ${formatCurrency(calculateTotal(), settings.currency)}`,
       })
 
       // Clear cart and reset payment method to cash (default)
@@ -688,7 +806,9 @@ const POSPage = () => {
                     </div>
                     <div className="flex-1 min-w-0">
                       <h4 className="font-medium text-sm line-clamp-1">{item.product.name}</h4>
-                      <p className="text-sm text-muted-foreground">${item.price.toFixed(2)} each</p>
+                      <p className="text-sm text-muted-foreground">
+                        {formatCurrency(item.price, settings.currency)} each
+                      </p>
                       <div className="flex items-center gap-2 mt-1">
                         <Button
                           variant="outline"
@@ -716,7 +836,7 @@ const POSPage = () => {
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-medium">${(item.price * item.quantity).toFixed(2)}</p>
+                      <p className="font-medium">{formatCurrency(item.price * item.quantity, settings.currency)}</p>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -739,15 +859,15 @@ const POSPage = () => {
             <div className="w-full space-y-2 mb-4">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Subtotal</span>
-                <span>${calculateSubtotal().toFixed(2)}</span>
+                <span>{formatCurrency(calculateSubtotal(), settings.currency)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Tax ({settings.tax_rate}%)</span>
-                <span>${calculateTax().toFixed(2)}</span>
+                <span>{formatCurrency(calculateTax(), settings.currency)}</span>
               </div>
               <div className="flex justify-between font-bold text-lg">
                 <span>Total</span>
-                <span>${calculateTotal().toFixed(2)}</span>
+                <span>{formatCurrency(calculateTotal(), settings.currency)}</span>
               </div>
             </div>
 
@@ -853,7 +973,7 @@ const POSPage = () => {
                       </div>
                       <h3 className="font-medium line-clamp-1">{product.name}</h3>
                       <div className="flex justify-between items-center mt-1">
-                        <p className="font-bold">${product.price.toFixed(2)}</p>
+                        <p className="font-bold">{formatCurrency(product.price, settings.currency)}</p>
                         <p className="text-sm text-muted-foreground">Stock: {product.stock}</p>
                       </div>
                     </CardContent>
@@ -907,7 +1027,7 @@ const POSPage = () => {
                           </div>
                           <h3 className="font-medium line-clamp-1">{product.name}</h3>
                           <div className="flex justify-between items-center mt-1">
-                            <p className="font-bold">${product.price.toFixed(2)}</p>
+                            <p className="font-bold">{formatCurrency(product.price, settings.currency)}</p>
                             <p className="text-sm text-muted-foreground">Stock: {product.stock}</p>
                           </div>
                           <p className="text-xs text-muted-foreground mt-1 truncate">Barcode: {product.barcode}</p>

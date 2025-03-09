@@ -220,21 +220,36 @@ export interface Database {
       settings: {
         Row: {
           id: string
-          tax_rate: number
-          store_name: string
+          type: string
+          settings: Json
+          created_at: string
+          updated_at: string
+          language: string
           currency: string
+          store_name: string
+          tax_rate: number
         }
         Insert: {
           id?: string
-          tax_rate: number
-          store_name: string
+          type: string
+          settings: Json
+          created_at?: string
+          updated_at?: string
+          language: string
           currency: string
+          store_name: string
+          tax_rate: number
         }
         Update: {
           id?: string
-          tax_rate?: number
-          store_name?: string
+          type?: string
+          settings?: Json
+          created_at?: string
+          updated_at?: string
+          language?: string
           currency?: string
+          store_name?: string
+          tax_rate?: number
         }
         Relationships: []
       }
@@ -255,5 +270,20 @@ export interface Database {
       [_ in never]: never
     }
   }
+}
+
+// Add this type to handle the different settings types
+export type SettingsType = "business" | "receipt" | "tax" | "system" | "global"
+
+export type Settings = {
+  id: string
+  type: SettingsType
+  settings: Json
+  created_at: string
+  updated_at: string
+  language: string
+  currency: string
+  store_name: string
+  tax_rate: number
 }
 
