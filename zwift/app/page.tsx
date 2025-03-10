@@ -11,7 +11,7 @@ export default async function HomePage() {
 
   // If not authenticated, redirect to login
   if (!session) {
-    redirect("/login")
+    redirect("auth/login")
   }
 
   // If authenticated, redirect to dashboard
