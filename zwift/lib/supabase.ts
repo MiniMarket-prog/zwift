@@ -1,70 +1,39 @@
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
-import type { Database } from "@/types/supabase"
+import { createClient as createSupabaseClient } from "@supabase/supabase-js"
 
-// Create a single supabase client for the entire app
-export const supabase = createClientComponentClient<Database>()
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-// Define a type for form data (string values from inputs)
-type ProductFormData = {
+// Create a Supabase client
+export const createClient = () => {
+  return createSupabaseClient(supabaseUrl, supabaseKey)
+}
+
+// Define types
+export type Category = {
+  id: string
   name: string
-  price: string
-  barcode: string
-  stock: string
-  min_stock: string
-  purchase_price?: string | null
-  category_id?: string | null
-  image?: string | null
-}
-
-// Define interfaces for sales data
-interface Sale {
-  id?: string
   created_at?: string
-  total: number
-  tax?: number
-  payment_method: string
-  customer_id?: string | null
+  updated_at?: string
 }
 
-// Define a more specific type for product properties
-type ProductProperty = string | number | boolean | null | undefined
-
-interface SaleItem {
-  id?: string
-  sale_id?: string
-  product_id: string
-  quantity: number
-  price: number
-  product?: {
-    id: string
-    name: string
-    price: number
-    stock: number
-    [key: string]: ProductProperty // Replace 'any' with a more specific type
-  }
+export const createClientComponentClient = () => {
+  return createClient()
 }
 
-// Get all products with optional search
-export async function getProducts(searchTerm = "", productId?: string) {
+export const createSupabaseDirectClient = () => {
+  return createClient()
+}
+
+// Add or update these functions to ensure proper data fetching and updating
+
+// Function to get all products
+export async function getProducts() {
+  const supabase = createClient()
+
   try {
-    let query = supabase.from("products").select("*")
-
-    if (productId) {
-      // If productId is provided, fetch that specific product
-      query = query.eq("id", productId)
-    } else if (searchTerm) {
-      // Otherwise use the search term if provided
-      query = query.or(`name.ilike.%${searchTerm}%,barcode.eq.${searchTerm}`)
-    }
-
-    const { data, error } = await query.order("name")
+    const { data, error } = await supabase.from("products").select("*").order("name")
 
     if (error) throw error
-
-    // If productId was provided, return the first item or null
-    if (productId && data && data.length > 0) {
-      return data[0]
-    }
 
     return data || []
   } catch (error) {
@@ -73,48 +42,36 @@ export async function getProducts(searchTerm = "", productId?: string) {
   }
 }
 
-// Add a new product
-export async function addProduct(productForm: ProductFormData) {
+// Function to update an existing product
+export async function updateProduct(
+  id: string,
+  productData: {
+    name: string
+    price: string
+    barcode: string
+    stock: string
+    min_stock: string
+    image?: string
+    category_id?: string
+    purchase_price?: string
+  },
+) {
+  const supabase = createClient()
+
   try {
-    // Convert string values to numbers where needed
-    const formattedProduct = {
-      name: productForm.name,
-      price: Number.parseFloat(productForm.price),
-      barcode: productForm.barcode,
-      stock: Number.parseInt(productForm.stock),
-      min_stock: productForm.min_stock ? Number.parseInt(productForm.min_stock) : 0, // Default to 0 if not provided
-      category_id: productForm.category_id || null,
-      image: productForm.image || null,
-      purchase_price: productForm.purchase_price ? Number.parseFloat(productForm.purchase_price) : null,
+    // Convert string values to appropriate types
+    const formattedData = {
+      name: productData.name,
+      price: Number.parseFloat(productData.price) || 0,
+      barcode: productData.barcode,
+      stock: Number.parseInt(productData.stock) || 0,
+      min_stock: Number.parseInt(productData.min_stock) || 0,
+      image: productData.image || null,
+      category_id: productData.category_id === "none" ? null : productData.category_id || null,
+      purchase_price: productData.purchase_price ? Number.parseFloat(productData.purchase_price) : null,
     }
 
-    const { data, error } = await supabase.from("products").insert(formattedProduct).select()
-
-    if (error) throw error
-
-    return data
-  } catch (error) {
-    console.error("Error adding product:", error)
-    throw error
-  }
-}
-
-// Update an existing product
-export async function updateProduct(id: string, productForm: ProductFormData) {
-  try {
-    // Convert string values to numbers where needed
-    const formattedProduct = {
-      name: productForm.name,
-      price: Number.parseFloat(productForm.price),
-      barcode: productForm.barcode,
-      stock: Number.parseInt(productForm.stock),
-      min_stock: productForm.min_stock ? Number.parseInt(productForm.min_stock) : 0, // Default to 0 if not provided
-      category_id: productForm.category_id || null,
-      image: productForm.image || null,
-      purchase_price: productForm.purchase_price ? Number.parseFloat(productForm.purchase_price) : null,
-    }
-
-    const { data, error } = await supabase.from("products").update(formattedProduct).eq("id", id).select()
+    const { data, error } = await supabase.from("products").update(formattedData).eq("id", id).select().single()
 
     if (error) throw error
 
@@ -125,40 +82,257 @@ export async function updateProduct(id: string, productForm: ProductFormData) {
   }
 }
 
-// Delete a product
-export async function deleteProduct(id: string) {
+// Function to create a sale
+export async function createSale(sale: any, saleItems: any[]) {
+  const supabase = createClient()
+
   try {
-    const { error } = await supabase.from("products").delete().eq("id", id)
+    // Insert the sale
+    const { data: saleData, error: saleError } = await supabase.from("sales").insert(sale).select().single()
 
-    if (error) throw error
+    if (saleError) throw saleError
 
-    return true
+    // Add the sale_id to each sale item
+    const itemsWithSaleId = saleItems.map((item) => ({
+      ...item,
+      sale_id: saleData.id,
+    }))
+
+    // Insert the sale items
+    const { error: itemsError } = await supabase.from("sale_items").insert(itemsWithSaleId)
+
+    if (itemsError) throw itemsError
+
+    // Update product stock levels
+    for (const item of saleItems) {
+      // First get the current product to get its stock
+      const { data: product, error: productError } = await supabase
+        .from("products")
+        .select("stock")
+        .eq("id", item.product_id)
+        .single()
+
+      if (productError) throw productError
+
+      // Calculate new stock level
+      const newStock = Math.max(0, (product?.stock || 0) - item.quantity)
+
+      // Update the product with the new stock level
+      const { error: stockError } = await supabase
+        .from("products")
+        .update({ stock: newStock })
+        .eq("id", item.product_id)
+
+      if (stockError) throw stockError
+    }
+
+    return { data: saleData, error: null }
   } catch (error) {
-    console.error("Error deleting product:", error)
-    throw error
+    console.error("Error creating sale:", error)
+    return { data: null, error }
   }
 }
 
-// Get low stock products
-export async function getLowStockProducts() {
+// Function to update a sale and its items with proper stock management
+export async function updateSale(saleId: string, saleData: any, saleItems: any[]) {
+  const supabase = createClient()
+
   try {
-    // First, get products that have a min_stock value set
-    const { data, error } = await supabase.from("products").select("*")
+    // Start by getting the current sale items to calculate stock adjustments
+    const { data: currentItems, error: itemsError } = await supabase
+      .from("sale_items")
+      .select("id, product_id, quantity")
+      .eq("sale_id", saleId)
+
+    if (itemsError) throw itemsError
+
+    // Create a map of current items for easy lookup
+    const currentItemsMap = new Map()
+    currentItems?.forEach((item) => {
+      currentItemsMap.set(item.id, item)
+    })
+
+    // Create a map to track stock adjustments (positive means return to stock, negative means remove from stock)
+    const stockAdjustments = new Map()
+
+    // Process removed items (return stock)
+    currentItems?.forEach((item) => {
+      const stillExists = saleItems.some((newItem) => !newItem.id?.startsWith("temp_") && newItem.id === item.id)
+
+      if (!stillExists) {
+        // Item was removed, return stock
+        const adjustment = stockAdjustments.get(item.product_id) || 0
+        stockAdjustments.set(item.product_id, adjustment + item.quantity)
+      }
+    })
+
+    // Process new and updated items
+    saleItems.forEach((item) => {
+      if (item.id?.startsWith("temp_")) {
+        // New item, reduce stock
+        const adjustment = stockAdjustments.get(item.product_id) || 0
+        stockAdjustments.set(item.product_id, adjustment - item.quantity)
+      } else {
+        // Existing item, adjust stock based on quantity difference
+        const currentItem = currentItemsMap.get(item.id)
+        if (currentItem) {
+          const quantityDiff = currentItem.quantity - item.quantity
+          if (quantityDiff !== 0) {
+            const adjustment = stockAdjustments.get(item.product_id) || 0
+            stockAdjustments.set(item.product_id, adjustment + quantityDiff)
+          }
+        }
+      }
+    })
+
+    // Update the sale
+    const { error: updateSaleError } = await supabase.from("sales").update(saleData).eq("id", saleId)
+
+    if (updateSaleError) throw updateSaleError
+
+    // Delete all current sale items
+    const { error: deleteItemsError } = await supabase.from("sale_items").delete().eq("sale_id", saleId)
+
+    if (deleteItemsError) throw deleteItemsError
+
+    // Insert new sale items
+    const itemsWithSaleId = saleItems.map((item) => ({
+      product_id: item.product_id,
+      quantity: item.quantity,
+      price: item.price,
+      sale_id: saleId,
+    }))
+
+    const { error: insertItemsError } = await supabase.from("sale_items").insert(itemsWithSaleId)
+
+    if (insertItemsError) throw insertItemsError
+
+    // Apply stock adjustments
+    for (const [productId, adjustment] of stockAdjustments.entries()) {
+      if (adjustment !== 0) {
+        // Get current product stock
+        const { data: productData, error: productError } = await supabase
+          .from("products")
+          .select("stock")
+          .eq("id", productId)
+          .single()
+
+        if (productError) throw productError
+
+        // Calculate new stock level (add adjustment - positive means return to stock)
+        const newStock = Math.max(0, productData.stock + adjustment)
+
+        // Update product stock
+        const { error: updateError } = await supabase.from("products").update({ stock: newStock }).eq("id", productId)
+
+        if (updateError) throw updateError
+      }
+    }
+
+    return { error: null }
+  } catch (error) {
+    console.error("Error updating sale:", error)
+    return { error }
+  }
+}
+
+// Function to get low stock products
+export async function getLowStockProducts() {
+  const supabase = createClient()
+
+  try {
+    // First, fetch all products
+    const { data, error } = await supabase.from("products").select("*").order("stock")
 
     if (error) throw error
 
-    // Then filter locally for products where stock is less than min_stock
-    const lowStock = data?.filter((product) => product.stock < product.min_stock) || []
+    // Then filter on the client side for products where stock < min_stock
+    const lowStockProducts = data?.filter((product) => product.stock < product.min_stock) || []
 
-    return lowStock
+    return lowStockProducts
   } catch (error) {
     console.error("Error fetching low stock products:", error)
     throw error
   }
 }
 
-// Get categories
+// Function to get dashboard statistics
+export async function getDashboardStats(dateRange?: { from: Date; to: Date }) {
+  const supabase = createClient()
+
+  try {
+    // Format dates for query if provided
+    const fromDate = dateRange?.from ? dateRange.from.toISOString().split("T")[0] : undefined
+    const toDate = dateRange?.to ? `${dateRange.to.toISOString().split("T")[0]} 23:59:59` : undefined
+
+    // Get sales stats
+    let salesQuery = supabase.from("sales").select("*")
+    if (fromDate) salesQuery = salesQuery.gte("created_at", fromDate)
+    if (toDate) salesQuery = salesQuery.lte("created_at", toDate)
+    const { data: salesData, error: salesError } = await salesQuery
+
+    if (salesError) throw salesError
+
+    // Get expense stats
+    let expensesQuery = supabase.from("expenses").select("*")
+    if (fromDate) expensesQuery = expensesQuery.gte("created_at", fromDate)
+    if (toDate) expensesQuery = expensesQuery.lte("created_at", toDate)
+    const { data: expensesData, error: expensesError } = await expensesQuery
+
+    if (expensesError) throw expensesError
+
+    // Get product stats
+    const { data: productsData, error: productsError } = await supabase.from("products").select("*")
+
+    if (productsError) throw productsError
+
+    // Get low stock products
+    const lowStockProducts = await getLowStockProducts()
+
+    // Calculate statistics
+    const totalSales = salesData ? salesData.reduce((sum, sale) => sum + (sale.total || 0), 0) : 0
+    const totalExpenses = expensesData ? expensesData.reduce((sum, expense) => sum + (expense.amount || 0), 0) : 0
+    const profit = totalSales - totalExpenses
+    const totalProducts = productsData ? productsData.length : 0
+    const lowStockCount = lowStockProducts ? lowStockProducts.length : 0
+    const outOfStockCount = productsData ? productsData.filter((product) => product.stock === 0).length : 0
+
+    // Get recent sales
+    const recentSales = salesData
+      ? [...salesData]
+          .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+          .slice(0, 5)
+      : []
+
+    // Get recent expenses
+    const recentExpenses = expensesData
+      ? [...expensesData]
+          .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+          .slice(0, 5)
+      : []
+
+    return {
+      totalSales,
+      totalExpenses,
+      profit,
+      salesCount: salesData ? salesData.length : 0,
+      expensesCount: expensesData ? expensesData.length : 0,
+      totalProducts,
+      lowStockCount,
+      outOfStockCount,
+      recentSales,
+      recentExpenses,
+    }
+  } catch (error) {
+    console.error("Error fetching dashboard stats:", error)
+    throw error
+  }
+}
+
+// Category management functions
 export async function getCategories() {
+  const supabase = createClient()
+
   try {
     const { data, error } = await supabase.from("categories").select("*").order("name")
 
@@ -171,301 +345,167 @@ export async function getCategories() {
   }
 }
 
-export async function createSale(sale: Sale, saleItems: SaleItem[]) {
+export async function addCategory(name: string) {
+  const supabase = createClient()
+
   try {
-    // Insert the sale
-    const { data: saleData, error: saleError } = await supabase.from("sales").insert(sale).select().single()
+    const { data, error } = await supabase.from("categories").insert({ name }).select().single()
 
-    if (saleError) throw saleError
+    if (error) throw error
 
-    // Add sale_id to each item
-    const itemsWithSaleId = saleItems.map((item) => ({
-      ...item,
-      sale_id: saleData.id,
-    }))
-
-    // Insert the sale items
-    const { error: itemsError } = await supabase.from("sale_items").insert(itemsWithSaleId)
-
-    if (itemsError) throw itemsError
-
-    // Update product stock
-    for (const item of saleItems) {
-      // Update product stock directly instead of using RPC
-      const { data: product } = await supabase.from("products").select("stock").eq("id", item.product_id).single()
-
-      if (product) {
-        const newStock = Math.max(0, product.stock - item.quantity)
-
-        const { error: updateError } = await supabase
-          .from("products")
-          .update({ stock: newStock })
-          .eq("id", item.product_id)
-
-        if (updateError) throw updateError
-      }
-    }
-
-    return { data: saleData, error: null }
+    return data
   } catch (error) {
-    console.error("Error creating sale:", error)
-    return { data: null, error }
-  }
-}
-
-// Get a specific sale with its items
-export async function getSale(saleId: string) {
-  try {
-    // Get the sale
-    const { data: sale, error: saleError } = await supabase.from("sales").select("*").eq("id", saleId).single()
-
-    if (saleError) throw saleError
-
-    // Get the sale items
-    const { data: items, error: itemsError } = await supabase.from("sale_items").select("*").eq("sale_id", saleId)
-
-    if (itemsError) throw itemsError
-
-    return { sale, items }
-  } catch (error) {
-    console.error("Error fetching sale:", error)
+    console.error("Error adding category:", error)
     throw error
   }
 }
 
-// Update an existing sale
-export async function updateSale(saleId: string, sale: Sale, saleItems: SaleItem[]) {
+export async function updateCategory(id: string, name: string) {
+  const supabase = createClient()
+
   try {
-    // Update the sale
-    const { data: saleData, error: saleError } = await supabase
-      .from("sales")
-      .update({
-        total: sale.total,
-        tax: sale.tax,
-        payment_method: sale.payment_method,
+    const { data, error } = await supabase.from("categories").update({ name }).eq("id", id).select().single()
+
+    if (error) throw error
+
+    return data
+  } catch (error) {
+    console.error("Error updating category:", error)
+    throw error
+  }
+}
+
+export async function deleteCategory(id: string) {
+  const supabase = createClient()
+
+  try {
+    const { error } = await supabase.from("categories").delete().eq("id", id)
+
+    if (error) throw error
+
+    return true
+  } catch (error) {
+    console.error("Error deleting category:", error)
+    throw error
+  }
+}
+
+// Function to add a new product
+export async function addProduct(productData: {
+  name: string
+  price: string
+  barcode: string
+  stock: string
+  min_stock: string
+  image?: string
+  category_id?: string
+  purchase_price?: string
+}) {
+  const supabase = createClient()
+
+  try {
+    // Convert string values to appropriate types
+    const formattedData = {
+      name: productData.name,
+      price: Number.parseFloat(productData.price) || 0,
+      barcode: productData.barcode,
+      stock: Number.parseInt(productData.stock) || 0,
+      min_stock: Number.parseInt(productData.min_stock) || 0,
+      image: productData.image || null,
+      category_id: productData.category_id === "none" ? null : productData.category_id || null,
+      purchase_price: productData.purchase_price ? Number.parseFloat(productData.purchase_price) : null,
+    }
+
+    const { data, error } = await supabase.from("products").insert(formattedData).select().single()
+
+    if (error) throw error
+
+    return data
+  } catch (error) {
+    console.error("Error adding product:", error)
+    throw error
+  }
+}
+
+// Function to delete a product
+export async function deleteProduct(id: string) {
+  const supabase = createClient()
+
+  try {
+    const { error } = await supabase.from("products").delete().eq("id", id)
+
+    if (error) throw error
+
+    return true
+  } catch (error) {
+    console.error("Error deleting product:", error)
+    throw error
+  }
+}
+
+// Helper function to refresh settings
+export async function refreshSettings(setSettings: any) {
+  const supabase = createClient()
+  try {
+    // First try to get global settings
+    let { data: settingsData, error: settingsError } = await supabase
+      .from("settings")
+      .select("*")
+      .eq("type", "global")
+      .single()
+
+    // If no global settings, try system settings
+    if (settingsError || !settingsData) {
+      const { data: systemData, error: systemError } = await supabase
+        .from("settings")
+        .select("*")
+        .eq("type", "system")
+        .single()
+
+      if (!systemError && systemData) {
+        settingsData = systemData
+        settingsError = null
+      }
+    }
+
+    if (!settingsError && settingsData) {
+      console.log("Refreshed settings:", settingsData)
+
+      // First check if settings.settings exists and has currency
+      let currencyValue = "USD"
+      let taxRateValue = 0
+
+      if (settingsData.settings && typeof settingsData.settings === "object" && settingsData.settings !== null) {
+        // Check for currency in settings.settings
+        if ("currency" in settingsData.settings && typeof settingsData.settings.currency === "string") {
+          currencyValue = settingsData.settings.currency
+        }
+
+        // Check for taxRate in settings.settings
+        if ("taxRate" in settingsData.settings && typeof settingsData.settings.taxRate === "number") {
+          taxRateValue = settingsData.settings.taxRate
+        }
+      }
+
+      // Fallback to top-level currency field if it exists
+      if (settingsData.currency && typeof settingsData.currency === "string") {
+        currencyValue = settingsData.currency
+      }
+
+      // Fallback to top-level tax_rate field if it exists
+      if (typeof settingsData.tax_rate === "number") {
+        taxRateValue = settingsData.tax_rate
+      }
+
+      setSettings({
+        id: settingsData.id,
+        tax_rate: taxRateValue,
+        store_name: settingsData.store_name || "My Store",
+        currency: currencyValue,
       })
-      .eq("id", saleId)
-      .select()
-
-    if (saleError) throw saleError
-
-    // Delete existing sale items
-    const { error: deleteError } = await supabase.from("sale_items").delete().eq("sale_id", saleId)
-
-    if (deleteError) throw deleteError
-
-    // Add sale_id to each item
-    const itemsWithSaleId = saleItems.map((item) => ({
-      ...item,
-      sale_id: saleId,
-    }))
-
-    // Insert the new sale items
-    const { error: itemsError } = await supabase.from("sale_items").insert(itemsWithSaleId)
-
-    if (itemsError) throw itemsError
-
-    // Update product stock for each item
-    for (const item of saleItems) {
-      // Get current product stock
-      const { data: product } = await supabase.from("products").select("stock").eq("id", item.product_id).single()
-
-      if (product) {
-        const newStock = Math.max(0, product.stock - item.quantity)
-
-        const { error: updateError } = await supabase
-          .from("products")
-          .update({ stock: newStock })
-          .eq("id", item.product_id)
-
-        if (updateError) throw updateError
-      }
-    }
-
-    return { data: saleData, error: null }
-  } catch (error) {
-    console.error("Error updating sale:", error)
-    return { data: null, error }
-  }
-}
-
-// Add this function to the end of your supabase.ts file
-
-// Get dashboard statistics
-export async function getDashboardStats() {
-  try {
-    // Get total revenue
-    const { data: salesData, error: salesError } = await supabase.from("sales").select("total")
-
-    if (salesError) throw salesError
-
-    // Calculate total revenue
-    const totalRevenue = salesData?.reduce((sum, sale) => sum + (sale.total || 0), 0) || 0
-
-    // Get total number of products
-    const { count: productsCount, error: productsError } = await supabase
-      .from("products")
-      .select("*", { count: "exact", head: true })
-
-    if (productsError) throw productsError
-
-    // Get total number of customers (profiles with role 'customer')
-    const { count: customersCount, error: customersError } = await supabase
-      .from("profiles")
-      .select("*", { count: "exact", head: true })
-
-    if (customersError) throw customersError
-
-    // Get total number of sales
-    const { count: salesCount, error: salesCountError } = await supabase
-      .from("sales")
-      .select("*", { count: "exact", head: true })
-
-    if (salesCountError) throw salesCountError
-
-    // Get low stock products
-    const { data: productsForLowStock, error: lowStockError } = await supabase.from("products").select("*")
-
-    if (lowStockError) throw lowStockError
-
-    // Filter products where stock is less than min_stock
-    const lowStockData = productsForLowStock?.filter((product) => product.stock < product.min_stock) || []
-
-    // Return dashboard stats
-    return {
-      totalRevenue,
-      productsCount: productsCount || 0,
-      customersCount: customersCount || 0,
-      salesCount: salesCount || 0,
-      lowStockCount: lowStockData?.length || 0,
-      lowStockProducts: lowStockData || [],
     }
   } catch (error) {
-    console.error("Error fetching dashboard stats:", error)
-    // Return default values in case of error
-    return {
-      totalRevenue: 0,
-      productsCount: 0,
-      customersCount: 0,
-      salesCount: 0,
-      lowStockCount: 0,
-      lowStockProducts: [],
-    }
-  }
-}
-
-// Add this function to optimize fetching all data at once
-export async function getPOSPageData() {
-  try {
-    // Fetch products
-    const { data: products, error: productsError } = await supabase.from("products").select("*").order("name")
-    if (productsError) throw productsError
-
-    // Fetch settings - handle errors with try/catch instead of .catch()
-    let settings = {
-      id: "1",
-      tax_rate: 0,
-      store_name: "My Store",
-      currency: "USD",
-    }
-
-    try {
-      const { data: settingsData, error: settingsError } = await supabase.from("settings").select("*").single()
-      if (!settingsError && settingsData) {
-        settings = settingsData
-      }
-    } catch (settingsError) {
-      console.error("Error fetching settings:", settingsError)
-      // Keep using default settings
-    }
-
-    // Calculate low stock products client-side instead of making another request
-    const lowStockProducts = products?.filter((product) => product.stock < product.min_stock) || []
-
-    return {
-      products: products || [],
-      settings,
-      lowStockProducts,
-      error: null,
-    }
-  } catch (error) {
-    console.error("Error fetching POS data:", error)
-    return {
-      products: [],
-      settings: {
-        id: "1",
-        tax_rate: 0,
-        store_name: "My Store",
-        currency: "USD",
-      },
-      lowStockProducts: [],
-      error,
-    }
-  }
-}
-
-// Add this function to handle authentication with rate limiting
-export async function signInWithRateLimiting(email: string, password: string) {
-  try {
-    // Check local storage for rate limiting
-    const rateLimitKey = `auth_rate_limit_${email.toLowerCase()}`
-    const rateLimitData = localStorage.getItem(rateLimitKey)
-
-    if (rateLimitData) {
-      const { attempts, timestamp, blocked } = JSON.parse(rateLimitData)
-      const now = Date.now()
-
-      // If blocked and block time hasn't expired
-      if (blocked && now - timestamp < 30000) {
-        // 30 seconds block
-        return {
-          error: {
-            message: "Rate limit reached. Please try again later.",
-            status: 429,
-          },
-          data: null,
-        }
-      }
-
-      // If too many attempts in a short period
-      if (attempts >= 5 && now - timestamp < 60000) {
-        // 5 attempts within 1 minute
-        // Set as blocked
-        localStorage.setItem(rateLimitKey, JSON.stringify({ attempts: attempts + 1, timestamp: now, blocked: true }))
-
-        return {
-          error: {
-            message: "Rate limit reached. Please try again in 30 seconds.",
-            status: 429,
-          },
-          data: null,
-        }
-      }
-
-      // Reset counter if it's been more than 1 minute
-      if (now - timestamp > 60000) {
-        localStorage.setItem(rateLimitKey, JSON.stringify({ attempts: 1, timestamp: now, blocked: false }))
-      } else {
-        // Increment attempt counter
-        localStorage.setItem(rateLimitKey, JSON.stringify({ attempts: attempts + 1, timestamp, blocked: false }))
-      }
-    } else {
-      // First attempt
-      localStorage.setItem(rateLimitKey, JSON.stringify({ attempts: 1, timestamp: Date.now(), blocked: false }))
-    }
-
-    // Proceed with actual authentication
-    const result = await supabase.auth.signInWithPassword({ email, password })
-
-    // If successful, clear rate limit data
-    if (!result.error) {
-      localStorage.removeItem(rateLimitKey)
-    }
-
-    return result
-  } catch (error) {
-    console.error("Sign in error:", error)
-    return { error, data: null }
+    console.error("Error refreshing settings:", error)
   }
 }
 

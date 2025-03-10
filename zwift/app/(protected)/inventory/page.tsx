@@ -6,7 +6,7 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { getProducts, addProduct, updateProduct, deleteProduct } from "@/lib/supabase"
+import { getProducts, addProduct, updateProduct, deleteProduct, getCategories, addCategory } from "@/lib/supabase"
 import {
   Loader2,
   Search,
@@ -20,6 +20,8 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  FolderPlus,
+  RefreshCw,
 } from "lucide-react"
 import {
   Dialog,
@@ -48,6 +50,12 @@ type Product = {
   category_id: string | null
   purchase_price: number | null
   created_at?: string | null
+}
+
+// Define the Category type
+type Category = {
+  id: string
+  name: string
 }
 
 // Function to generate a unique EAN-13 barcode
@@ -82,6 +90,7 @@ export default function InventoryPage() {
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -98,6 +107,12 @@ export default function InventoryPage() {
     purchase_price: "",
   })
 
+  // Category state
+  const [categories, setCategories] = useState<Category[]>([])
+  const [isAddCategoryDialogOpen, setIsAddCategoryDialogOpen] = useState(false)
+  const [newCategoryName, setNewCategoryName] = useState("")
+  const [isSavingCategory, setIsSavingCategory] = useState(false)
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(5)
@@ -110,6 +125,7 @@ export default function InventoryPage() {
 
   useEffect(() => {
     loadProducts()
+    loadCategories()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const updatePaginatedProducts = useCallback(() => {
@@ -144,8 +160,24 @@ export default function InventoryPage() {
       setIsLoading(true)
       const productsData = await getProducts()
 
-      // Ensure all products have the required fields
-      const productsArray = Array.isArray(productsData) ? (productsData as Product[]) : []
+      // Ensure all products have the required fields and proper data types
+      const productsArray = Array.isArray(productsData)
+        ? productsData.map((product) => ({
+            ...product,
+            // Ensure numeric values are properly typed
+            price: typeof product.price === "number" ? product.price : Number.parseFloat(String(product.price)) || 0,
+            stock: typeof product.stock === "number" ? product.stock : Number.parseInt(String(product.stock), 10) || 0,
+            min_stock:
+              typeof product.min_stock === "number"
+                ? product.min_stock
+                : Number.parseInt(String(product.min_stock), 10) || 0,
+            purchase_price: product.purchase_price
+              ? typeof product.purchase_price === "number"
+                ? product.purchase_price
+                : Number.parseFloat(String(product.purchase_price)) || null
+              : null,
+          }))
+        : []
 
       setProducts(productsArray)
       setFilteredProducts(productsArray)
@@ -158,6 +190,26 @@ export default function InventoryPage() {
       })
     } finally {
       setIsLoading(false)
+      setIsRefreshing(false)
+    }
+  }
+
+  const refreshProducts = async () => {
+    setIsRefreshing(true)
+    await loadProducts()
+  }
+
+  const loadCategories = async () => {
+    try {
+      const categoriesData = await getCategories()
+      setCategories(categoriesData as Category[])
+    } catch (error) {
+      console.error("Error loading categories:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load categories",
+        variant: "destructive",
+      })
     }
   }
 
@@ -242,8 +294,19 @@ export default function InventoryPage() {
     if (!selectedProduct) return
 
     try {
+      // Ensure numeric values are properly converted
+      const processedFormData = {
+        ...formData,
+        stock: formData.stock.trim() ? Number.parseInt(formData.stock, 10) : 0,
+        min_stock: formData.min_stock.trim() ? Number.parseInt(formData.min_stock, 10) : 0,
+        price: formData.price.trim() ? Number.parseFloat(formData.price) : 0,
+        purchase_price: formData.purchase_price.trim() ? Number.parseFloat(formData.purchase_price) : null,
+      }
+
       await updateProduct(selectedProduct.id, formData)
       setIsEditDialogOpen(false)
+
+      // Force a complete refresh of products after update
       await loadProducts()
 
       toast({
@@ -380,6 +443,55 @@ export default function InventoryPage() {
     })
   }
 
+  // Handle adding a new category
+  const handleAddCategory = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!newCategoryName.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Please enter a category name",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSavingCategory(true)
+
+    try {
+      const newCategory = await addCategory(newCategoryName)
+
+      // Refresh categories
+      await loadCategories()
+
+      // Reset form and close dialog
+      setNewCategoryName("")
+      setIsAddCategoryDialogOpen(false)
+
+      // Set the newly created category as the selected one in the product form
+      if (newCategory && newCategory.id) {
+        setFormData((prev) => ({
+          ...prev,
+          category_id: newCategory.id,
+        }))
+      }
+
+      toast({
+        title: "Category added",
+        description: "The category has been added successfully.",
+      })
+    } catch (error) {
+      console.error("Error adding category:", error)
+      toast({
+        title: "Error",
+        description: "Failed to add category. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSavingCategory(false)
+    }
+  }
+
   const handlePageSizeChange = (value: string) => {
     setPageSize(Number.parseInt(value))
     setCurrentPage(1) // Reset to first page when changing page size
@@ -414,6 +526,9 @@ export default function InventoryPage() {
               onChange={handleSearch}
             />
           </div>
+          <Button variant="outline" onClick={refreshProducts} disabled={isRefreshing}>
+            {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          </Button>
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>
               <Button>
@@ -540,19 +655,34 @@ export default function InventoryPage() {
                     <Label htmlFor="category_id" className="text-right">
                       Category
                     </Label>
-                    <Select
-                      name="category_id"
-                      value={formData.category_id}
-                      onValueChange={(value) => setFormData((prev) => ({ ...prev, category_id: value }))}
-                    >
-                      <SelectTrigger className="col-span-3">
-                        <SelectValue placeholder="Select a category (optional)" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        {/* Add your categories here */}
-                      </SelectContent>
-                    </Select>
+                    <div className="col-span-3 flex gap-2">
+                      <Select
+                        name="category_id"
+                        value={formData.category_id}
+                        onValueChange={(value) => setFormData((prev) => ({ ...prev, category_id: value }))}
+                      >
+                        <SelectTrigger className="flex-1">
+                          <SelectValue placeholder="Select a category (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">None</SelectItem>
+                          {categories.map((category) => (
+                            <SelectItem key={category.id} value={category.id}>
+                              {category.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => setIsAddCategoryDialogOpen(true)}
+                        title="Add new category"
+                      >
+                        <FolderPlus className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
                 <DialogFooter>
@@ -607,6 +737,7 @@ export default function InventoryPage() {
                     <th className="px-4 py-3 text-right text-sm font-medium">Purchase Price</th>
                     <th className="px-4 py-3 text-right text-sm font-medium">Stock</th>
                     <th className="px-4 py-3 text-right text-sm font-medium">Min Stock</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">Category</th>
                     <th className="px-4 py-3 text-left text-sm font-medium">Created At</th>
                     <th className="px-4 py-3 text-center text-sm font-medium">Actions</th>
                   </tr>
@@ -636,6 +767,9 @@ export default function InventoryPage() {
                       </td>
                       <td className="px-4 py-3 text-sm text-right">{product.stock}</td>
                       <td className="px-4 py-3 text-sm text-right">{product.min_stock}</td>
+                      <td className="px-4 py-3 text-sm">
+                        {product.category_id ? categories.find((c) => c.id === product.category_id)?.name || "-" : "-"}
+                      </td>
                       <td className="px-4 py-3 text-sm">
                         {product.created_at ? format(new Date(product.created_at), "PPp") : "-"}
                       </td>
@@ -837,19 +971,34 @@ export default function InventoryPage() {
                 <Label htmlFor="edit-category_id" className="text-right">
                   Category
                 </Label>
-                <Select
-                  name="category_id"
-                  value={formData.category_id}
-                  onValueChange={(value) => setFormData((prev) => ({ ...prev, category_id: value }))}
-                >
-                  <SelectTrigger className="col-span-3">
-                    <SelectValue placeholder="Select a category (optional)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    {/* Add your categories here */}
-                  </SelectContent>
-                </Select>
+                <div className="col-span-3 flex gap-2">
+                  <Select
+                    name="category_id"
+                    value={formData.category_id}
+                    onValueChange={(value) => setFormData((prev) => ({ ...prev, category_id: value }))}
+                  >
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Select a category (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {categories.map((category) => (
+                        <SelectItem key={category.id} value={category.id}>
+                          {category.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setIsAddCategoryDialogOpen(true)}
+                    title="Add new category"
+                  >
+                    <FolderPlus className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </div>
             <DialogFooter>
@@ -880,6 +1029,48 @@ export default function InventoryPage() {
               Delete
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Category Dialog */}
+      <Dialog open={isAddCategoryDialogOpen} onOpenChange={setIsAddCategoryDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add New Category</DialogTitle>
+            <DialogDescription>Create a new category for your products.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleAddCategory}>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="category-name" className="text-right">
+                  Name
+                </Label>
+                <Input
+                  id="category-name"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  className="col-span-3"
+                  placeholder="Enter category name"
+                  required
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsAddCategoryDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSavingCategory}>
+                {isSavingCategory ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Add Category"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 

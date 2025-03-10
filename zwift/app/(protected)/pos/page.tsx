@@ -1,13 +1,15 @@
 "use client"
 
+import { DialogTrigger } from "@/components/ui/dialog"
+
 import type React from "react"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
+import { createClient } from "@/lib/supabase-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
-import { useToast } from "@/components/ui/use-toast"
+import { useToast } from "@/components/ui/use-toast" // Changed from @/hooks/use-toast to @/components/ui/use-toast
 import { Switch } from "@/components/ui/switch"
 import {
   Loader2,
@@ -24,18 +26,13 @@ import {
   Barcode,
 } from "lucide-react"
 import Image from "next/image"
-import type { Database } from "@/types/supabase"
 import { createSale, getLowStockProducts } from "@/lib/supabase"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
+import { useLanguage, isRTL } from "@/hooks/use-language"
+import { getPOSTranslation } from "@/lib/pos-translations"
+import { formatCurrency } from "@/lib/format-currency"
 
 // Define types
 type Product = {
@@ -64,37 +61,10 @@ type Settings = {
   currency: string
 }
 
-// Helper function to format currency
-const formatCurrency = (amount: number, currency: string) => {
-  console.log(`Formatting amount ${amount} with currency ${currency}`) // Debug log
-
-  // Basic currency formatting based on currency code
-  const currencySymbols: Record<string, string> = {
-    USD: "$",
-    EUR: "€",
-    GBP: "£",
-    JPY: "¥",
-    CAD: "C$",
-    AUD: "A$",
-    INR: "₹",
-    CNY: "¥",
-    BRL: "R$",
-    MAD: "DH",
-  }
-
-  // Default to the currency code if no symbol is found
-  const symbol = currencySymbols[currency] || currency
-
-  // For MAD (Moroccan Dirham), the symbol comes after the amount
-  if (currency === "MAD") {
-    return `${amount.toFixed(2)} ${symbol}`
-  }
-
-  // For other currencies, the symbol comes before the amount
-  return `${symbol}${amount.toFixed(2)}`
-}
-
 const POSPage = () => {
+  const { language, getTranslation } = useLanguage()
+  const rtlEnabled = isRTL(language)
+
   const [products, setProducts] = useState<Product[]>([])
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([])
   const [lowStockProducts, setLowStockProducts] = useState<Product[]>([])
@@ -115,8 +85,8 @@ const POSPage = () => {
   })
   const [lastAddedProduct, setLastAddedProduct] = useState<Product | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null) // Ref for search input to focus after adding
-  const { toast } = useToast()
-  const supabase = createClientComponentClient<Database>()
+  const { toast } = useToast() // Using the correct import
+  const supabase = createClient()
 
   // Track the last notification to prevent duplicates
   const lastNotificationRef = useRef<{ productId: string; timestamp: number }>({ productId: "", timestamp: 0 })
@@ -171,12 +141,26 @@ const POSPage = () => {
       try {
         console.log("Fetching settings...")
 
-        // Fetch system settings
-        const { data: settingsData, error: settingsError } = await supabase
+        // Try to fetch global settings first
+        let { data: settingsData, error: settingsError } = await supabase
           .from("settings")
           .select("*")
-          .eq("type", "system")
+          .eq("type", "global")
           .single()
+
+        // If no global settings, try system settings
+        if (settingsError || !settingsData) {
+          const { data: systemData, error: systemError } = await supabase
+            .from("settings")
+            .select("*")
+            .eq("type", "system")
+            .single()
+
+          if (!systemError && systemData) {
+            settingsData = systemData
+            settingsError = null
+          }
+        }
 
         if (!settingsError && settingsData) {
           console.log("Loaded settings:", settingsData)
@@ -189,16 +173,20 @@ const POSPage = () => {
               "taxRate" in settingsData.settings &&
               typeof settingsData.settings.taxRate === "number"
                 ? settingsData.settings.taxRate
-                : 0,
+                : typeof settingsData.tax_rate === "number"
+                  ? settingsData.tax_rate
+                  : 0,
             store_name: settingsData.store_name || "My Store",
             currency:
-              settingsData.settings &&
-              typeof settingsData.settings === "object" &&
-              settingsData.settings !== null &&
-              "currency" in settingsData.settings &&
-              typeof settingsData.settings.currency === "string"
-                ? settingsData.settings.currency
-                : "USD",
+              settingsData.currency && typeof settingsData.currency === "string"
+                ? settingsData.currency
+                : settingsData.settings &&
+                    typeof settingsData.settings === "object" &&
+                    settingsData.settings !== null &&
+                    "currency" in settingsData.settings &&
+                    typeof settingsData.settings.currency === "string"
+                  ? settingsData.settings.currency
+                  : "USD",
           })
         } else {
           console.error("Settings error or no data:", settingsError)
@@ -227,14 +215,33 @@ const POSPage = () => {
     } catch (error) {
       console.error("Error fetching data:", error)
       toast({
-        title: "Error",
+        title: getPOSTranslation("errorFetchingProducts", language),
         description: "Failed to load products",
         variant: "destructive",
       })
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, toast])
+  }, [supabase, toast, language])
+
+  // Add this right after the fetchData function in your POS page
+  useEffect(() => {
+    // Debug effect to log low stock products
+    console.log("Current lowStockProducts:", lowStockProducts)
+
+    // Add a direct check to test the getLowStockProducts function
+    const testLowStock = async () => {
+      try {
+        console.log("Testing getLowStockProducts function directly...")
+        const lowStock = await getLowStockProducts()
+        console.log("Direct test result:", lowStock)
+      } catch (error) {
+        console.error("Error testing getLowStockProducts:", error)
+      }
+    }
+
+    testLowStock()
+  }, [lowStockProducts])
 
   // Add a function to fetch recent sales after the fetchData function
   const fetchRecentSales = useCallback(async () => {
@@ -297,58 +304,73 @@ const POSPage = () => {
     fetchRecentSales()
   }, [fetchData, fetchRecentSales])
 
-  // Add this effect to refresh settings when the page gets focus
-  useEffect(() => {
-    // Function to refresh settings
-    const refreshSettings = async () => {
-      try {
-        const { data: settingsData, error: settingsError } = await supabase
+  // Define refreshSettings using useCallback so it can be used in multiple places
+  const refreshSettings = useCallback(async () => {
+    try {
+      // First try to get global settings
+      let { data: settingsData, error: settingsError } = await supabase
+        .from("settings")
+        .select("*")
+        .eq("type", "global")
+        .single()
+
+      // If no global settings, try system settings
+      if (settingsError || !settingsData) {
+        const { data: systemData, error: systemError } = await supabase
           .from("settings")
           .select("*")
-          .eq("type", "global") // Change from "system" to "global" to match the currency selector
+          .eq("type", "system")
           .single()
 
-        if (!settingsError && settingsData) {
-          console.log("Refreshed settings:", settingsData)
-
-          // First check if settings.settings exists and has currency
-          let currencyValue = "USD"
-          let taxRateValue = 0
-
-          if (settingsData.settings && typeof settingsData.settings === "object" && settingsData.settings !== null) {
-            // Check for currency in settings.settings
-            if ("currency" in settingsData.settings && typeof settingsData.settings.currency === "string") {
-              currencyValue = settingsData.settings.currency
-            }
-
-            // Check for taxRate in settings.settings
-            if ("taxRate" in settingsData.settings && typeof settingsData.settings.taxRate === "number") {
-              taxRateValue = settingsData.settings.taxRate
-            }
-          }
-
-          // Fallback to top-level currency field if it exists
-          if (settingsData.currency && typeof settingsData.currency === "string") {
-            currencyValue = settingsData.currency
-          }
-
-          // Fallback to top-level tax_rate field if it exists
-          if (typeof settingsData.tax_rate === "number") {
-            taxRateValue = settingsData.tax_rate
-          }
-
-          setSettings({
-            id: settingsData.id,
-            tax_rate: taxRateValue,
-            store_name: settingsData.store_name || "My Store",
-            currency: currencyValue,
-          })
+        if (!systemError && systemData) {
+          settingsData = systemData
+          settingsError = null
         }
-      } catch (error) {
-        console.error("Error refreshing settings:", error)
       }
-    }
 
+      if (!settingsError && settingsData) {
+        console.log("Refreshed settings:", settingsData)
+
+        // First check if settings.settings exists and has currency
+        let currencyValue = "USD"
+        let taxRateValue = 0
+
+        if (settingsData.settings && typeof settingsData.settings === "object" && settingsData.settings !== null) {
+          // Check for currency in settings.settings
+          if ("currency" in settingsData.settings && typeof settingsData.settings.currency === "string") {
+            currencyValue = settingsData.settings.currency
+          }
+
+          // Check for taxRate in settings.settings
+          if ("taxRate" in settingsData.settings && typeof settingsData.settings.taxRate === "number") {
+            taxRateValue = settingsData.settings.taxRate
+          }
+        }
+
+        // Fallback to top-level currency field if it exists
+        if (settingsData.currency && typeof settingsData.currency === "string") {
+          currencyValue = settingsData.currency
+        }
+
+        // Fallback to top-level tax_rate field if it exists
+        if (typeof settingsData.tax_rate === "number") {
+          taxRateValue = settingsData.tax_rate
+        }
+
+        setSettings({
+          id: settingsData.id,
+          tax_rate: taxRateValue,
+          store_name: settingsData.store_name || "My Store",
+          currency: currencyValue,
+        })
+      }
+    } catch (error) {
+      console.error("Error refreshing settings:", error)
+    }
+  }, [supabase])
+
+  // Add this effect to refresh settings when the page gets focus
+  useEffect(() => {
     // Refresh settings when the page gets focus
     window.addEventListener("focus", refreshSettings)
 
@@ -359,7 +381,23 @@ const POSPage = () => {
     return () => {
       window.removeEventListener("focus", refreshSettings)
     }
-  }, [supabase])
+  }, [refreshSettings])
+
+  // Listen for storage events (which we trigger when settings are updated)
+  useEffect(() => {
+    const handleStorageChange = () => {
+      console.log("Storage event detected, refreshing settings")
+      refreshSettings()
+    }
+
+    // Add event listener
+    window.addEventListener("storage", handleStorageChange)
+
+    // Clean up
+    return () => {
+      window.removeEventListener("storage", handleStorageChange)
+    }
+  }, [refreshSettings])
 
   // Filter products based on search term
   useEffect(() => {
@@ -426,8 +464,8 @@ const POSPage = () => {
   const addToCart = (product: Product, showNotification = true): boolean => {
     if (product.stock <= 0) {
       toast({
-        title: "Out of stock",
-        description: `${product.name} is out of stock.`,
+        title: getPOSTranslation("outOfStock", language),
+        description: `${product.name} ${getPOSTranslation("outOfStock", language).toLowerCase()}.`,
         variant: "destructive",
       })
       return false
@@ -448,8 +486,8 @@ const POSPage = () => {
       // Check if we have enough stock
       if (existingItem.quantity >= product.stock) {
         toast({
-          title: "Stock limit reached",
-          description: `Only ${product.stock} units of ${product.name} available.`,
+          title: getPOSTranslation("stockLimitReached", language),
+          description: `${getPOSTranslation("stockLimitReached", language)}: ${product.stock} ${product.name}`,
           variant: "destructive",
         })
         return false
@@ -458,8 +496,8 @@ const POSPage = () => {
       // Show notification for adding another unit
       if (shouldShowNotification) {
         toast({
-          title: "Product updated",
-          description: `Added another ${product.name} to cart (${existingItem.quantity + 1})`,
+          title: getPOSTranslation("productUpdated", language),
+          description: `${getPOSTranslation("productUpdated", language)}: ${product.name} (${existingItem.quantity + 1})`,
         })
 
         // Update the last notification reference
@@ -479,8 +517,8 @@ const POSPage = () => {
       // Show notification for adding new product
       if (shouldShowNotification) {
         toast({
-          title: "Product added",
-          description: `${product.name} has been added to cart`,
+          title: getPOSTranslation("productAdded", language),
+          description: `${product.name} ${getPOSTranslation("productAdded", language).toLowerCase()}`,
         })
 
         // Update the last notification reference
@@ -517,8 +555,8 @@ const POSPage = () => {
     // Show notification for removing product
     if (itemToRemove) {
       toast({
-        title: "Product removed",
-        description: `${itemToRemove.product.name} has been removed from cart`,
+        title: getPOSTranslation("productRemoved", language),
+        description: `${itemToRemove.product.name} ${getPOSTranslation("productRemoved", language).toLowerCase()}`,
       })
     }
   }
@@ -533,8 +571,8 @@ const POSPage = () => {
           // Check stock limit
           if (newQuantity > item.product.stock) {
             toast({
-              title: "Stock limit reached",
-              description: `Only ${item.product.stock} units of ${item.product.name} available.`,
+              title: getPOSTranslation("stockLimitReached", language),
+              description: `${getPOSTranslation("stockLimitReached", language)}: ${item.product.stock} ${item.product.name}`,
               variant: "destructive",
             })
             return item
@@ -542,8 +580,8 @@ const POSPage = () => {
 
           // Show notification for quantity update
           toast({
-            title: "Quantity updated",
-            description: `${item.product.name} quantity changed to ${newQuantity}`,
+            title: getPOSTranslation("quantityUpdated", language),
+            description: `${item.product.name} ${getPOSTranslation("quantityUpdated", language).toLowerCase()} ${newQuantity}`,
           })
 
           return { ...item, quantity: newQuantity }
@@ -577,8 +615,8 @@ const POSPage = () => {
       await Promise.all(updates)
 
       toast({
-        title: "Stock updated",
-        description: "Product stock levels have been updated successfully.",
+        title: getPOSTranslation("stockLevelsUpdated", language),
+        description: getPOSTranslation("stockLevelsUpdatedSuccessfully", language),
       })
 
       // Refresh data
@@ -589,7 +627,7 @@ const POSPage = () => {
     } catch (error) {
       console.error("Error updating stock levels:", error)
       toast({
-        title: "Error",
+        title: getPOSTranslation("errorUpdatingStockLevels", language),
         description: "Failed to update stock levels",
         variant: "destructive",
       })
@@ -622,8 +660,8 @@ const POSPage = () => {
   const completeSale = async () => {
     if (!paymentMethod) {
       toast({
-        title: "Payment method required",
-        description: "Please select a payment method first.",
+        title: getPOSTranslation("paymentMethodRequired", language),
+        description: getPOSTranslation("paymentMethodRequired", language),
         variant: "destructive",
       })
       return
@@ -631,8 +669,8 @@ const POSPage = () => {
 
     if (cart.length === 0) {
       toast({
-        title: "Empty cart",
-        description: "Please add items to the cart before checkout.",
+        title: getPOSTranslation("emptyCart", language),
+        description: getPOSTranslation("emptyCartError", language),
         variant: "destructive",
       })
       return
@@ -662,9 +700,11 @@ const POSPage = () => {
         throw error
       }
 
+      // Fixed toast notification - explicitly set variant to default
       toast({
-        title: "Sale completed",
-        description: `Total: ${formatCurrency(calculateTotal(), settings.currency)}`,
+        title: getPOSTranslation("saleCompleted", language),
+        description: `${getPOSTranslation("total", language)}: ${formatCurrency(calculateTotal(), settings.currency, language)}`,
+        variant: "default", // Explicitly set variant to ensure visibility
       })
 
       // Clear cart and reset payment method to cash (default)
@@ -698,15 +738,17 @@ const POSPage = () => {
             <div className="flex items-center justify-between p-3 mb-2 border border-red-500 bg-red-50 dark:bg-red-950/20 rounded-md cursor-pointer">
               <div className="flex items-center">
                 <AlertTriangle className="h-5 w-5 text-red-500 mr-2" />
-                <span className="font-medium text-red-700 dark:text-red-400">Low Stock Alert</span>
+                <span className="font-medium text-red-700 dark:text-red-400">
+                  {getPOSTranslation("lowStockAlert", language)}
+                </span>
               </div>
               <Badge variant="destructive">{lowStockProducts.length}</Badge>
             </div>
           </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Low Stock Products</DialogTitle>
-              <DialogDescription>Adjust stock levels directly or add products to cart.</DialogDescription>
+              <DialogTitle>{getPOSTranslation("lowStockAlert", language)}</DialogTitle>
+              <DialogDescription>{getPOSTranslation("adjustStockLevelsDescription", language)}</DialogDescription>
             </DialogHeader>
             <div className="max-h-[60vh] overflow-auto">
               <div className="space-y-3 mt-4">
@@ -722,14 +764,14 @@ const POSPage = () => {
                           setShowLowStockDialog(false)
                         }}
                       >
-                        <ShoppingCart className="h-4 w-4 mr-1" />
-                        Add to Cart
+                        <ShoppingCart className={`h-4 w-4 ${rtlEnabled ? "ml-1" : "mr-1"}`} />
+                        {getPOSTranslation("addToCart", language)}
                       </Button>
                     </div>
                     <div className="flex items-end gap-4">
                       <div className="flex-1">
                         <Label htmlFor={`stock-${product.id}`} className="text-sm">
-                          Current Stock
+                          {getPOSTranslation("currentStock", language)}
                         </Label>
                         <div className="flex items-center mt-1">
                           <Input
@@ -743,7 +785,7 @@ const POSPage = () => {
                         </div>
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground mb-1">Min Stock</p>
+                        <p className="text-xs text-muted-foreground mb-1">{getPOSTranslation("minStock", language)}</p>
                         <Badge variant="outline">{product.min_stock}</Badge>
                       </div>
                     </div>
@@ -755,13 +797,13 @@ const POSPage = () => {
               <Button onClick={saveStockLevels} disabled={isSavingStock}>
                 {isSavingStock ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Saving...
+                    <Loader2 className={`${rtlEnabled ? "ml-2" : "mr-2"} h-4 w-4 animate-spin`} />
+                    {getPOSTranslation("saving", language)}
                   </>
                 ) : (
                   <>
-                    <Save className="mr-2 h-4 w-4" />
-                    Save Stock Levels
+                    <Save className={`${rtlEnabled ? "ml-2" : "mr-2"} h-4 w-4`} />
+                    {getPOSTranslation("adjustStockLevels", language)}
                   </>
                 )}
               </Button>
@@ -775,8 +817,10 @@ const POSPage = () => {
         <div className="lg:w-1/3 flex flex-col border rounded-lg overflow-hidden h-full">
           <CardHeader className="bg-muted py-3">
             <CardTitle className="flex justify-between items-center text-lg">
-              <span>Shopping Cart</span>
-              <span>{cart.length} items</span>
+              <span>{getPOSTranslation("shoppingCart", language)}</span>
+              <span>
+                {cart.length} {getPOSTranslation("items", language)}
+              </span>
             </CardTitle>
           </CardHeader>
 
@@ -784,7 +828,7 @@ const POSPage = () => {
             {cart.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-64 text-center">
                 <ShoppingCart className="h-12 w-12 text-muted-foreground mb-2" />
-                <p className="text-muted-foreground">Your cart is empty</p>
+                <p className="text-muted-foreground">{getPOSTranslation("emptyCart", language)}</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -807,7 +851,7 @@ const POSPage = () => {
                     <div className="flex-1 min-w-0">
                       <h4 className="font-medium text-sm line-clamp-1">{item.product.name}</h4>
                       <p className="text-sm text-muted-foreground">
-                        {formatCurrency(item.price, settings.currency)} each
+                        {formatCurrency(item.price, settings.currency, language)} {getPOSTranslation("each", language)}
                       </p>
                       <div className="flex items-center gap-2 mt-1">
                         <Button
@@ -836,7 +880,9 @@ const POSPage = () => {
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-medium">{formatCurrency(item.price * item.quantity, settings.currency)}</p>
+                      <p className="font-medium">
+                        {formatCurrency(item.price * item.quantity, settings.currency, language)}
+                      </p>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -858,16 +904,18 @@ const POSPage = () => {
           <CardFooter className="flex-col border-t p-4">
             <div className="w-full space-y-2 mb-4">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Subtotal</span>
-                <span>{formatCurrency(calculateSubtotal(), settings.currency)}</span>
+                <span className="text-muted-foreground">{getPOSTranslation("subtotal", language)}</span>
+                <span>{formatCurrency(calculateSubtotal(), settings.currency, language)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Tax ({settings.tax_rate}%)</span>
-                <span>{formatCurrency(calculateTax(), settings.currency)}</span>
+                <span className="text-muted-foreground">
+                  {getPOSTranslation("tax", language)} ({settings.tax_rate}%)
+                </span>
+                <span>{formatCurrency(calculateTax(), settings.currency, language)}</span>
               </div>
               <div className="flex justify-between font-bold text-lg">
-                <span>Total</span>
-                <span>{formatCurrency(calculateTotal(), settings.currency)}</span>
+                <span>{getPOSTranslation("total", language)}</span>
+                <span>{formatCurrency(calculateTotal(), settings.currency, language)}</span>
               </div>
             </div>
 
@@ -879,8 +927,8 @@ const POSPage = () => {
                   onClick={() => selectPaymentMethod("cash")}
                   disabled={isProcessing || cart.length === 0}
                 >
-                  <Banknote className="mr-2 h-4 w-4" />
-                  Cash
+                  <Banknote className={`${rtlEnabled ? "ml-2" : "mr-2"} h-4 w-4`} />
+                  {getPOSTranslation("cash", language)}
                 </Button>
                 <Button
                   variant={paymentMethod === "card" ? "default" : "outline"}
@@ -888,8 +936,8 @@ const POSPage = () => {
                   onClick={() => selectPaymentMethod("card")}
                   disabled={isProcessing || cart.length === 0}
                 >
-                  <CreditCard className="mr-2 h-4 w-4" />
-                  Card
+                  <CreditCard className={`${rtlEnabled ? "ml-2" : "mr-2"} h-4 w-4`} />
+                  {getPOSTranslation("card", language)}
                 </Button>
               </div>
 
@@ -900,13 +948,13 @@ const POSPage = () => {
               >
                 {isProcessing ? (
                   <>
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    Processing...
+                    <Loader2 className={`${rtlEnabled ? "ml-2" : "mr-2"} h-5 w-5 animate-spin`} />
+                    {getPOSTranslation("processing", language)}
                   </>
                 ) : (
                   <>
-                    <CheckCircle2 className="mr-2 h-5 w-5" />
-                    Complete Sale
+                    <CheckCircle2 className={`${rtlEnabled ? "ml-2" : "mr-2"} h-5 w-5`} />
+                    {getPOSTranslation("completeSale", language)}
                   </>
                 )}
               </Button>
@@ -918,14 +966,16 @@ const POSPage = () => {
         <div className="lg:w-2/3 overflow-auto">
           <div className="mb-4 sticky top-0 z-10 bg-background pt-2 pb-4">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+              <Search
+                className={`absolute ${rtlEnabled ? "right-3" : "left-3"} top-1/2 transform -translate-y-1/2 text-muted-foreground`}
+              />
               <Input
                 ref={searchInputRef}
-                placeholder="Search products by name or barcode..."
+                placeholder={getPOSTranslation("searchProducts", language)}
                 value={searchTerm}
                 onChange={handleSearch}
                 onKeyDown={handleSearchKeyDown}
-                className="pl-10"
+                className={rtlEnabled ? "pr-10" : "pl-10"}
                 autoComplete="off"
               />
             </div>
@@ -933,8 +983,8 @@ const POSPage = () => {
               <div className="flex items-center space-x-2">
                 <Switch id="barcode-mode" checked={autoAddOnBarcode} onCheckedChange={setAutoAddOnBarcode} />
                 <Label htmlFor="barcode-mode" className="text-sm flex items-center cursor-pointer">
-                  <Barcode className="h-4 w-4 mr-1" />
-                  Auto-add on exact barcode match
+                  <Barcode className={`h-4 w-4 ${rtlEnabled ? "ml-1" : "mr-1"}`} />
+                  {getPOSTranslation("barcodeModeLabel", language)}
                 </Label>
               </div>
             </div>
@@ -943,7 +993,7 @@ const POSPage = () => {
           {/* Recent Sales Section */}
           {recentSales.length > 0 && (
             <div className="mb-6">
-              <h3 className="text-lg font-medium mb-3">Recently Sold Products</h3>
+              <h3 className="text-lg font-medium mb-3">{getPOSTranslation("recentlySold", language)}</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-6">
                 {recentSales.map((product) => (
                   <Card
@@ -967,14 +1017,18 @@ const POSPage = () => {
                         )}
                         {product.stock <= 0 && (
                           <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
-                            <p className="text-destructive font-semibold">Out of Stock</p>
+                            <p className="text-destructive font-semibold">
+                              {getPOSTranslation("outOfStock", language)}
+                            </p>
                           </div>
                         )}
                       </div>
                       <h3 className="font-medium line-clamp-1">{product.name}</h3>
                       <div className="flex justify-between items-center mt-1">
-                        <p className="font-bold">{formatCurrency(product.price, settings.currency)}</p>
-                        <p className="text-sm text-muted-foreground">Stock: {product.stock}</p>
+                        <p className="font-bold">{formatCurrency(product.price, settings.currency, language)}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {getPOSTranslation("stock", language)}: {product.stock}
+                        </p>
                       </div>
                     </CardContent>
                   </Card>
@@ -988,14 +1042,16 @@ const POSPage = () => {
           <div>
             {searchTerm.trim() !== "" && (
               <>
-                <h3 className="text-lg font-medium mb-3">Search Results</h3>
+                <h3 className="text-lg font-medium mb-3">{getPOSTranslation("searchResults", language)}</h3>
                 {isLoading ? (
                   <div className="flex justify-center items-center h-64">
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
                 ) : filteredProducts.length === 0 ? (
                   <div className="text-center py-10">
-                    <p className="text-muted-foreground">No products found matching &quot;{searchTerm}&quot;</p>
+                    <p className="text-muted-foreground">
+                      {getPOSTranslation("noProductsFound", language)} &quot;{searchTerm}&quot;
+                    </p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -1021,16 +1077,22 @@ const POSPage = () => {
                             )}
                             {product.stock <= 0 && (
                               <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
-                                <p className="text-destructive font-semibold">Out of Stock</p>
+                                <p className="text-destructive font-semibold">
+                                  {getPOSTranslation("outOfStock", language)}
+                                </p>
                               </div>
                             )}
                           </div>
                           <h3 className="font-medium line-clamp-1">{product.name}</h3>
                           <div className="flex justify-between items-center mt-1">
-                            <p className="font-bold">{formatCurrency(product.price, settings.currency)}</p>
-                            <p className="text-sm text-muted-foreground">Stock: {product.stock}</p>
+                            <p className="font-bold">{formatCurrency(product.price, settings.currency, language)}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {getPOSTranslation("stock", language)}: {product.stock}
+                            </p>
                           </div>
-                          <p className="text-xs text-muted-foreground mt-1 truncate">Barcode: {product.barcode}</p>
+                          <p className="text-xs text-muted-foreground mt-1 truncate">
+                            {getPOSTranslation("barcode", language)}: {product.barcode}
+                          </p>
                         </CardContent>
                       </Card>
                     ))}

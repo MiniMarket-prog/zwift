@@ -1,14 +1,13 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
+import { createClient } from "@/lib/supabase-client"
 import { formatCurrency, type SupportedCurrency } from "@/lib/format-currency"
-import type { Database } from "@/types/supabase"
 
 export function useCurrency() {
   const [currency, setCurrency] = useState<SupportedCurrency>("USD")
   const [isLoading, setIsLoading] = useState(true)
-  const supabase = createClientComponentClient<Database>()
+  const supabase = createClient()
 
   const fetchCurrency = useCallback(async () => {
     try {

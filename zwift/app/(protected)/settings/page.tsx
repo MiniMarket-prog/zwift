@@ -3,17 +3,19 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
+import { createClient } from "@/lib/supabase-client"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
-import { Loader2, Check } from "lucide-react"
-import type { Database } from "@/types/supabase"
+import { Loader2, Check, AlertCircle } from "lucide-react"
 import type { Json } from "@/types/supabase"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { formatCurrency } from "@/lib/format-currency"
+import { isRTL } from "@/lib/language-utils"
+import { useLanguage } from "@/hooks/use-language"
 
 // Define a type for the settings object that matches the database schema
 type SettingsType = {
@@ -46,12 +48,14 @@ export default function SettingsPage() {
     language: settings.language,
   })
 
-  // Add state for confirmation dialog
+  // State for confirmation dialog
   const [showConfirmation, setShowConfirmation] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
 
-  const supabase = createClientComponentClient<Database>()
+  const supabase = createClient()
   const { toast } = useToast()
+  const { getAppTranslation, language } = useLanguage()
+  const rtlEnabled = isRTL(formValues.language)
 
   // Fetch settings on component mount
   useEffect(() => {
@@ -149,8 +153,8 @@ export default function SettingsPage() {
 
       // Show success toast
       toast({
-        title: "Settings saved",
-        description: "Your settings have been saved successfully.",
+        title: getAppTranslation("success", language),
+        description: getAppTranslation("settings_saved_successfully", language),
       })
 
       // Show confirmation dialog
@@ -159,8 +163,8 @@ export default function SettingsPage() {
     } catch (error) {
       console.error("Error saving settings:", error)
       toast({
-        title: "Error",
-        description: "There was an error saving your settings.",
+        title: getAppTranslation("error", language),
+        description: getAppTranslation("error_saving_settings", language),
         variant: "destructive",
       })
 
@@ -189,17 +193,40 @@ export default function SettingsPage() {
     }))
   }
 
+  useEffect(() => {
+    document.documentElement.dir = rtlEnabled ? "rtl" : "ltr"
+
+    // Add a class to help with RTL-specific styling if needed
+    if (rtlEnabled) {
+      document.documentElement.classList.add("rtl")
+    } else {
+      document.documentElement.classList.remove("rtl")
+    }
+
+    return () => {
+      // Clean up when component unmounts
+      if (document.documentElement.dir === "rtl") {
+        document.documentElement.dir = "ltr"
+        document.documentElement.classList.remove("rtl")
+      }
+    }
+  }, [formValues.language, rtlEnabled])
+
+  // Simple preview to show how currency and text direction changes affect the display
+  const previewAmount = 1234.56
+  const formattedCurrency = formatCurrency(previewAmount, formValues.currency, formValues.language)
+
   return (
     <div className="container mx-auto py-10">
       <Card>
         <CardHeader>
-          <CardTitle>Settings</CardTitle>
-          <CardDescription>Manage your store settings</CardDescription>
+          <CardTitle>{getAppTranslation("settings", language)}</CardTitle>
+          <CardDescription>{getAppTranslation("manage_store_settings", language)}</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="store_name">Store Name</Label>
+              <Label htmlFor="store_name">{getAppTranslation("name", language)}</Label>
               <Input
                 id="store_name"
                 name="store_name"
@@ -209,7 +236,7 @@ export default function SettingsPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="tax_rate">Tax Rate (%)</Label>
+              <Label htmlFor="tax_rate">{getAppTranslation("tax_rate", language)} (%)</Label>
               <Input
                 id="tax_rate"
                 name="tax_rate"
@@ -223,10 +250,10 @@ export default function SettingsPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="currency">Currency</Label>
+              <Label htmlFor="currency">{getAppTranslation("currency", language)}</Label>
               <Select value={formValues.currency} onValueChange={(value) => handleSelectChange("currency", value)}>
                 <SelectTrigger id="currency">
-                  <SelectValue placeholder="Select currency" />
+                  <SelectValue placeholder={getAppTranslation("select_currency", language)} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="USD">USD ($)</SelectItem>
@@ -243,24 +270,44 @@ export default function SettingsPage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="language">Language</Label>
+              <Label htmlFor="language">{getAppTranslation("language", language)}</Label>
               <Select value={formValues.language} onValueChange={(value) => handleSelectChange("language", value)}>
                 <SelectTrigger id="language">
-                  <SelectValue placeholder="Select language" />
+                  <SelectValue placeholder={getAppTranslation("select_language", language)} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="en">English</SelectItem>
-                  <SelectItem value="es">Spanish</SelectItem>
-                  <SelectItem value="fr">French</SelectItem>
-                  <SelectItem value="de">German</SelectItem>
-                  <SelectItem value="it">Italian</SelectItem>
-                  <SelectItem value="pt">Portuguese</SelectItem>
-                  <SelectItem value="ru">Russian</SelectItem>
-                  <SelectItem value="zh">Chinese</SelectItem>
-                  <SelectItem value="ja">Japanese</SelectItem>
-                  <SelectItem value="ar">Arabic</SelectItem>
+                  <SelectItem value="es">Spanish (Español)</SelectItem>
+                  <SelectItem value="fr">French (Français)</SelectItem>
+                  <SelectItem value="de">German (Deutsch)</SelectItem>
+                  <SelectItem value="it">Italian (Italiano)</SelectItem>
+                  <SelectItem value="pt">Portuguese (Português)</SelectItem>
+                  <SelectItem value="ru">Russian (Русский)</SelectItem>
+                  <SelectItem value="zh">Chinese (中文)</SelectItem>
+                  <SelectItem value="ja">Japanese (日本語)</SelectItem>
+                  <SelectItem value="ar">Arabic (العربية)</SelectItem>
+                  <SelectItem value="ar-sa">Arabic - Saudi (العربية السعودية)</SelectItem>
+                  <SelectItem value="ar-eg">Arabic - Egyptian (العربية المصرية)</SelectItem>
+                  <SelectItem value="ar-ma">Arabic - Moroccan (العربية المغربية)</SelectItem>
+                  <SelectItem value="ar-ae">Arabic - UAE (العربية الإماراتية)</SelectItem>
+                  <SelectItem value="he">Hebrew (עברית)</SelectItem>
+                  <SelectItem value="hi">Hindi (हिन्दी)</SelectItem>
+                  <SelectItem value="tr">Turkish (Türkçe)</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* Preview section to show formatting changes */}
+            <div className="mt-6 p-4 border rounded-md bg-muted/30">
+              <h3 className="text-sm font-medium mb-2">{getAppTranslation("preview", language)}:</h3>
+              <p className={`text-sm ${rtlEnabled ? "text-right" : "text-left"}`}>
+                {rtlEnabled ? getAppTranslation("my_store", language) : getAppTranslation("my_store", language)}:{" "}
+                {formValues.store_name}
+              </p>
+              <p className={`text-sm ${rtlEnabled ? "text-right" : "text-left"}`}>
+                {rtlEnabled ? getAppTranslation("amount", language) : getAppTranslation("amount", language)}:{" "}
+                {formattedCurrency}
+              </p>
             </div>
           </CardContent>
           <CardFooter>
@@ -268,10 +315,10 @@ export default function SettingsPage() {
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
+                  {getAppTranslation("saving", language)}...
                 </>
               ) : (
-                "Save Settings"
+                getAppTranslation("save_settings", language)
               )}
             </Button>
           </CardFooter>
@@ -282,26 +329,33 @@ export default function SettingsPage() {
       <Dialog open={showConfirmation} onOpenChange={setShowConfirmation}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{saveSuccess ? "Settings Saved" : "Error Saving Settings"}</DialogTitle>
+            <DialogTitle>
+              {saveSuccess
+                ? getAppTranslation("settings_saved", language)
+                : getAppTranslation("error_saving_settings", language)}
+            </DialogTitle>
           </DialogHeader>
 
-          {/* Move content outside of DialogDescription to avoid nesting divs in p tags */}
+          {/* Dialog content */}
           {saveSuccess ? (
             <div className="flex flex-col items-center py-4">
               <div className="rounded-full bg-green-100 p-3 mb-4">
                 <Check className="h-6 w-6 text-green-600" />
               </div>
-              <p>Your settings have been saved successfully.</p>
-              <p className="text-sm text-muted-foreground mt-2">The changes will take effect immediately.</p>
+              <p>{getAppTranslation("settings_saved_successfully", language)}</p>
+              <p className="text-sm text-muted-foreground mt-2">{getAppTranslation("changes_take_effect", language)}</p>
             </div>
           ) : (
-            <div className="py-4">
-              <p>There was an error saving your settings. Please try again.</p>
+            <div className="flex flex-col items-center py-4">
+              <div className="rounded-full bg-red-100 p-3 mb-4">
+                <AlertCircle className="h-6 w-6 text-red-600" />
+              </div>
+              <p>{getAppTranslation("error_saving_settings_try_again", language)}</p>
             </div>
           )}
 
           <DialogFooter>
-            <Button onClick={() => setShowConfirmation(false)}>Close</Button>
+            <Button onClick={() => setShowConfirmation(false)}>{getAppTranslation("close", language)}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

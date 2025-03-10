@@ -2,10 +2,9 @@
 
 import type React from "react"
 import { createContext, useContext, useEffect, useState, useMemo } from "react"
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
-import type { User } from "@supabase/auth-helpers-nextjs"
+import { createClient } from "@/lib/supabase-client"
+import type { User } from "@supabase/supabase-js"
 import { useRouter } from "next/navigation"
-import type { Database } from "@/types/supabase"
 
 // Define the profile type to match what's actually returned from the database
 type UserProfile = {
@@ -56,7 +55,7 @@ export function UserProvider({
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [isLoading, setIsLoading] = useState(!!initialUser) // Loading if we have an initial user but no profile yet
   const router = useRouter()
-  const supabase = createClientComponentClient<Database>()
+  const supabase = createClient()
 
   // Fetch user profile when user changes
   useEffect(() => {
@@ -116,7 +115,7 @@ export function UserProvider({
           }
           setProfile(profileWithRole)
         }
-      } catch (error) {
+      } catch (error: unknown) {
         console.error("Error in profile fetch:", error)
         setProfile(null)
       } finally {

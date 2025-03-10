@@ -3,7 +3,8 @@
 import type React from "react"
 
 import { useState, useEffect, useCallback } from "react"
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
+import { createClient } from "@/lib/supabase-client"
+import { useLanguage } from "@/hooks/use-language"
 import { format } from "date-fns"
 import {
   CalendarIcon,
@@ -63,7 +64,9 @@ interface Product {
   image?: string | null
   barcode?: string
   stock: number
-  category_id?: string
+  min_stock?: number
+  category_id?: string | null
+  purchase_price?: number | null
 }
 
 interface SaleItem {
@@ -101,6 +104,7 @@ const SalesPage = () => {
   const [isLoadingProducts, setIsLoadingProducts] = useState(false)
   const [activeTab, setActiveTab] = useState("items")
   const [isLoadingSaleDetails, setIsLoadingSaleDetails] = useState(false)
+  const { getAppTranslation, language, isRTL } = useLanguage()
 
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(5)
@@ -108,7 +112,7 @@ const SalesPage = () => {
   const [totalPages, setTotalPages] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
 
-  const supabase = createClientComponentClient()
+  const supabase = createClient()
   const { toast } = useToast()
 
   // Fetch sales with pagination and filtering
@@ -150,14 +154,33 @@ const SalesPage = () => {
         setTotalPages(Math.max(1, Math.ceil(count / pageSize)))
       }
 
-      // Set the sales without items (we'll fetch items only when needed)
-      const salesWithoutItems =
-        salesData?.map((sale) => ({
-          ...sale,
-          items: [],
-        })) || []
+      // Fetch item counts for each sale
+      const salesWithItemCounts = await Promise.all(
+        salesData?.map(async (sale) => {
+          // Get count of items for this sale
+          const { count: itemCount, error: countError } = await supabase
+            .from("sale_items")
+            .select("id", { count: "exact" })
+            .eq("sale_id", sale.id)
 
-      setPaginatedSales(salesWithoutItems)
+          if (countError) {
+            console.error("Error fetching item count:", countError)
+            return {
+              ...sale,
+              itemCount: 0,
+              items: [],
+            }
+          }
+
+          return {
+            ...sale,
+            itemCount: itemCount || 0,
+            items: [],
+          }
+        }) || [],
+      )
+
+      setPaginatedSales(salesWithItemCounts)
     } catch (error) {
       console.error("Error fetching sales:", error)
       toast({
@@ -176,14 +199,56 @@ const SalesPage = () => {
       try {
         setIsLoadingSaleDetails(true)
 
+        // First, fetch the sale items
         const { data: itemsData, error: itemsError } = await supabase
           .from("sale_items")
-          .select("*, products(*)")
+          .select("id, product_id, sale_id, quantity, price")
           .eq("sale_id", saleId)
 
         if (itemsError) throw itemsError
 
-        return itemsData || []
+        if (!itemsData || itemsData.length === 0) {
+          return []
+        }
+
+        // Create a map of product IDs to fetch them efficiently
+        const productIds = itemsData.map((item) => item.product_id)
+
+        // Fetch all products in a single query
+        const { data: productsData, error: productsError } = await supabase
+          .from("products")
+          .select("*")
+          .in("id", productIds)
+
+        if (productsError) throw productsError
+
+        // Create a map for quick product lookup
+        const productsMap: Record<string, Product> = {}
+        productsData?.forEach((product) => {
+          // Ensure numeric values are properly typed
+          productsMap[product.id] = {
+            ...product,
+            price: typeof product.price === "number" ? product.price : Number.parseFloat(String(product.price)) || 0,
+            stock: typeof product.stock === "number" ? product.stock : Number.parseInt(String(product.stock), 10) || 0,
+            min_stock:
+              typeof product.min_stock === "number"
+                ? product.min_stock
+                : Number.parseInt(String(product.min_stock), 10) || 0,
+            purchase_price: product.purchase_price
+              ? typeof product.purchase_price === "number"
+                ? product.purchase_price
+                : Number.parseFloat(String(product.purchase_price)) || null
+              : null,
+          }
+        })
+
+        // Combine sale items with their products
+        const itemsWithProducts = itemsData.map((item) => ({
+          ...item,
+          product: productsMap[item.product_id],
+        }))
+
+        return itemsWithProducts
       } catch (error) {
         console.error("Error fetching sale items:", error)
         toast({
@@ -206,8 +271,25 @@ const SalesPage = () => {
       const productsData = await getProducts()
 
       if (Array.isArray(productsData)) {
-        setAvailableProducts(productsData as Product[])
-        setFilteredProducts(productsData as Product[])
+        // Ensure all products have the required fields and proper data types
+        const formattedProducts = productsData.map((product) => ({
+          ...product,
+          // Ensure numeric values are properly typed
+          price: typeof product.price === "number" ? product.price : Number.parseFloat(String(product.price)) || 0,
+          stock: typeof product.stock === "number" ? product.stock : Number.parseInt(String(product.stock), 10) || 0,
+          min_stock:
+            typeof product.min_stock === "number"
+              ? product.min_stock
+              : Number.parseInt(String(product.min_stock), 10) || 0,
+          purchase_price: product.purchase_price
+            ? typeof product.purchase_price === "number"
+              ? product.purchase_price
+              : Number.parseFloat(String(product.purchase_price)) || null
+            : null,
+        }))
+
+        setAvailableProducts(formattedProducts as Product[])
+        setFilteredProducts(formattedProducts as Product[])
       }
     } catch (error) {
       console.error("Error fetching products:", error)
@@ -342,6 +424,20 @@ const SalesPage = () => {
 
     if (newQuantity < 1) newQuantity = 1
 
+    // Find the product to check stock
+    const item = editedSale.items?.find((i) => i.id === itemId)
+    if (item && item.product) {
+      // Check if we have enough stock
+      if (newQuantity > item.product.stock) {
+        toast({
+          title: "Stock limit reached",
+          description: `Only ${item.product.stock} units available in stock.`,
+          variant: "destructive",
+        })
+        newQuantity = item.product.stock
+      }
+    }
+
     const updatedItems = editedSale.items?.map((item) => {
       if (item.id === itemId) {
         return { ...item, quantity: newQuantity }
@@ -376,12 +472,33 @@ const SalesPage = () => {
     const updatedItems = [...(editedSale.items || [])]
 
     if (existingItemIndex !== undefined && existingItemIndex >= 0) {
+      // Check if we have enough stock
+      const currentQuantity = updatedItems[existingItemIndex].quantity
+      if (currentQuantity >= product.stock) {
+        toast({
+          title: "Stock limit reached",
+          description: `Only ${product.stock} units available in stock.`,
+          variant: "destructive",
+        })
+        return
+      }
+
       // Increment quantity if product already exists
       updatedItems[existingItemIndex] = {
         ...updatedItems[existingItemIndex],
         quantity: updatedItems[existingItemIndex].quantity + 1,
       }
     } else {
+      // Check if product is in stock
+      if (product.stock <= 0) {
+        toast({
+          title: "Out of stock",
+          description: `${product.name} is currently out of stock.`,
+          variant: "destructive",
+        })
+        return
+      }
+
       // Add new item if product doesn't exist in sale
       const newItem: SaleItem = {
         // Generate a temporary ID for new items
@@ -449,6 +566,91 @@ const SalesPage = () => {
           price: item.price,
         })) || []
 
+      // Get the original sale items to compare with edited items
+      const { data: originalItems, error: fetchError } = await supabase
+        .from("sale_items")
+        .select("id, product_id, quantity")
+        .eq("sale_id", editedSale.id)
+
+      if (fetchError) throw fetchError
+
+      // Create maps for easier comparison
+      const originalItemsMap = new Map()
+      originalItems?.forEach((item) => {
+        originalItemsMap.set(item.id, item)
+      })
+
+      // Track product IDs that need stock adjustment
+      const stockAdjustments = new Map()
+
+      // Find items that were in the original sale but removed in the edit
+      // These need to have their stock returned
+      originalItems?.forEach((originalItem) => {
+        const stillExists = editedSale.items?.some(
+          (item) => !item.id.startsWith("temp_") && item.id === originalItem.id,
+        )
+
+        if (!stillExists) {
+          // Item was removed, add stock back
+          if (stockAdjustments.has(originalItem.product_id)) {
+            stockAdjustments.set(
+              originalItem.product_id,
+              stockAdjustments.get(originalItem.product_id) + originalItem.quantity,
+            )
+          } else {
+            stockAdjustments.set(originalItem.product_id, originalItem.quantity)
+          }
+        }
+      })
+
+      // Find items that were modified or added
+      editedSale.items?.forEach((editedItem) => {
+        if (editedItem.id.startsWith("temp_")) {
+          // New item, reduce stock
+          if (stockAdjustments.has(editedItem.product_id)) {
+            stockAdjustments.set(
+              editedItem.product_id,
+              stockAdjustments.get(editedItem.product_id) - editedItem.quantity,
+            )
+          } else {
+            stockAdjustments.set(editedItem.product_id, -editedItem.quantity)
+          }
+        } else {
+          // Existing item, check if quantity changed
+          const originalItem = originalItemsMap.get(editedItem.id)
+          if (originalItem) {
+            const quantityDiff = originalItem.quantity - editedItem.quantity
+            if (quantityDiff !== 0) {
+              if (stockAdjustments.has(editedItem.product_id)) {
+                stockAdjustments.set(editedItem.product_id, stockAdjustments.get(editedItem.product_id) + quantityDiff)
+              } else {
+                stockAdjustments.set(editedItem.product_id, quantityDiff)
+              }
+            }
+          }
+        }
+      })
+
+      // Apply stock adjustments
+      for (const [productId, adjustment] of stockAdjustments.entries()) {
+        if (adjustment !== 0) {
+          // Get current stock
+          const { data: product, error: productError } = await supabase
+            .from("products")
+            .select("stock")
+            .eq("id", productId)
+            .single()
+
+          if (productError) throw productError
+
+          // Calculate and update new stock
+          const newStock = (product?.stock || 0) + adjustment
+          const { error: updateError } = await supabase.from("products").update({ stock: newStock }).eq("id", productId)
+
+          if (updateError) throw updateError
+        }
+      }
+
       // Update the sale in the database
       const { error } = await updateSale(
         editedSale.id,
@@ -487,12 +689,45 @@ const SalesPage = () => {
 
     setIsDeleting(true)
     try {
-      // First delete sale items
+      // First, get all sale items to properly adjust stock
+      const { data: saleItems, error: itemsFetchError } = await supabase
+        .from("sale_items")
+        .select("id, product_id, quantity")
+        .eq("sale_id", selectedSale.id)
+
+      if (itemsFetchError) throw itemsFetchError
+
+      // Return stock to inventory for each item
+      if (saleItems && saleItems.length > 0) {
+        for (const item of saleItems) {
+          // Get current product stock
+          const { data: product, error: productError } = await supabase
+            .from("products")
+            .select("stock")
+            .eq("id", item.product_id)
+            .single()
+
+          if (productError) throw productError
+
+          // Calculate new stock (add back the quantity from the sale)
+          const newStock = (product?.stock || 0) + item.quantity
+
+          // Update product stock
+          const { error: updateError } = await supabase
+            .from("products")
+            .update({ stock: newStock })
+            .eq("id", item.product_id)
+
+          if (updateError) throw updateError
+        }
+      }
+
+      // Then delete sale items
       const { error: itemsError } = await supabase.from("sale_items").delete().eq("sale_id", selectedSale.id)
 
       if (itemsError) throw itemsError
 
-      // Then delete the sale
+      // Finally delete the sale
       const { error: saleError } = await supabase.from("sales").delete().eq("id", selectedSale.id)
 
       if (saleError) throw saleError
@@ -591,9 +826,15 @@ const SalesPage = () => {
   }
 
   // Function to get the total number of items in a sale
-  const getTotalItems = (sale: Sale) => {
+  const getTotalItems = (sale: Sale & { itemCount?: number }) => {
+    // If we have already loaded the items, calculate from them
     if (sale.items && sale.items.length > 0) {
       return sale.items.reduce((total, item) => total + item.quantity, 0)
+    }
+
+    // If we have the itemCount from the initial fetch, use that
+    if (sale.itemCount !== undefined) {
+      return sale.itemCount
     }
 
     // If items haven't been loaded yet, show a placeholder

@@ -39,7 +39,7 @@ import { Badge } from "@/components/ui/badge"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/components/ui/use-toast"
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
+import { createClient } from "@/lib/supabase-client"
 import type { Database } from "@/types/supabase"
 import { useUser } from "@/components/auth/user-provider"
 import { Plus } from "lucide-react"
@@ -53,6 +53,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { useLanguage } from "@/hooks/use-language"
 
 // Define expense type based on the database schema
 type Expense = Database["public"]["Tables"]["expenses"]["Row"]
@@ -100,9 +101,15 @@ export default function ExpensesPage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [selectedExpense, setSelectedExpense] = useState<ExpenseWithCategory | null>(null)
 
-  const supabase = createClientComponentClient<Database>()
+  const supabase = createClient()
   const { toast } = useToast()
   const { user } = useUser()
+  const { getAppTranslation, language, isRTL } = useLanguage()
+
+  // Debug user state
+  useEffect(() => {
+    console.log("Current user state:", user)
+  }, [user])
 
   // Fetch expenses and categories
   const fetchData = useCallback(async () => {
@@ -131,14 +138,14 @@ export default function ExpensesPage() {
     } catch (error) {
       console.error("Error fetching data:", error)
       toast({
-        title: "Error",
+        title: getAppTranslation("error"),
         description: "Failed to load expenses data",
         variant: "destructive",
       })
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, toast])
+  }, [supabase, toast, getAppTranslation])
 
   useEffect(() => {
     fetchData()
@@ -215,7 +222,7 @@ export default function ExpensesPage() {
   const handleAddCategory = async () => {
     if (!newCategoryName.trim()) {
       toast({
-        title: "Validation Error",
+        title: getAppTranslation("validation_error"),
         description: "Please enter a category name.",
         variant: "destructive",
       })
@@ -229,7 +236,7 @@ export default function ExpensesPage() {
       if (error) throw error
 
       toast({
-        title: "Category Added",
+        title: getAppTranslation("success"),
         description: "The category has been added successfully.",
       })
 
@@ -242,7 +249,7 @@ export default function ExpensesPage() {
     } catch (error) {
       console.error("Error adding category:", error)
       toast({
-        title: "Error",
+        title: getAppTranslation("error"),
         description: "Failed to add category. Please try again.",
         variant: "destructive",
       })
@@ -251,35 +258,57 @@ export default function ExpensesPage() {
     }
   }
 
-  // Add new expense
+  // Add new expense with improved user session handling
   const handleAddExpense = async () => {
-    if (!user) return
-
-    setIsSaving(true)
-
-    // Validate form
-    if (!newExpense.category_id || !newExpense.amount || !newExpense.description) {
-      toast({
-        title: "Validation Error",
-        description: "Please fill in all required fields.",
-        variant: "destructive",
-      })
-      setIsSaving(false)
-      return
-    }
+    console.log("handleAddExpense called")
 
     try {
+      // Try to get the current session
+      const { data: sessionData } = await supabase.auth.getSession()
+      const currentUser = sessionData?.session?.user || user
+
+      console.log("Session check:", {
+        sessionExists: !!sessionData?.session,
+        userFromSession: !!sessionData?.session?.user,
+        userFromHook: !!user,
+      })
+
+      if (!currentUser) {
+        console.log("User is not available, cannot add expense")
+        toast({
+          title: getAppTranslation("error"),
+          description: "You must be logged in to add an expense. Please refresh the page or log in again.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Validate form
+      if (!newExpense.category_id || !newExpense.amount || !newExpense.description) {
+        console.log("Validation failed", { newExpense })
+        toast({
+          title: getAppTranslation("validation_error"),
+          description: "Please fill in all required fields.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      setIsSaving(true)
+
+      console.log("Attempting to save expense to Supabase with user ID:", currentUser.id)
       const { error } = await supabase.from("expenses").insert({
         amount: Number.parseFloat(newExpense.amount),
         description: newExpense.description,
         category_id: newExpense.category_id,
-        user_id: user.id,
+        user_id: currentUser.id,
       })
 
       if (error) throw error
 
+      console.log("Expense saved successfully")
       toast({
-        title: "Expense Added",
+        title: getAppTranslation("success"),
         description: "The expense has been added successfully.",
       })
 
@@ -296,7 +325,7 @@ export default function ExpensesPage() {
     } catch (error) {
       console.error("Error adding expense:", error)
       toast({
-        title: "Error",
+        title: getAppTranslation("error"),
         description: "Failed to add expense. Please try again.",
         variant: "destructive",
       })
@@ -333,24 +362,37 @@ export default function ExpensesPage() {
     setIsDeleteDialogOpen(true)
   }
 
-  // Handle update expense
+  // Handle update expense with improved user session handling
   const handleUpdateExpense = async () => {
     if (!selectedExpense) return
 
-    setIsSaving(true)
-
-    // Validate form
-    if (!newExpense.category_id || !newExpense.amount || !newExpense.description) {
-      toast({
-        title: "Validation Error",
-        description: "Please fill in all required fields.",
-        variant: "destructive",
-      })
-      setIsSaving(false)
-      return
-    }
-
     try {
+      // Try to get the current session
+      const { data: sessionData } = await supabase.auth.getSession()
+      const currentUser = sessionData?.session?.user || user
+
+      if (!currentUser) {
+        toast({
+          title: getAppTranslation("error"),
+          description: "You must be logged in to update an expense. Please refresh the page or log in again.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      setIsSaving(true)
+
+      // Validate form
+      if (!newExpense.category_id || !newExpense.amount || !newExpense.description) {
+        toast({
+          title: getAppTranslation("validation_error"),
+          description: "Please fill in all required fields.",
+          variant: "destructive",
+        })
+        setIsSaving(false)
+        return
+      }
+
       const { error } = await supabase
         .from("expenses")
         .update({
@@ -363,7 +405,7 @@ export default function ExpensesPage() {
       if (error) throw error
 
       toast({
-        title: "Expense Updated",
+        title: getAppTranslation("success"),
         description: "The expense has been updated successfully.",
       })
 
@@ -381,7 +423,7 @@ export default function ExpensesPage() {
     } catch (error) {
       console.error("Error updating expense:", error)
       toast({
-        title: "Error",
+        title: getAppTranslation("error"),
         description: "Failed to update expense. Please try again.",
         variant: "destructive",
       })
@@ -390,17 +432,30 @@ export default function ExpensesPage() {
     }
   }
 
-  // Handle delete expense
+  // Handle delete expense with improved user session handling
   const handleDeleteExpense = async () => {
     if (!selectedExpense) return
 
     try {
+      // Try to get the current session
+      const { data: sessionData } = await supabase.auth.getSession()
+      const currentUser = sessionData?.session?.user || user
+
+      if (!currentUser) {
+        toast({
+          title: getAppTranslation("error"),
+          description: "You must be logged in to delete an expense. Please refresh the page or log in again.",
+          variant: "destructive",
+        })
+        return
+      }
+
       const { error } = await supabase.from("expenses").delete().eq("id", selectedExpense.id)
 
       if (error) throw error
 
       toast({
-        title: "Expense Deleted",
+        title: getAppTranslation("success"),
         description: "The expense has been deleted successfully.",
       })
 
@@ -412,33 +467,73 @@ export default function ExpensesPage() {
     } catch (error) {
       console.error("Error deleting expense:", error)
       toast({
-        title: "Error",
+        title: getAppTranslation("error"),
         description: "Failed to delete expense. Please try again.",
         variant: "destructive",
       })
     }
   }
 
+  // This effect is likely not needed if your useLanguage hook already handles RTL
+  // But if you want to ensure it's applied in this component:
+  useEffect(() => {
+    document.documentElement.dir = isRTL ? "rtl" : "ltr"
+
+    if (isRTL) {
+      document.documentElement.classList.add("rtl")
+    } else {
+      document.documentElement.classList.remove("rtl")
+    }
+
+    return () => {
+      // Clean up only if we changed it
+      if (isRTL && document.documentElement.dir === "rtl") {
+        document.documentElement.dir = "ltr"
+        document.documentElement.classList.remove("rtl")
+      }
+    }
+  }, [isRTL])
+
   return (
     <div className="p-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <h1 className="text-3xl font-bold">Expenses</h1>
+        <div className="flex items-center gap-4">
+          <h1 className="text-3xl font-bold">{getAppTranslation("expenses")}</h1>
+          <Select
+            value={language}
+            onValueChange={(value) => {
+              localStorage.setItem("language", value)
+              // Trigger a refresh to apply the language change
+              window.location.reload()
+            }}
+          >
+            <SelectTrigger className="w-[150px]">
+              <SelectValue placeholder="Language" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="en">English</SelectItem>
+              <SelectItem value="es">Español</SelectItem>
+              <SelectItem value="fr">Français</SelectItem>
+              <SelectItem value="ar">العربية</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>
             <Button>
               <PlusCircle className="mr-2 h-4 w-4" />
-              Add Expense
+              {getAppTranslation("add_expense")}
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
-              <DialogTitle>Add New Expense</DialogTitle>
-              <DialogDescription>Enter the details of the expense to add it to your records.</DialogDescription>
+              <DialogTitle>{getAppTranslation("add_new_expense")}</DialogTitle>
+              <DialogDescription>{getAppTranslation("add_expense_description")}</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="category" className="text-right">
-                  Category
+                  {getAppTranslation("category")}
                 </Label>
                 <div className="col-span-3 flex gap-2">
                   <Select
@@ -446,12 +541,12 @@ export default function ExpensesPage() {
                     onValueChange={(value) => setNewExpense((prev) => ({ ...prev, category_id: value }))}
                   >
                     <SelectTrigger id="category" className="flex-1">
-                      <SelectValue placeholder="Select a category" />
+                      <SelectValue placeholder={getAppTranslation("select_category")} />
                     </SelectTrigger>
                     <SelectContent>
                       {categories.length === 0 ? (
                         <div className="flex items-center justify-center p-2 text-sm text-muted-foreground">
-                          No categories available
+                          {getAppTranslation("no_categories")}
                         </div>
                       ) : (
                         categories.map((category) => (
@@ -469,7 +564,7 @@ export default function ExpensesPage() {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="amount" className="text-right">
-                  Amount
+                  {getAppTranslation("amount")}
                 </Label>
                 <Input
                   id="amount"
@@ -485,7 +580,7 @@ export default function ExpensesPage() {
               </div>
               <div className="grid grid-cols-4 items-start gap-4">
                 <Label htmlFor="description" className="text-right pt-2">
-                  Description
+                  {getAppTranslation("description")}
                 </Label>
                 <Textarea
                   id="description"
@@ -500,18 +595,18 @@ export default function ExpensesPage() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                Cancel
+                {getAppTranslation("cancel")}
               </Button>
-              <Button onClick={handleAddExpense} disabled={isSaving}>
+              <Button type="button" onClick={handleAddExpense} disabled={isSaving}>
                 {isSaving ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Saving...
+                    {getAppTranslation("saving")}...
                   </>
                 ) : (
                   <>
                     <Save className="mr-2 h-4 w-4" />
-                    Save Expense
+                    {getAppTranslation("save_expense")}
                   </>
                 )}
               </Button>
@@ -522,13 +617,13 @@ export default function ExpensesPage() {
 
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Filter Expenses</CardTitle>
-          <CardDescription>Filter expenses by date range and category</CardDescription>
+          <CardTitle>{getAppTranslation("filter_expenses")}</CardTitle>
+          <CardDescription>{getAppTranslation("filter_expenses_description")}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="grid w-full max-w-sm items-center gap-1.5">
-              <Label htmlFor="from-date">From Date</Label>
+              <Label htmlFor="from-date">{getAppTranslation("from_date")}</Label>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
@@ -536,7 +631,7 @@ export default function ExpensesPage() {
                     className={cn("w-full justify-start text-left font-normal", !dateFrom && "text-muted-foreground")}
                   >
                     <CalendarIcon className="mr-2 h-4 w-4" />
-                    {dateFrom ? format(dateFrom, "PPP") : "Select date"}
+                    {dateFrom ? format(dateFrom, "PPP") : getAppTranslation("select_date")}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0">
@@ -545,7 +640,7 @@ export default function ExpensesPage() {
               </Popover>
             </div>
             <div className="grid w-full max-w-sm items-center gap-1.5">
-              <Label htmlFor="to-date">To Date</Label>
+              <Label htmlFor="to-date">{getAppTranslation("to_date")}</Label>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
@@ -553,7 +648,7 @@ export default function ExpensesPage() {
                     className={cn("w-full justify-start text-left font-normal", !dateTo && "text-muted-foreground")}
                   >
                     <CalendarIcon className="mr-2 h-4 w-4" />
-                    {dateTo ? format(dateTo, "PPP") : "Select date"}
+                    {dateTo ? format(dateTo, "PPP") : getAppTranslation("select_date")}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0">
@@ -562,13 +657,13 @@ export default function ExpensesPage() {
               </Popover>
             </div>
             <div className="grid w-full max-w-sm items-center gap-1.5">
-              <Label htmlFor="category-filter">Category</Label>
+              <Label htmlFor="category-filter">{getAppTranslation("category")}</Label>
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                 <SelectTrigger id="category-filter">
-                  <SelectValue placeholder="All Categories" />
+                  <SelectValue placeholder={getAppTranslation("all_categories")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
+                  <SelectItem value="all">{getAppTranslation("all_categories")}</SelectItem>
                   {categories.map((category) => (
                     <SelectItem key={category.id} value={category.id}>
                       {category.name}
@@ -584,13 +679,13 @@ export default function ExpensesPage() {
             {isFilterActive && (
               <Badge variant="outline" className="flex gap-1 items-center">
                 <Filter className="h-3 w-3" />
-                Filters applied
+                {getAppTranslation("filters_applied")}
               </Badge>
             )}
           </div>
           <Button variant="outline" onClick={clearFilters} disabled={!isFilterActive}>
             <X className="mr-2 h-4 w-4" />
-            Clear Filters
+            {getAppTranslation("clear_filters")}
           </Button>
         </CardFooter>
       </Card>
@@ -598,13 +693,15 @@ export default function ExpensesPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle>Expense Records</CardTitle>
+            <CardTitle>{getAppTranslation("expense_records")}</CardTitle>
             <CardDescription>
-              {isFilterActive ? "Showing filtered expense records" : "Showing all expense records"}
+              {isFilterActive
+                ? getAppTranslation("showing_filtered_expenses")
+                : getAppTranslation("showing_all_expenses")}
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Label htmlFor="pageSize">Show</Label>
+            <Label htmlFor="pageSize">{getAppTranslation("show")}</Label>
             <Select value={pageSize.toString()} onValueChange={handlePageSizeChange}>
               <SelectTrigger id="pageSize" className="w-[80px]">
                 <SelectValue placeholder={pageSize.toString()} />
@@ -616,7 +713,7 @@ export default function ExpensesPage() {
                 <SelectItem value="20">20</SelectItem>
               </SelectContent>
             </Select>
-            <span className="text-sm text-muted-foreground">entries</span>
+            <span className="text-sm text-muted-foreground">{getAppTranslation("entries")}</span>
           </div>
         </CardHeader>
         <CardContent>
@@ -624,11 +721,11 @@ export default function ExpensesPage() {
             <table className="min-w-full divide-y divide-border">
               <thead>
                 <tr className="bg-muted/50">
-                  <th className="px-4 py-3 text-left text-sm font-medium">Date</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">Category</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">Description</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium">Amount</th>
-                  <th className="px-4 py-3 text-center text-sm font-medium">Actions</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">{getAppTranslation("date")}</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">{getAppTranslation("category")}</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">{getAppTranslation("description")}</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium">{getAppTranslation("amount")}</th>
+                  <th className="px-4 py-3 text-center text-sm font-medium">{getAppTranslation("actions")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -657,11 +754,11 @@ export default function ExpensesPage() {
                         <div className="flex justify-center space-x-2">
                           <Button variant="ghost" size="icon" onClick={() => handleEditClick(expense)}>
                             <Pencil className="h-4 w-4" />
-                            <span className="sr-only">Edit</span>
+                            <span className="sr-only">{getAppTranslation("edit")}</span>
                           </Button>
                           <Button variant="ghost" size="icon" onClick={() => handleDeleteClick(expense)}>
                             <Trash2 className="h-4 w-4 text-destructive" />
-                            <span className="sr-only">Delete</span>
+                            <span className="sr-only">{getAppTranslation("delete")}</span>
                           </Button>
                         </div>
                       </td>
@@ -670,7 +767,7 @@ export default function ExpensesPage() {
                 ) : (
                   <tr>
                     <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                      No expenses found matching your criteria.
+                      {getAppTranslation("no_expenses_found")}
                     </td>
                   </tr>
                 )}
@@ -678,13 +775,14 @@ export default function ExpensesPage() {
               <tfoot>
                 <tr className="bg-muted/50">
                   <td colSpan={3} className="px-4 py-3 text-sm font-medium text-right">
-                    Page Total
+                    {getAppTranslation("page_total")}
                   </td>
                   <td className="px-4 py-3 text-sm font-medium text-right">${currentPageTotal.toFixed(2)}</td>
                 </tr>
                 <tr className="bg-muted/50">
                   <td colSpan={3} className="px-4 py-3 text-sm font-medium text-right">
-                    Grand Total {isFilterActive ? "(Filtered)" : "(All)"}
+                    {getAppTranslation("grand_total")}{" "}
+                    {isFilterActive ? `(${getAppTranslation("filtered")})` : `(${getAppTranslation("all")})`}
                   </td>
                   <td className="px-4 py-3 text-sm font-medium text-right">${allExpensesTotal.toFixed(2)}</td>
                 </tr>
@@ -695,9 +793,10 @@ export default function ExpensesPage() {
           {/* Pagination controls */}
           <div className="flex items-center justify-between mt-4">
             <div className="text-sm text-muted-foreground">
-              Showing{" "}
-              {filteredExpenses.length > 0 ? Math.min(filteredExpenses.length, (currentPage - 1) * pageSize + 1) : 0} to{" "}
-              {Math.min(filteredExpenses.length, currentPage * pageSize)} of {filteredExpenses.length} entries
+              {getAppTranslation("showing")}{" "}
+              {filteredExpenses.length > 0 ? Math.min(filteredExpenses.length, (currentPage - 1) * pageSize + 1) : 0}{" "}
+              {getAppTranslation("to")} {Math.min(filteredExpenses.length, currentPage * pageSize)}{" "}
+              {getAppTranslation("of")} {filteredExpenses.length} {getAppTranslation("entries")}
             </div>
             <div className="flex items-center space-x-2">
               <Button
@@ -717,7 +816,8 @@ export default function ExpensesPage() {
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <span className="text-sm">
-                Page {filteredExpenses.length > 0 ? currentPage : 0} of {totalPages}
+                {getAppTranslation("page")} {filteredExpenses.length > 0 ? currentPage : 0} {getAppTranslation("of")}{" "}
+                {totalPages}
               </span>
               <Button
                 variant="outline"
@@ -742,13 +842,13 @@ export default function ExpensesPage() {
       <Dialog open={isAddCategoryDialogOpen} onOpenChange={setIsAddCategoryDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Add Category</DialogTitle>
-            <DialogDescription>Create a new category for expenses.</DialogDescription>
+            <DialogTitle>{getAppTranslation("add_category")}</DialogTitle>
+            <DialogDescription>{getAppTranslation("add_category_description")}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="name" className="text-right">
-                Name
+                {getAppTranslation("name")}
               </Label>
               <Input
                 id="name"
@@ -760,18 +860,18 @@ export default function ExpensesPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAddCategoryDialogOpen(false)}>
-              Cancel
+              {getAppTranslation("cancel")}
             </Button>
-            <Button onClick={handleAddCategory} disabled={isSavingCategory}>
+            <Button type="button" onClick={handleAddCategory} disabled={isSavingCategory}>
               {isSavingCategory ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
+                  {getAppTranslation("saving")}...
                 </>
               ) : (
                 <>
                   <Save className="mr-2 h-4 w-4" />
-                  Save Category
+                  {getAppTranslation("save_category")}
                 </>
               )}
             </Button>
@@ -781,13 +881,13 @@ export default function ExpensesPage() {
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>Edit Expense</DialogTitle>
-            <DialogDescription>Update the details of this expense.</DialogDescription>
+            <DialogTitle>{getAppTranslation("edit_expense")}</DialogTitle>
+            <DialogDescription>{getAppTranslation("edit_expense_description")}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="edit-category" className="text-right">
-                Category
+                {getAppTranslation("category")}
               </Label>
               <div className="col-span-3 flex gap-2">
                 <Select
@@ -795,12 +895,12 @@ export default function ExpensesPage() {
                   onValueChange={(value) => setNewExpense((prev) => ({ ...prev, category_id: value }))}
                 >
                   <SelectTrigger id="edit-category" className="flex-1">
-                    <SelectValue placeholder="Select a category" />
+                    <SelectValue placeholder={getAppTranslation("select_category")} />
                   </SelectTrigger>
                   <SelectContent>
                     {categories.length === 0 ? (
                       <div className="flex items-center justify-center p-2 text-sm text-muted-foreground">
-                        No categories available
+                        {getAppTranslation("no_categories")}
                       </div>
                     ) : (
                       categories.map((category) => (
@@ -818,7 +918,7 @@ export default function ExpensesPage() {
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="edit-amount" className="text-right">
-                Amount
+                {getAppTranslation("amount")}
               </Label>
               <Input
                 id="edit-amount"
@@ -834,7 +934,7 @@ export default function ExpensesPage() {
             </div>
             <div className="grid grid-cols-4 items-start gap-4">
               <Label htmlFor="edit-description" className="text-right pt-2">
-                Description
+                {getAppTranslation("description")}
               </Label>
               <Textarea
                 id="edit-description"
@@ -849,18 +949,18 @@ export default function ExpensesPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
-              Cancel
+              {getAppTranslation("cancel")}
             </Button>
-            <Button onClick={handleUpdateExpense} disabled={isSaving}>
+            <Button type="button" onClick={handleUpdateExpense} disabled={isSaving}>
               {isSaving ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
+                  {getAppTranslation("saving")}...
                 </>
               ) : (
                 <>
                   <Save className="mr-2 h-4 w-4" />
-                  Update Expense
+                  {getAppTranslation("update_expense")}
                 </>
               )}
             </Button>
@@ -870,17 +970,17 @@ export default function ExpensesPage() {
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>{getAppTranslation("are_you_sure")}</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the expense
-              {selectedExpense && ` for $${selectedExpense.amount.toFixed(2)}`}.
+              {getAppTranslation("delete_expense_warning")}
+              {selectedExpense && ` $${selectedExpense.amount.toFixed(2)}`}.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{getAppTranslation("cancel")}</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteExpense} className="bg-destructive text-destructive-foreground">
               <Trash2 className="mr-2 h-4 w-4" />
-              Delete
+              {getAppTranslation("delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,13 +1,12 @@
 "use server"
 
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs"
-import { cookies } from "next/headers"
-import type { Database, Json } from "@/types/supabase"
+import { createServerSupabaseClient } from "@/lib/supabase-server"
+import type { Json } from "@/types/supabase"
 import type { SupportedCurrency } from "@/lib/format-currency"
 
 export async function updateCurrency(currency: SupportedCurrency) {
   console.log("Server action: updateCurrency called with", currency)
-  const supabase = createServerComponentClient<Database>({ cookies })
+  const supabase = await createServerSupabaseClient()
 
   try {
     // First check if settings exist - select all fields we need

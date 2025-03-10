@@ -1,9 +1,9 @@
 "use client"
 
 import type React from "react"
-import { createContext, useContext, useEffect, useState, useMemo } from "react"
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
-import type { User } from "@supabase/auth-helpers-nextjs"
+import { createContext, useContext, useEffect, useState } from "react"
+import { createClient } from "@/lib/supabase-client"
+import type { User } from "@supabase/supabase-js"
 import { useRouter } from "next/navigation"
 
 type UserContextType = {
@@ -29,8 +29,8 @@ export function UserProvider({
   const [isLoading, setIsLoading] = useState(!initialUser)
   const router = useRouter()
 
-  // Create a memoized Supabase client
-  const supabase = useMemo(() => createClientComponentClient(), [])
+  // Create a Supabase client using our utility function
+  const supabase = createClient()
 
   useEffect(() => {
     // Only fetch user if we don't have an initial user

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
+import { createClient } from "@/lib/supabase-client"
 import {
   Home,
   DollarSign,
@@ -27,8 +27,11 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useToast } from "@/components/ui/use-toast"
+import { useLanguage } from "@/hooks/use-language"
+import type { AppTranslationKey } from "@/lib/app-translations"
 
 const Sidebar = () => {
+  // Your existing code...
   const [isMounted, setIsMounted] = useState(false)
   const [unreadAlerts, setUnreadAlerts] = useState(0)
   const [isCollapsed, setIsCollapsed] = useState(false)
@@ -39,8 +42,9 @@ const Sidebar = () => {
   const pathname = usePathname()
   const router = useRouter()
   const { theme, setTheme } = useTheme()
-  const supabase = createClientComponentClient()
+  const supabase = createClient()
   const { toast } = useToast()
+  const { getAppTranslation } = useLanguage()
 
   useEffect(() => {
     setIsMounted(true)
@@ -139,34 +143,35 @@ const Sidebar = () => {
       await supabase.auth.signOut()
       router.push("/auth/login")
       toast({
-        title: "Logged out",
-        description: "You have been successfully logged out.",
+        title: getAppTranslation("logout"),
+        description: getAppTranslation("success"),
       })
     } catch (error) {
       console.error("Error logging out:", error)
       toast({
-        title: "Error",
-        description: "Failed to log out. Please try again.",
+        title: getAppTranslation("error"),
+        description: getAppTranslation("error"),
         variant: "destructive",
       })
     }
   }
 
+  // Map the original labels to translation keys
   const navItems = [
-    { href: "/dashboard", label: "Dashboard", icon: <Home className="h-5 w-5" /> },
-    { href: "/pos", label: "POS", icon: <ShoppingCart className="h-5 w-5" /> },
-    { href: "/inventory", label: "Inventory", icon: <Package className="h-5 w-5" /> },
-    { href: "/expenses", label: "Expenses", icon: <PlusCircle className="h-5 w-5" /> },
-    { href: "/reports", label: "Reports", icon: <BarChart3 className="h-5 w-5" /> },
-    { href: "/sales", label: "Sales", icon: <DollarSign className="h-5 w-5" /> },
-    { href: "/users", label: "Users", icon: <User className="h-5 w-5" /> },
+    { href: "/dashboard", label: "dashboard" as AppTranslationKey, icon: <Home className="h-5 w-5" /> },
+    { href: "/pos", label: "pointOfSale" as AppTranslationKey, icon: <ShoppingCart className="h-5 w-5" /> },
+    { href: "/inventory", label: "inventory" as AppTranslationKey, icon: <Package className="h-5 w-5" /> },
+    { href: "/expenses", label: "expenses" as AppTranslationKey, icon: <PlusCircle className="h-5 w-5" /> },
+    { href: "/reports", label: "reports" as AppTranslationKey, icon: <BarChart3 className="h-5 w-5" /> },
+    { href: "/sales", label: "sales" as AppTranslationKey, icon: <DollarSign className="h-5 w-5" /> },
+    { href: "/users", label: "customers" as AppTranslationKey, icon: <User className="h-5 w-5" /> },
     {
       href: "/alerts",
-      label: "Alerts",
+      label: "alerts" as AppTranslationKey,
       icon: <Bell className="h-5 w-5" />,
       badge: unreadAlerts > 0 ? unreadAlerts : null,
     },
-    { href: "/settings", label: "Settings", icon: <Settings className="h-5 w-5" /> },
+    { href: "/settings", label: "settings" as AppTranslationKey, icon: <Settings className="h-5 w-5" /> },
   ]
 
   const SidebarContent = () => (
@@ -199,7 +204,7 @@ const Sidebar = () => {
                   }`}
                 >
                   {item.icon}
-                  {!isCollapsed && <span className="ml-3">{item.label}</span>}
+                  {!isCollapsed && <span className="ml-3">{getAppTranslation(item.label)}</span>}
                   {item.badge && (
                     <Badge variant="destructive" className={isCollapsed ? "ml-0" : "ml-auto"}>
                       {item.badge}
@@ -207,7 +212,7 @@ const Sidebar = () => {
                   )}
                 </Link>
               </TooltipTrigger>
-              {isCollapsed && <TooltipContent side="right">{item.label}</TooltipContent>}
+              {isCollapsed && <TooltipContent side="right">{getAppTranslation(item.label)}</TooltipContent>}
             </Tooltip>
           ))}
         </TooltipProvider>
@@ -220,7 +225,7 @@ const Sidebar = () => {
           onClick={handleLogout}
         >
           <LogOut className="h-5 w-5" />
-          {!isCollapsed && <span className="ml-3">Logout</span>}
+          {!isCollapsed && <span className="ml-3">{getAppTranslation("logout")}</span>}
         </Button>
       </div>
 

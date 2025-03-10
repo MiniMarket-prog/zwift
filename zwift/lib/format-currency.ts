@@ -1,11 +1,8 @@
-import type { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
-import type { Database } from "@/types/supabase"
-
 // Define a type for supported currencies
 export type SupportedCurrency = "USD" | "EUR" | "GBP" | "JPY" | "CAD" | "AUD" | "INR" | "CNY" | "BRL" | "MAD"
 
 // Helper function to format currency
-export function formatCurrency(amount: number, currency = "USD"): string {
+export function formatCurrency(amount: number, currency = "USD", language = "en"): string {
   // Basic currency formatting based on currency code
   const currencySymbols: Record<string, string> = {
     USD: "$",
@@ -28,14 +25,18 @@ export function formatCurrency(amount: number, currency = "USD"): string {
     return `${amount.toFixed(2)} ${symbol}`
   }
 
+  // For Arabic languages, format differently
+  if (language.startsWith("ar")) {
+    // Arabic formatting with the currency symbol on the right
+    return `${amount.toFixed(2)} ${symbol}`
+  }
+
   // For other currencies, the symbol comes before the amount
   return `${symbol}${amount.toFixed(2)}`
 }
 
-// Create a function to get the current currency from settings
-export async function getCurrentCurrency(
-  supabase: ReturnType<typeof createClientComponentClient<Database>>,
-): Promise<string> {
+// Update the getCurrentCurrency function to properly handle the currency value
+export async function getCurrentCurrency(supabase: any): Promise<string> {
   try {
     const { data, error } = await supabase.from("settings").select("currency").eq("type", "global").single()
 
@@ -44,7 +45,12 @@ export async function getCurrentCurrency(
       return "USD" // Default to USD if there's an error
     }
 
-    return data?.currency || "USD"
+    // Make sure the currency is a string
+    if (data?.currency && typeof data.currency === "string") {
+      return data.currency
+    }
+
+    return "USD" // Default to USD if currency is not a string
   } catch (error) {
     console.error("Error in getCurrentCurrency:", error)
     return "USD" // Default to USD if there's an error

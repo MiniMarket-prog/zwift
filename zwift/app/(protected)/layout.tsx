@@ -1,8 +1,7 @@
 import type React from "react"
 import Sidebar from "@/components/sidebar"
 import { redirect } from "next/navigation"
-import { cookies } from "next/headers"
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs"
+import { createServerSupabaseClient } from "@/lib/supabase-server"
 
 export const metadata = {
   title: "Inventory Management System",
@@ -14,11 +13,8 @@ export default async function ProtectedLayout({
 }: {
   children: React.ReactNode
 }) {
-  // Create the Supabase client once
-  const cookieStore = cookies()
-  const supabase = createServerComponentClient({
-    cookies: () => cookieStore,
-  })
+  // Create the Supabase client
+  const supabase = await createServerSupabaseClient()
 
   // Get the initial session
   const {
@@ -33,7 +29,7 @@ export default async function ProtectedLayout({
   return (
     <div className="relative flex h-full min-h-screen">
       <Sidebar />
-      <div className="flex-1 md:ml-[var(--sidebar-width,256px)] transition-all duration-300">
+      <div className="flex-1 md:ml-[72px] transition-all duration-300">
         <main className="p-4">{children}</main>
       </div>
     </div>

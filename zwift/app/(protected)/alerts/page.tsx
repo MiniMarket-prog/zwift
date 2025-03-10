@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ShoppingCart, Loader2, AlertCircle } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
-import { supabase } from "@/lib/supabase"
+import { createClient } from "@/lib/supabase-client"
 
 // First, let's add imports for the dialog and other components we'll need
 import {
@@ -50,6 +50,7 @@ const AlertsPage = () => {
   const [categories, setCategories] = useState<Category[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const { toast } = useToast()
+  const supabase = createClient()
 
   // Add state for the stock adjustment dialog
   const [isAdjustDialogOpen, setIsAdjustDialogOpen] = useState(false)
@@ -69,7 +70,7 @@ const AlertsPage = () => {
       }
 
       // Filter products where stock is less than min_stock
-      const lowStock = data?.filter((product) => product.stock < product.min_stock) || []
+      const lowStock = data?.filter((product: Product) => product.stock < product.min_stock) || []
       setLowStockProducts(lowStock as Product[])
       setFilteredProducts(lowStock as Product[])
     } catch (error) {
@@ -84,7 +85,7 @@ const AlertsPage = () => {
     } finally {
       setIsLoading(false)
     }
-  }, [toast])
+  }, [toast, supabase])
 
   // Fetch categories from Supabase
   const fetchCategories = useCallback(async () => {
@@ -100,7 +101,7 @@ const AlertsPage = () => {
       console.error("Error fetching categories:", error)
       setCategories([])
     }
-  }, [])
+  }, [supabase])
 
   useEffect(() => {
     fetchLowStockProducts()
@@ -203,7 +204,7 @@ const AlertsPage = () => {
   }
 
   // Get category name by ID
-  const getCategoryName = (categoryId: string | null) => {
+  const getCategoryName = (categoryId: string | null | undefined) => {
     if (!categoryId) return "Uncategorized"
     const category = categories.find((c) => c.id === categoryId)
     return category ? category.name : "Uncategorized"
