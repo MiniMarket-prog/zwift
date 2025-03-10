@@ -27,6 +27,16 @@ export async function middleware(req: NextRequest) {
     },
   )
 
+  // Get the session
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+
+  // If user is visiting the root path and not authenticated, redirect to login
+  if (req.nextUrl.pathname === "/" && !session) {
+    return NextResponse.redirect(new URL("/login", req.url))
+  }
+
   // Refresh session if expired
   await supabase.auth.getSession()
 
