@@ -26,6 +26,9 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
   const { toast } = useToast()
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [showDebugInfo, setShowDebugInfo] = useState(false)
+  const [attemptCount, setAttemptCount] = useState(0)
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
+  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([])
 
   // Check if running on HTTPS
   useEffect(() => {
@@ -34,6 +37,41 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       if (!isSecure) {
         setDebugInfo((prev) => `${prev || ""}• Not running on HTTPS (required for camera access)\n`)
       }
+    }
+  }, [])
+
+  // Get available cameras
+  const getAvailableCameras = useCallback(async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      setDebugInfo((prev) => `${prev || ""}• MediaDevices API not supported\n`)
+      return []
+    }
+
+    try {
+      // We need to request camera access first to get labeled devices
+      const tempStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+
+      // Now we can enumerate devices with labels
+      const devices = await navigator.mediaDevices.enumerateDevices()
+
+      // Stop the temporary stream
+      tempStream.getTracks().forEach((track) => track.stop())
+
+      const videoDevices = devices.filter((device) => device.kind === "videoinput")
+      setAvailableCameras(videoDevices)
+
+      setDebugInfo((prev) => {
+        let info = `${prev || ""}• Found ${videoDevices.length} camera(s):\n`
+        videoDevices.forEach((device, index) => {
+          info += `  ${index + 1}. ${device.label || "unnamed camera"} (${device.deviceId.substring(0, 8)}...)\n`
+        })
+        return info
+      })
+
+      return videoDevices
+    } catch (err) {
+      setDebugInfo((prev) => `${prev || ""}• Error enumerating devices: ${(err as Error).message}\n`)
+      return []
     }
   }, [])
 
@@ -76,30 +114,15 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
   const startCamera = useCallback(async () => {
     try {
       setErrorMessage(null)
+      setAttemptCount((prev) => prev + 1)
 
       // Log device info for debugging
       setDebugInfo((prev) => `${prev || ""}• Device: ${navigator.userAgent}\n`)
+      setDebugInfo((prev) => `${prev || ""}• Attempt #${attemptCount + 1}\n`)
 
       // Check if MediaDevices API is available
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("MediaDevices API not supported in this browser")
-      }
-
-      // Log available devices for debugging
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices()
-        const videoDevices = devices.filter((device) => device.kind === "videoinput")
-        setDebugInfo((prev) => `${prev || ""}• Available cameras: ${videoDevices.length}\n`)
-
-        // Log each camera device for debugging
-        videoDevices.forEach((device, index) => {
-          setDebugInfo(
-            (prev) =>
-              `${prev || ""}• Camera ${index + 1}: ${device.label || "unnamed"} (${device.deviceId.substring(0, 8)}...)\n`,
-          )
-        })
-      } catch (err) {
-        setDebugInfo((prev) => `${prev || ""}• Could not enumerate devices: ${(err as Error).message}\n`)
       }
 
       // Stop any existing stream
@@ -111,62 +134,78 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
         setStream(null)
       }
 
-      // Start with very basic constraints first
-      setDebugInfo((prev) => `${prev || ""}• Attempting to access camera with basic constraints\n`)
+      // Get available cameras if we haven't already
+      if (availableCameras.length === 0) {
+        const cameras = await getAvailableCameras()
+        if (cameras.length === 0) {
+          setDebugInfo((prev) => `${prev || ""}• No cameras found on device\n`)
+        }
+      }
 
-      try {
-        // First try with simple constraints
-        const basicConstraints = {
+      // Try different approaches based on attempt count
+      let constraints: MediaStreamConstraints
+
+      if (attemptCount === 0) {
+        // First attempt: Use the most basic constraints possible
+        setDebugInfo((prev) => `${prev || ""}• Using basic constraints (attempt #1)\n`)
+        constraints = {
           video: true,
           audio: false,
         }
-
-        setDebugInfo((prev) => `${prev || ""}• Requesting camera with basic constraints\n`)
-        const newStream = await navigator.mediaDevices.getUserMedia(basicConstraints)
-
-        // If we get here, we have basic camera access
-        setDebugInfo((prev) => `${prev || ""}• Basic camera access successful\n`)
-
-        // Now try to get the preferred camera if we have multiple cameras
-        if (facingMode !== "user") {
-          try {
-            const devices = await navigator.mediaDevices.enumerateDevices()
-            const videoDevices = devices.filter((device) => device.kind === "videoinput")
-
-            // If we have multiple cameras, try to get the back camera
-            if (videoDevices.length > 1) {
-              setDebugInfo((prev) => `${prev || ""}• Attempting to switch to back camera\n`)
-
-              // Stop the basic stream
-              newStream.getTracks().forEach((track) => track.stop())
-
-              // Try to get the back camera
-              const advancedConstraints = {
-                video: {
-                  facingMode: "environment",
-                  width: { ideal: 1280 },
-                  height: { ideal: 720 },
-                },
-                audio: false,
-              }
-
-              const preferredStream = await navigator.mediaDevices.getUserMedia(advancedConstraints)
-              setDebugInfo((prev) => `${prev || ""}• Successfully switched to back camera\n`)
-              setStream(preferredStream)
-
-              if (videoRef.current) {
-                videoRef.current.srcObject = preferredStream
-                await videoRef.current.play()
-              }
-              return // Exit early since we've set up the preferred stream
-            }
-          } catch (err) {
-            setDebugInfo((prev) => `${prev || ""}• Failed to switch to back camera: ${(err as Error).message}\n`)
-            // Continue with the basic stream if we can't get the preferred camera
-          }
+      } else if (attemptCount === 1 && availableCameras.length > 0) {
+        // Second attempt: Try with explicit device ID of first camera
+        const deviceId = availableCameras[0].deviceId
+        setSelectedDeviceId(deviceId)
+        setDebugInfo((prev) => `${prev || ""}• Using explicit device ID (attempt #2): ${deviceId.substring(0, 8)}...\n`)
+        constraints = {
+          video: { deviceId: { exact: deviceId } },
+          audio: false,
         }
+      } else if (attemptCount === 2) {
+        // Third attempt: Try with facing mode only
+        setDebugInfo((prev) => `${prev || ""}• Using facing mode only (attempt #3): ${facingMode}\n`)
+        constraints = {
+          video: { facingMode: facingMode },
+          audio: false,
+        }
+      } else if (attemptCount === 3 && facingMode === "environment") {
+        // Fourth attempt: Try with user facing camera instead
+        setFacingMode("user")
+        setDebugInfo((prev) => `${prev || ""}• Switching to front camera (attempt #4)\n`)
+        constraints = {
+          video: { facingMode: "user" },
+          audio: false,
+        }
+      } else if (attemptCount === 4 && availableCameras.length > 1) {
+        // Fifth attempt: Try with second camera if available
+        const deviceId = availableCameras[1].deviceId
+        setSelectedDeviceId(deviceId)
+        setDebugInfo((prev) => `${prev || ""}• Using second camera (attempt #5): ${deviceId.substring(0, 8)}...\n`)
+        constraints = {
+          video: { deviceId: { exact: deviceId } },
+          audio: false,
+        }
+      } else {
+        // Final fallback: Use minimal constraints with ideal (not exact) values
+        setDebugInfo((prev) => `${prev || ""}• Using fallback constraints (attempt #${attemptCount + 1})\n`)
+        constraints = {
+          video: {
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            frameRate: { ideal: 15 },
+          },
+          audio: false,
+        }
+      }
 
-        // If we didn't return early with a preferred stream, use the basic stream
+      setDebugInfo((prev) => `${prev || ""}• Requesting camera with constraints: ${JSON.stringify(constraints)}\n`)
+
+      try {
+        // Request the camera stream with current constraints
+        const newStream = await navigator.mediaDevices.getUserMedia(constraints)
+
+        // If we get here, we have camera access
+        setDebugInfo((prev) => `${prev || ""}• Camera access successful!\n`)
         setStream(newStream)
         setPermissionState("granted")
 
@@ -200,13 +239,26 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
           })
 
           setDebugInfo((prev) => `${prev || ""}• Video playing successfully\n`)
+
+          // Reset attempt count on success
+          setAttemptCount(0)
         } else {
           throw new Error("Video element reference not available")
         }
-      } catch (basicError) {
-        // If basic constraints fail, log and throw the error
-        setDebugInfo((prev) => `${prev || ""}• Basic camera access failed: ${(basicError as Error).message}\n`)
-        throw basicError
+      } catch (accessError) {
+        // If this attempt fails, log and try again with different constraints if we haven't tried too many times
+        setDebugInfo(
+          (prev) => `${prev || ""}• Attempt #${attemptCount + 1} failed: ${(accessError as Error).message}\n`,
+        )
+
+        if (attemptCount < 5) {
+          // Try again with different constraints
+          setDebugInfo((prev) => `${prev || ""}• Will try different approach...\n`)
+          setTimeout(() => startCamera(), 500)
+        } else {
+          // We've tried multiple approaches, give up and show error
+          throw new Error(`Failed after ${attemptCount + 1} attempts: ${(accessError as Error).message}`)
+        }
       }
     } catch (error) {
       console.error("Error accessing camera:", error)
@@ -220,7 +272,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       } else if ((error as Error).name === "NotFoundError") {
         setErrorMessage("No camera found on your device.")
       } else if ((error as Error).name === "NotReadableError" || (error as Error).name === "AbortError") {
-        setErrorMessage("Camera is already in use by another application or not accessible.")
+        setErrorMessage("Camera is already in use or not accessible. Try restarting your browser or device.")
       } else if ((error as Error).name === "SecurityError") {
         setErrorMessage("Camera access blocked due to security restrictions. Make sure you're using HTTPS.")
       } else if ((error as Error).name === "OverconstrainedError") {
@@ -235,35 +287,9 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
         variant: "destructive",
       })
     }
-  }, [facingMode, stream, toast, errorMessage])
+  }, [facingMode, stream, toast, errorMessage, attemptCount, availableCameras, getAvailableCameras])
 
-  // Start the camera when the dialog opens
-  useEffect(() => {
-    if (!isOpen) return
-
-    startCamera()
-
-    // Cleanup function
-    return () => {
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop())
-        setStream(null)
-      }
-    }
-  }, [isOpen, startCamera, stream])
-
-  // Switch camera between front and back
-  const switchCamera = () => {
-    setFacingMode((prev) => (prev === "environment" ? "user" : "environment"))
-
-    // If we already have a stream, stop it so we can request the new camera
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop())
-      setStream(null)
-    }
-  }
-
-  // Handle camera stream errors
+  // Handle camera stream errors - define this AFTER startCamera
   const handleCameraStreamError = useCallback(() => {
     if (stream) {
       // Stop the current stream
@@ -282,6 +308,39 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       }
     }, 1000)
   }, [stream, isOpen, startCamera])
+
+  // Start the camera when the dialog opens
+  useEffect(() => {
+    if (!isOpen) return
+
+    // Reset attempt count when dialog opens
+    setAttemptCount(0)
+    startCamera()
+
+    // Cleanup function
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop())
+        setStream(null)
+      }
+    }
+  }, [isOpen, startCamera, stream])
+
+  // Switch camera between front and back
+  const switchCamera = () => {
+    setFacingMode((prev) => (prev === "environment" ? "user" : "environment"))
+    setSelectedDeviceId(null)
+    setAttemptCount(0)
+
+    // If we already have a stream, stop it so we can request the new camera
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop())
+      setStream(null)
+    }
+
+    // Start camera with new facing mode
+    startCamera()
+  }
 
   // Force camera request
   const forceRequestCamera = async () => {
@@ -322,6 +381,9 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       setPermissionState("granted")
       setErrorMessage(null)
 
+      // Reset attempt count
+      setAttemptCount(0)
+
       // Reopen the camera with our preferred settings
       setIsOpen(false)
       setTimeout(() => setIsOpen(true), 100)
@@ -341,6 +403,21 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
         variant: "destructive",
       })
     }
+  }
+
+  // Try a specific camera
+  const trySpecificCamera = (deviceId: string) => {
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop())
+      setStream(null)
+    }
+
+    setSelectedDeviceId(deviceId)
+    setAttemptCount(0)
+    setDebugInfo((prev) => `${prev || ""}• Manually selected camera: ${deviceId.substring(0, 8)}...\n`)
+
+    // Start camera with the selected device
+    startCamera()
   }
 
   // Simulate a barcode scan (for testing)
@@ -418,13 +495,32 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
           <Button
             onClick={() => {
               setErrorMessage(null)
-              setIsOpen(false)
-              setTimeout(() => setIsOpen(true), 500)
+              setAttemptCount(0)
+              startCamera()
             }}
           >
             Retry Camera Access
           </Button>
         )}
+
+        {availableCameras.length > 0 && (
+          <div className="mt-2">
+            <p className="text-sm font-medium mb-2">Try a specific camera:</p>
+            <div className="flex flex-col gap-2">
+              {availableCameras.map((camera, index) => (
+                <Button
+                  key={camera.deviceId}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => trySpecificCamera(camera.deviceId)}
+                >
+                  {camera.label || `Camera ${index + 1}`}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <Button variant="outline" onClick={() => setIsOpen(false)}>
           Cancel
         </Button>
@@ -444,13 +540,14 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       <div className="text-xs text-muted-foreground mt-4">
         <p className="font-semibold">Troubleshooting tips:</p>
         <ol className="list-decimal pl-5 mt-2 space-y-1">
-          <li>Make sure no other apps are using your camera</li>
-          <li>Try closing other browser tabs that might be using the camera</li>
-          <li>Restart your browser</li>
+          <li>Restart your browser completely</li>
+          <li>Try closing all other browser tabs</li>
+          <li>Restart your device</li>
           <li>
             On Android, check camera permissions in Settings {">"} Apps {">"} Browser {">"} Permissions
           </li>
           <li>Try using a different browser</li>
+          <li>Check if your camera works in other apps</li>
         </ol>
       </div>
     </div>
