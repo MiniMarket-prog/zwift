@@ -204,7 +204,16 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
 
           // Handle video element errors
           videoRef.current.onerror = (e) => {
-            handleError(e as Error, "Video element error")
+            // Convert Event to Error or handle it differently
+            if (e instanceof Error) {
+              handleError(e, "Video element error")
+            } else if (typeof e === "string") {
+              handleError(new Error(`Video error: ${e}`), "Video element error")
+            } else if (e instanceof Event) {
+              handleError(new Error(`Video error: ${e.type}`), "Video element error")
+            } else {
+              handleError(new Error("Unknown video error"), "Video element error")
+            }
           }
 
           // Add event listeners for track ended or muted
@@ -257,19 +266,20 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       handleError(error as Error, "Camera access error")
 
       // Handle specific error types
-      if ((error as Error).name === "NotAllowedError" || (error as Error).name === "PermissionDeniedError") {
+      const err = error as Error
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
         setPermissionState("denied")
         setErrorMessage("Camera permission denied. Please allow camera access in your browser settings.")
-      } else if ((error as Error).name === "NotFoundError") {
+      } else if (err.name === "NotFoundError") {
         setErrorMessage("No camera found on your device.")
-      } else if ((error as Error).name === "NotReadableError" || (error as Error).name === "AbortError") {
+      } else if (err.name === "NotReadableError" || err.name === "AbortError") {
         setErrorMessage("Camera is already in use or not accessible. Try restarting your browser or device.")
-      } else if ((error as Error).name === "SecurityError") {
+      } else if (err.name === "SecurityError") {
         setErrorMessage("Camera access blocked due to security restrictions. Make sure you're using HTTPS.")
-      } else if ((error as Error).name === "OverconstrainedError") {
+      } else if (err.name === "OverconstrainedError") {
         setErrorMessage("Camera doesn't support the requested settings. Please try again with different settings.")
       } else {
-        setErrorMessage(`Could not access camera: ${error.message}`)
+        setErrorMessage(`Could not access camera: ${err.message}`)
       }
 
       toast({
