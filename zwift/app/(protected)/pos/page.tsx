@@ -1001,8 +1001,8 @@ const POSPage = () => {
                     className="cursor-pointer hover:shadow-md transition-shadow"
                     onClick={() => addToCart(product)}
                   >
-                    <CardContent className="p-4">
-                      <div className="aspect-square relative mb-2 bg-muted rounded-md overflow-hidden">
+                    <CardContent className="p-1">
+                      <div className="h-16 w-16 relative mb-2 bg-muted rounded-md overflow-hidden">
                         {product.image ? (
                           <Image
                             src={product.image || "/placeholder.svg"}
@@ -1012,7 +1012,7 @@ const POSPage = () => {
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center bg-muted">
-                            <ShoppingCart className="h-12 w-12 text-muted-foreground" />
+                            <ShoppingCart className="h-14 w-14 text-muted-foreground" />
                           </div>
                         )}
                         {product.stock <= 0 && (

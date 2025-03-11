@@ -101,10 +101,11 @@ export default function InventoryPage() {
     price: "",
     barcode: "",
     stock: "",
-    min_stock: "0",
+    min_stock: "5",
     image: "",
     category_id: "",
     purchase_price: "",
+    
   })
 
   // Category state
@@ -631,7 +632,7 @@ export default function InventoryPage() {
                       name="min_stock"
                       type="number"
                       min="0"
-                      value={formData.min_stock}
+                      value={formData.min_stock ?? 5}
                       onChange={handleFormChange}
                       className="col-span-3"
                       required
