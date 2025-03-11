@@ -35,7 +35,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
     if (typeof window !== "undefined") {
       const isSecure = window.location.protocol === "https:" || window.location.hostname === "localhost"
       if (!isSecure) {
-        setDebugInfo((prev) => `${prev || ""}• Not running on HTTPS (required for camera access)\n`)
+        logDebug("Not running on HTTPS (required for camera access)")
       }
     }
   }, [])
@@ -43,7 +43,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
   // Get available cameras
   const getAvailableCameras = useCallback(async () => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-      setDebugInfo((prev) => `${prev || ""}• MediaDevices API not supported\n`)
+      logDebug("MediaDevices API not supported")
       return []
     }
 
@@ -60,17 +60,11 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       const videoDevices = devices.filter((device) => device.kind === "videoinput")
       setAvailableCameras(videoDevices)
 
-      setDebugInfo((prev) => {
-        let info = `${prev || ""}• Found ${videoDevices.length} camera(s):\n`
-        videoDevices.forEach((device, index) => {
-          info += `  ${index + 1}. ${device.label || "unnamed camera"} (${device.deviceId.substring(0, 8)}...)\n`
-        })
-        return info
-      })
+      logDebug(`Found ${videoDevices.length} camera(s): ${videoDevices.map((d) => d.label).join(", ")}`)
 
       return videoDevices
     } catch (err) {
-      setDebugInfo((prev) => `${prev || ""}• Error enumerating devices: ${(err as Error).message}\n`)
+      handleError(err as Error, "Error enumerating devices")
       return []
     }
   }, [])
@@ -84,25 +78,25 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
           try {
             const result = await navigator.permissions.query({ name: "camera" as PermissionName })
             setPermissionState(result.state as "prompt" | "granted" | "denied")
-            setDebugInfo((prev) => `${prev || ""}• Permission API state: ${result.state}\n`)
+            logDebug(`Permission API state: ${result.state}`)
 
             // Listen for permission changes
             result.onchange = () => {
               setPermissionState(result.state as "prompt" | "granted" | "denied")
-              setDebugInfo((prev) => `${prev || ""}• Permission changed to: ${result.state}\n`)
+              logDebug(`Permission changed to: ${result.state}`)
             }
           } catch (err) {
-            setDebugInfo((prev) => `${prev || ""}• Permission query error: ${(err as Error).message}\n`)
+            handleError(err as Error, "Permission query error")
             setPermissionState("unknown")
           }
         } else {
           // Fallback for browsers that don't support permissions API
-          setDebugInfo((prev) => `${prev || ""}• Permissions API not supported\n`)
+          logDebug("Permissions API not supported")
           setPermissionState("unknown")
         }
       } catch (error) {
         console.error("Error checking camera permission:", error)
-        setDebugInfo((prev) => `${prev || ""}• Permission check error: ${(error as Error).message}\n`)
+        handleError(error as Error, "Permission check error")
         setPermissionState("unknown")
       }
     }
@@ -117,8 +111,8 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       setAttemptCount((prev) => prev + 1)
 
       // Log device info for debugging
-      setDebugInfo((prev) => `${prev || ""}• Device: ${navigator.userAgent}\n`)
-      setDebugInfo((prev) => `${prev || ""}• Attempt #${attemptCount + 1}\n`)
+      logDebug(`Device: ${navigator.userAgent}`)
+      logDebug(`Attempt #${attemptCount + 1}`)
 
       // Check if MediaDevices API is available
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -129,7 +123,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       if (stream) {
         stream.getTracks().forEach((track) => {
           track.stop()
-          setDebugInfo((prev) => `${prev || ""}• Stopped existing track: ${track.kind}\n`)
+          logDebug(`Stopped existing track: ${track.kind}`)
         })
         setStream(null)
       }
@@ -138,7 +132,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       if (availableCameras.length === 0) {
         const cameras = await getAvailableCameras()
         if (cameras.length === 0) {
-          setDebugInfo((prev) => `${prev || ""}• No cameras found on device\n`)
+          logDebug("No cameras found on device")
         }
       }
 
@@ -147,7 +141,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
 
       if (attemptCount === 0) {
         // First attempt: Use the most basic constraints possible
-        setDebugInfo((prev) => `${prev || ""}• Using basic constraints (attempt #1)\n`)
+        logDebug("Using basic constraints (attempt #1)")
         constraints = {
           video: true,
           audio: false,
@@ -156,14 +150,14 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
         // Second attempt: Try with explicit device ID of first camera
         const deviceId = availableCameras[0].deviceId
         setSelectedDeviceId(deviceId)
-        setDebugInfo((prev) => `${prev || ""}• Using explicit device ID (attempt #2): ${deviceId.substring(0, 8)}...\n`)
+        logDebug(`Using explicit device ID (attempt #2): ${deviceId.substring(0, 8)}...`)
         constraints = {
           video: { deviceId: { exact: deviceId } },
           audio: false,
         }
       } else if (attemptCount === 2) {
         // Third attempt: Try with facing mode only
-        setDebugInfo((prev) => `${prev || ""}• Using facing mode only (attempt #3): ${facingMode}\n`)
+        logDebug(`Using facing mode only (attempt #3): ${facingMode}`)
         constraints = {
           video: { facingMode: facingMode },
           audio: false,
@@ -171,7 +165,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       } else if (attemptCount === 3 && facingMode === "environment") {
         // Fourth attempt: Try with user facing camera instead
         setFacingMode("user")
-        setDebugInfo((prev) => `${prev || ""}• Switching to front camera (attempt #4)\n`)
+        logDebug("Switching to front camera (attempt #4)")
         constraints = {
           video: { facingMode: "user" },
           audio: false,
@@ -180,14 +174,14 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
         // Fifth attempt: Try with second camera if available
         const deviceId = availableCameras[1].deviceId
         setSelectedDeviceId(deviceId)
-        setDebugInfo((prev) => `${prev || ""}• Using second camera (attempt #5): ${deviceId.substring(0, 8)}...\n`)
+        logDebug(`Using second camera (attempt #5): ${deviceId.substring(0, 8)}...`)
         constraints = {
           video: { deviceId: { exact: deviceId } },
           audio: false,
         }
       } else {
         // Final fallback: Use minimal constraints with ideal (not exact) values
-        setDebugInfo((prev) => `${prev || ""}• Using fallback constraints (attempt #${attemptCount + 1})\n`)
+        logDebug(`Using fallback constraints (attempt #${attemptCount + 1})`)
         constraints = {
           video: {
             width: { ideal: 640 },
@@ -198,14 +192,14 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
         }
       }
 
-      setDebugInfo((prev) => `${prev || ""}• Requesting camera with constraints: ${JSON.stringify(constraints)}\n`)
+      logDebug(`Requesting camera with constraints: ${JSON.stringify(constraints)}`)
 
       try {
         // Request the camera stream with current constraints
         const newStream = await navigator.mediaDevices.getUserMedia(constraints)
 
         // If we get here, we have camera access
-        setDebugInfo((prev) => `${prev || ""}• Camera access successful!\n`)
+        logDebug("Camera access successful!")
         setStream(newStream)
         setPermissionState("granted")
 
@@ -214,31 +208,31 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
 
           // Handle video element errors
           videoRef.current.onerror = (e) => {
-            setDebugInfo((prev) => `${prev || ""}• Video element error: ${e}\n`)
+            handleError(e as Error, "Video element error")
           }
 
           // Add event listeners for track ended or muted
           newStream.getVideoTracks().forEach((track) => {
             track.onended = () => {
-              setDebugInfo((prev) => `${prev || ""}• Video track ended unexpectedly\n`)
+              logDebug("Video track ended unexpectedly")
               setErrorMessage("Camera stream ended unexpectedly. Please try again.")
             }
 
             track.onmute = () => {
-              setDebugInfo((prev) => `${prev || ""}• Video track muted\n`)
+              logDebug("Video track muted")
             }
 
             track.onunmute = () => {
-              setDebugInfo((prev) => `${prev || ""}• Video track unmuted\n`)
+              logDebug("Video track unmuted")
             }
           })
 
           await videoRef.current.play().catch((e) => {
-            setDebugInfo((prev) => `${prev || ""}• Video play error: ${e.message}\n`)
+            handleError(e as Error, "Video play error")
             throw e
           })
 
-          setDebugInfo((prev) => `${prev || ""}• Video playing successfully\n`)
+          logDebug("Video playing successfully")
 
           // Reset attempt count on success
           setAttemptCount(0)
@@ -247,13 +241,11 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
         }
       } catch (accessError) {
         // If this attempt fails, log and try again with different constraints if we haven't tried too many times
-        setDebugInfo(
-          (prev) => `${prev || ""}• Attempt #${attemptCount + 1} failed: ${(accessError as Error).message}\n`,
-        )
+        logDebug(`Attempt #${attemptCount + 1} failed: ${(accessError as Error).message}`)
 
         if (attemptCount < 5) {
           // Try again with different constraints
-          setDebugInfo((prev) => `${prev || ""}• Will try different approach...\n`)
+          logDebug("Will try different approach...")
           setTimeout(() => startCamera(), 500)
         } else {
           // We've tried multiple approaches, give up and show error
@@ -262,8 +254,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       }
     } catch (error) {
       console.error("Error accessing camera:", error)
-      const errorMsg = (error as Error).message || String(error)
-      setDebugInfo((prev) => `${prev || ""}• Camera error: ${errorMsg}\n`)
+      handleError(error as Error, "Camera access error")
 
       // Handle specific error types
       if ((error as Error).name === "NotAllowedError" || (error as Error).name === "PermissionDeniedError") {
@@ -278,7 +269,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       } else if ((error as Error).name === "OverconstrainedError") {
         setErrorMessage("Camera doesn't support the requested settings. Please try again with different settings.")
       } else {
-        setErrorMessage(`Could not access camera: ${errorMsg}`)
+        setErrorMessage(`Could not access camera: ${error.message}`)
       }
 
       toast({
@@ -298,7 +289,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
     }
 
     setErrorMessage("Camera stream interrupted. Please try again.")
-    setDebugInfo((prev) => `${prev || ""}• Camera stream error handler triggered\n`)
+    logDebug("Camera stream error handler triggered")
 
     // Attempt to restart the camera after a short delay
     setTimeout(() => {
@@ -358,17 +349,17 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
           const extendedPermissions = navigator.permissions as ExtendedPermissions
           if (extendedPermissions.revoke) {
             await extendedPermissions.revoke({ name: "camera" as PermissionName })
-            setDebugInfo((prev) => `${prev || ""}• Successfully revoked camera permission\n`)
+            logDebug("Successfully revoked camera permission")
           } else {
-            setDebugInfo((prev) => `${prev || ""}• Permission revoke not supported in this browser\n`)
+            logDebug("Permission revoke not supported in this browser")
           }
         } catch (e) {
           // Ignore errors with revoke as it's experimental
-          setDebugInfo((prev) => `${prev || ""}• Error revoking permission: ${(e as Error).message}\n`)
+          handleError(e as Error, "Error revoking permission")
         }
       }
 
-      setDebugInfo((prev) => `${prev || ""}• Forcing new camera request\n`)
+      logDebug("Forcing new camera request")
 
       // Request with minimal constraints to maximize chances of success
       const tempStream = await navigator.mediaDevices.getUserMedia({
@@ -394,7 +385,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       })
     } catch (error) {
       console.error("Still can't access camera:", error)
-      setDebugInfo((prev) => `${prev || ""}• Force request failed: ${(error as Error).message}\n`)
+      handleError(error as Error, "Force request failed")
 
       // On Android, guide the user to settings
       toast({
@@ -414,7 +405,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
 
     setSelectedDeviceId(deviceId)
     setAttemptCount(0)
-    setDebugInfo((prev) => `${prev || ""}• Manually selected camera: ${deviceId.substring(0, 8)}...\n`)
+    logDebug(`Manually selected camera: ${deviceId.substring(0, 8)}...`)
 
     // Start camera with the selected device
     startCamera()
@@ -457,12 +448,12 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
     // Set up event listeners for all video tracks
     const trackEndedListeners = videoTracks.map((track) => {
       const onEnded = () => {
-        setDebugInfo((prev) => `${prev || ""}• Video track ended\n`)
+        logDebug("Video track ended")
         handleCameraStreamError()
       }
 
       const onMute = () => {
-        setDebugInfo((prev) => `${prev || ""}• Video track muted\n`)
+        logDebug("Video track muted")
       }
 
       track.addEventListener("ended", onEnded)
@@ -531,10 +522,14 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       </div>
 
       {showDebugInfo && (
-        <div className="mt-4 p-3 bg-muted rounded-md w-full">
-          <h4 className="font-semibold text-sm mb-2">Debug Information:</h4>
-          <pre className="text-xs whitespace-pre-wrap break-words">{debugInfo || "No debug information available"}</pre>
-        </div>
+        <>
+          {renderDebugInfo()}
+          {errorMessage && (
+            <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/10 rounded border border-red-200 dark:border-red-800">
+              <p className="text-xs font-mono text-red-700 dark:text-red-300">{errorMessage}</p>
+            </div>
+          )}
+        </>
       )}
 
       <div className="text-xs text-muted-foreground mt-4">
@@ -552,6 +547,34 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       </div>
     </div>
   )
+
+  const renderDebugInfo = () => (
+    <div className="mt-2 p-3 bg-muted rounded-md w-full">
+      <h4 className="font-semibold text-sm mb-2">Debug Information:</h4>
+      <div className="text-xs space-y-1 font-mono">
+        <div>• Browser: {navigator.userAgent}</div>
+        <div>• Permission state: {permissionState}</div>
+        <div>• Attempt count: {attemptCount}</div>
+        <div>• Selected camera: {selectedDeviceId ? `ID: ${selectedDeviceId.substring(0, 8)}...` : "default"}</div>
+        <div>• Facing mode: {facingMode}</div>
+        <div className="whitespace-pre-wrap">{debugInfo}</div>
+      </div>
+    </div>
+  )
+
+  const logDebug = (message: string) => {
+    const timestamp = new Date().toLocaleTimeString()
+    setDebugInfo((prev) => `${prev || ""}[${timestamp}] ${message}\n`)
+  }
+
+  const handleError = (error: Error, context: string) => {
+    const errorDetails = `${context}: ${error.name} - ${error.message}`
+    logDebug(`Error: ${errorDetails}`)
+    console.error(errorDetails, error)
+
+    // Update error message with more context
+    setErrorMessage(`Camera error (${error.name}): ${error.message}\nContext: ${context}`)
+  }
 
   return (
     <>
@@ -622,12 +645,14 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
               </Button>
 
               {showDebugInfo && (
-                <div className="mt-2 p-3 bg-muted rounded-md w-full">
-                  <h4 className="font-semibold text-sm mb-2">Debug Information:</h4>
-                  <pre className="text-xs whitespace-pre-wrap break-words">
-                    {debugInfo || "No debug information available"}
-                  </pre>
-                </div>
+                <>
+                  {renderDebugInfo()}
+                  {errorMessage && (
+                    <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/10 rounded border border-red-200 dark:border-red-800">
+                      <p className="text-xs font-mono text-red-700 dark:text-red-300">{errorMessage}</p>
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
