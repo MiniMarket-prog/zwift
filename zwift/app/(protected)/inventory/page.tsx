@@ -1,5 +1,7 @@
 "use client"
 
+import { DialogTrigger } from "@/components/ui/dialog"
+
 import type React from "react"
 
 import { useState, useEffect, useRef, useCallback } from "react"
@@ -30,13 +32,13 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
 import { format } from "date-fns"
 import Image from "next/image"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { SimpleBarcodeScanner } from "@/components/inventory/simple-barcode-scanner"
 
 // Define the Product type to match the database schema
 type Product = {
@@ -56,6 +58,18 @@ type Product = {
 type Category = {
   id: string
   name: string
+}
+
+// Define the form data type
+interface FormDataState {
+  name: string
+  price: string
+  barcode: string
+  stock: string
+  min_stock: string
+  image: string
+  category_id: string
+  purchase_price: string
 }
 
 // Function to generate a unique EAN-13 barcode
@@ -96,7 +110,7 @@ export default function InventoryPage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isBarcodePreviewOpen, setIsBarcodePreviewOpen] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormDataState>({
     name: "",
     price: "",
     barcode: "",
@@ -105,7 +119,6 @@ export default function InventoryPage() {
     image: "",
     category_id: "",
     purchase_price: "",
-    
   })
 
   // Category state
@@ -574,6 +587,14 @@ export default function InventoryPage() {
                         <Barcode className="h-4 w-4 mr-1" />
                         Generate
                       </Button>
+                      <SimpleBarcodeScanner
+                        onBarcodeDetected={(barcode) => {
+                          setFormData((prev) => ({
+                            ...prev,
+                            barcode: barcode,
+                          }))
+                        }}
+                      />
                     </div>
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
@@ -890,6 +911,14 @@ export default function InventoryPage() {
                     <Barcode className="h-4 w-4 mr-1" />
                     Generate
                   </Button>
+                  <SimpleBarcodeScanner
+                    onBarcodeDetected={(barcode) => {
+                      setFormData((prev) => ({
+                        ...prev,
+                        barcode: barcode,
+                      }))
+                    }}
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-4 items-center gap-4">

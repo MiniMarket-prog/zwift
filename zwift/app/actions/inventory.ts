@@ -1,66 +1,57 @@
 "use server"
 
 import { createClient } from "@/utils/supabase/server"
+import { cache } from "react"
 
-export type InventoryItem = {
-  id: string
-  name: string
-  price: number
-  stock: number
-  min_stock: number
-  image?: string | null
-  category_id?: string | null
-  purchase_price?: number | null
-  barcode?: string
-}
-
-export async function getInventoryItems() {
+// Add caching to prevent repeated fetches
+export const getInventoryItems = cache(async () => {
   try {
     const supabase = createClient()
-
     console.log("Fetching inventory items...")
 
-    const { data, error } = await supabase
-      .from("products") // Changed from 'inventory' to 'products' to match your schema
-      .select("*")
-      .order("name")
+    const { data, error } = await supabase.from("products").select("*").order("name")
 
     if (error) {
-      console.error("Error fetching inventory:", error)
+      console.error("Error fetching inventory items:", error)
       return []
     }
 
     console.log(`Successfully fetched ${data.length} inventory items`)
-    return data as InventoryItem[]
-  } catch (err) {
-    console.error("Exception in getInventoryItems:", err)
+    return data
+  } catch (error) {
+    console.error("Exception in getInventoryItems:", error)
     return []
   }
-}
+})
 
-export async function getLowStockItems() {
+export const getLowStockItems = cache(async (limit = 5) => {
   try {
     const supabase = createClient()
-
     console.log("Fetching low stock items...")
 
-    // Get items where stock is below min_stock
-    const { data, error } = await supabase
-      .from("products") // Changed from 'inventory' to 'products'
-      .select("*")
-      .lt("stock", "min_stock") // Changed from 'quantity' and 'threshold' to 'stock' and 'min_stock'
-      .order("stock") // Changed from 'quantity' to 'stock'
+    // First, let's get all products
+    const { data: allItems, error: fetchError } = await supabase.from("products").select("*")
 
-    if (error) {
-      console.error("Error fetching low stock items:", error)
+    if (fetchError) {
+      console.error("Error fetching products:", fetchError)
       return []
     }
 
-    console.log(`Successfully fetched ${data.length} low stock items`)
-    return data as InventoryItem[]
-  } catch (err) {
-    console.error("Exception in getLowStockItems:", err)
+    // Then filter for low stock items in JavaScript
+    const lowStockItems = allItems
+      .filter((item) => {
+        // Check if the item has a threshold/min_stock property
+        const threshold = item.min_stock || 5 // Default to 5 if not set
+        return item.stock < threshold
+      })
+      .sort((a, b) => a.stock - b.stock) // Sort by stock (ascending)
+      .slice(0, limit) // Limit to requested number
+
+    console.log(`Successfully fetched ${lowStockItems.length} low stock items`)
+    return lowStockItems
+  } catch (error) {
+    console.error("Exception in getLowStockItems:", error)
     return []
   }
-}
+})
 

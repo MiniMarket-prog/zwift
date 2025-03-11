@@ -2,6 +2,7 @@ import type React from "react"
 import Sidebar from "@/components/sidebar"
 import { redirect } from "next/navigation"
 import { createServerSupabaseClient } from "@/lib/supabase-server"
+import { BarcodeDetectorProvider } from "@/components/barcode-detector-provider"
 
 export const metadata = {
   title: "Inventory Management System",
@@ -30,7 +31,9 @@ export default async function ProtectedLayout({
     <div className="relative flex h-full min-h-screen">
       <Sidebar />
       <div className="flex-1 md:ml-[72px] transition-all duration-300">
-        <main className="p-4">{children}</main>
+        <BarcodeDetectorProvider>
+          <main className="p-4">{children}</main>
+        </BarcodeDetectorProvider>
       </div>
     </div>
   )

@@ -82,7 +82,7 @@ export async function updateProduct(
   }
 }
 
-// Function to create a sale
+// Updated function to create a sale with direct stock management
 export async function createSale(sale: any, saleItems: any[]) {
   const supabase = createClient()
 
@@ -103,7 +103,7 @@ export async function createSale(sale: any, saleItems: any[]) {
 
     if (itemsError) throw itemsError
 
-    // Update product stock levels
+    // Update product stock levels directly
     for (const item of saleItems) {
       // First get the current product to get its stock
       const { data: product, error: productError } = await supabase
@@ -115,7 +115,8 @@ export async function createSale(sale: any, saleItems: any[]) {
       if (productError) throw productError
 
       // Calculate new stock level
-      const newStock = Math.max(0, (product?.stock || 0) - item.quantity)
+      const previousStock = product?.stock || 0
+      const newStock = Math.max(0, previousStock - item.quantity)
 
       // Update the product with the new stock level
       const { error: stockError } = await supabase
@@ -124,6 +125,29 @@ export async function createSale(sale: any, saleItems: any[]) {
         .eq("id", item.product_id)
 
       if (stockError) throw stockError
+
+      // Try to manually record inventory activity, but continue if it fails
+      try {
+        // Check if the inventory table exists and has a matching ID
+        const { data: inventoryItem } = await supabase.from("inventory").select("id").eq("id", item.product_id).single()
+
+        // Only try to record activity if we found a matching inventory item
+        if (inventoryItem) {
+          await supabase.from("inventory_activity").insert({
+            inventory_id: item.product_id,
+            quantity_change: -item.quantity,
+            previous_quantity: previousStock,
+            new_quantity: newStock,
+            activity_type: "sale",
+            reference_id: saleData.id,
+            notes: "Sale transaction",
+            created_at: new Date().toISOString(),
+          })
+        }
+      } catch (activityError) {
+        // Just log the error but don't fail the sale
+        console.error("Failed to record inventory activity:", activityError)
+      }
     }
 
     return { data: saleData, error: null }
@@ -157,7 +181,7 @@ export async function updateSale(saleId: string, saleData: any, saleItems: any[]
 
     // Process removed items (return stock)
     currentItems?.forEach((item) => {
-      const stillExists = saleItems.some((newItem) => !newItem.id?.startsWith("temp_") && newItem.id === item.id)
+      const stillExists = saleItems.some((newItem) => newItem.id && newItem.id === item.id)
 
       if (!stillExists) {
         // Item was removed, return stock
@@ -168,7 +192,7 @@ export async function updateSale(saleId: string, saleData: any, saleItems: any[]
 
     // Process new and updated items
     saleItems.forEach((item) => {
-      if (item.id?.startsWith("temp_")) {
+      if (!item.id || item.id.startsWith("temp_")) {
         // New item, reduce stock
         const adjustment = stockAdjustments.get(item.product_id) || 0
         stockAdjustments.set(item.product_id, adjustment - item.quantity)
@@ -220,12 +244,16 @@ export async function updateSale(saleId: string, saleData: any, saleItems: any[]
         if (productError) throw productError
 
         // Calculate new stock level (add adjustment - positive means return to stock)
-        const newStock = Math.max(0, productData.stock + adjustment)
+        const newStock = Math.max(0, (productData?.stock || 0) + adjustment)
 
         // Update product stock
         const { error: updateError } = await supabase.from("products").update({ stock: newStock }).eq("id", productId)
 
         if (updateError) throw updateError
+
+        console.log(
+          `Updated product ${productId} stock: ${productData?.stock} → ${newStock} (adjustment: ${adjustment})`,
+        )
       }
     }
 

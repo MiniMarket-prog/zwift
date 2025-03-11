@@ -2,6 +2,7 @@
 
 import { createClient } from "@/utils/supabase/server"
 import { format } from "date-fns"
+import { cache } from "react"
 
 export type SalesByDay = {
   date: string
@@ -31,22 +32,13 @@ export type TopProduct = {
   min_stock?: number
 }
 
-// Define types for Supabase responses to help TypeScript
-type SalesItemWithProduct = {
-  quantity: number
-  price: number
-  product_id: string
-  products: {
-    id: string
-    name: string
-    image: string | null
-    stock: number
-    min_stock: number
-    category_id?: string
-  }
+export type Category = {
+  id: string
+  name: string
 }
 
-export async function getSalesTrend(dateRange: { from: Date; to: Date }) {
+// Add caching to prevent repeated fetches
+export const getSalesTrend = cache(async (dateRange: { from: Date; to: Date }) => {
   try {
     const supabase = createClient()
 
@@ -93,9 +85,9 @@ export async function getSalesTrend(dateRange: { from: Date; to: Date }) {
     console.error("Exception in getSalesTrend:", err)
     return []
   }
-}
+})
 
-export async function getSalesByPaymentMethod(dateRange: { from: Date; to: Date }) {
+export const getSalesByPaymentMethod = cache(async (dateRange: { from: Date; to: Date }) => {
   try {
     const supabase = createClient()
 
@@ -141,9 +133,9 @@ export async function getSalesByPaymentMethod(dateRange: { from: Date; to: Date 
     console.error("Exception in getSalesByPaymentMethod:", err)
     return []
   }
-}
+})
 
-export async function getSalesByCategory(dateRange: { from: Date; to: Date }) {
+export const getSalesByCategory = cache(async (dateRange: { from: Date; to: Date }) => {
   try {
     const supabase = createClient()
 
@@ -153,39 +145,85 @@ export async function getSalesByCategory(dateRange: { from: Date; to: Date }) {
 
     console.log(`Fetching sales by category from ${fromDate} to ${toDate}...`)
 
-    // This query assumes you have a sales_items table that links to products
-    // and products have a category_id
-    const { data, error } = await supabase
-      .from("sales_items")
+    // First, get all sale items in the date range
+    const { data: saleItems, error: saleItemsError } = await supabase
+      .from("sale_items")
       .select(`
         quantity, 
         price,
         product_id,
-        products:product_id (
-          category_id
-        )
+        created_at
       `)
       .gte("created_at", fromDate)
       .lte("created_at", toDate)
 
-    if (error) {
-      console.error("Error fetching sales by category:", error)
+    if (saleItemsError) {
+      console.error("Error fetching sale items:", saleItemsError)
       return []
     }
+
+    if (saleItems.length === 0) {
+      console.log("No sale items found in the date range")
+      return []
+    }
+
+    // Get all product IDs from the sale items
+    const productIds = [...new Set(saleItems.map((item) => item.product_id))]
+
+    // Get product details including category_id
+    const { data: products, error: productsError } = await supabase
+      .from("products")
+      .select(`
+        id,
+        category_id
+      `)
+      .in("id", productIds)
+
+    if (productsError) {
+      console.error("Error fetching products:", productsError)
+      return []
+    }
+
+    // Get all category IDs
+    const categoryIds = [...new Set(products.map((product) => product.category_id).filter(Boolean))]
+
+    // Get category names
+    let categories: Category[] = []
+    if (categoryIds.length > 0) {
+      const { data: categoryData, error: categoryError } = await supabase
+        .from("categories")
+        .select("id, name")
+        .in("id", categoryIds)
+
+      if (categoryError) {
+        console.error("Error fetching categories:", categoryError)
+      } else {
+        categories = (categoryData as Category[]) || []
+      }
+    }
+
+    // Create a map of category IDs to names
+    const categoryMap = new Map()
+    categories.forEach((category) => {
+      categoryMap.set(category.id, category.name)
+    })
+
+    // Create a map of product IDs to category IDs
+    const productCategoryMap = new Map()
+    products.forEach((product) => {
+      productCategoryMap.set(product.id, product.category_id)
+    })
 
     // Group sales by category
     const salesByCategoryMap = new Map<string, { total: number; count: number }>()
 
-    data.forEach((item: any) => {
-      // Get the category ID or use "Uncategorized" if not available
-      const categoryId =
-        item.products && typeof item.products === "object"
-          ? item.products.category_id || "Uncategorized"
-          : "Uncategorized"
+    saleItems.forEach((item) => {
+      const categoryId = productCategoryMap.get(item.product_id) || "uncategorized"
+      const categoryName = categoryMap.get(categoryId) || "Uncategorized"
       const itemTotal = item.price * item.quantity
 
-      const categoryStats = salesByCategoryMap.get(categoryId) || { total: 0, count: 0 }
-      salesByCategoryMap.set(categoryId, {
+      const categoryStats = salesByCategoryMap.get(categoryName) || { total: 0, count: 0 }
+      salesByCategoryMap.set(categoryName, {
         total: categoryStats.total + itemTotal,
         count: categoryStats.count + item.quantity,
       })
@@ -203,17 +241,11 @@ export async function getSalesByCategory(dateRange: { from: Date; to: Date }) {
   } catch (err) {
     console.error("Exception in getSalesByCategory:", err)
     // If there's an error, return some default categories to avoid breaking the UI
-    return [
-      { category: "Electronics", total: 12500, count: 25 },
-      { category: "Clothing", total: 8750, count: 35 },
-      { category: "Home Goods", total: 6200, count: 18 },
-      { category: "Books", total: 3400, count: 42 },
-      { category: "Food & Beverage", total: 2100, count: 15 },
-    ]
+    return []
   }
-}
+})
 
-export async function getTopSellingProducts(dateRange: { from: Date; to: Date }, limit = 5) {
+export const getTopSellingProducts = cache(async (dateRange: { from: Date; to: Date }, limit = 5) => {
   try {
     const supabase = createClient()
 
@@ -225,7 +257,7 @@ export async function getTopSellingProducts(dateRange: { from: Date; to: Date },
 
     // This query assumes you have a sales_items table that links to products
     const { data, error } = await supabase
-      .from("sales_items")
+      .from("sale_items")
       .select(`
         quantity, 
         price,
@@ -282,5 +314,5 @@ export async function getTopSellingProducts(dateRange: { from: Date; to: Date },
     console.error("Exception in getTopSellingProducts:", err)
     return []
   }
-}
+})
 

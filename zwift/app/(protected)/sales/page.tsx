@@ -66,7 +66,7 @@ interface Product {
   stock: number
   min_stock?: number
   category_id?: string | null
-  purchase_price?: number | null
+  purchase_price?: number | null  // Add this line
 }
 
 interface SaleItem {
@@ -75,7 +75,7 @@ interface SaleItem {
   sale_id: string
   quantity: number
   price: number
-  product?: Product
+  product?: Product | null // Allow null for product
 }
 
 interface Sale {
@@ -566,90 +566,7 @@ const SalesPage = () => {
           price: item.price,
         })) || []
 
-      // Get the original sale items to compare with edited items
-      const { data: originalItems, error: fetchError } = await supabase
-        .from("sale_items")
-        .select("id, product_id, quantity")
-        .eq("sale_id", editedSale.id)
-
-      if (fetchError) throw fetchError
-
-      // Create maps for easier comparison
-      const originalItemsMap = new Map()
-      originalItems?.forEach((item) => {
-        originalItemsMap.set(item.id, item)
-      })
-
-      // Track product IDs that need stock adjustment
-      const stockAdjustments = new Map()
-
-      // Find items that were in the original sale but removed in the edit
-      // These need to have their stock returned
-      originalItems?.forEach((originalItem) => {
-        const stillExists = editedSale.items?.some(
-          (item) => !item.id.startsWith("temp_") && item.id === originalItem.id,
-        )
-
-        if (!stillExists) {
-          // Item was removed, add stock back
-          if (stockAdjustments.has(originalItem.product_id)) {
-            stockAdjustments.set(
-              originalItem.product_id,
-              stockAdjustments.get(originalItem.product_id) + originalItem.quantity,
-            )
-          } else {
-            stockAdjustments.set(originalItem.product_id, originalItem.quantity)
-          }
-        }
-      })
-
-      // Find items that were modified or added
-      editedSale.items?.forEach((editedItem) => {
-        if (editedItem.id.startsWith("temp_")) {
-          // New item, reduce stock
-          if (stockAdjustments.has(editedItem.product_id)) {
-            stockAdjustments.set(
-              editedItem.product_id,
-              stockAdjustments.get(editedItem.product_id) - editedItem.quantity,
-            )
-          } else {
-            stockAdjustments.set(editedItem.product_id, -editedItem.quantity)
-          }
-        } else {
-          // Existing item, check if quantity changed
-          const originalItem = originalItemsMap.get(editedItem.id)
-          if (originalItem) {
-            const quantityDiff = originalItem.quantity - editedItem.quantity
-            if (quantityDiff !== 0) {
-              if (stockAdjustments.has(editedItem.product_id)) {
-                stockAdjustments.set(editedItem.product_id, stockAdjustments.get(editedItem.product_id) + quantityDiff)
-              } else {
-                stockAdjustments.set(editedItem.product_id, quantityDiff)
-              }
-            }
-          }
-        }
-      })
-
-      // Apply stock adjustments
-      for (const [productId, adjustment] of stockAdjustments.entries()) {
-        if (adjustment !== 0) {
-          // Get current stock
-          const { data: product, error: productError } = await supabase
-            .from("products")
-            .select("stock")
-            .eq("id", productId)
-            .single()
-
-          if (productError) throw productError
-
-          // Calculate and update new stock
-          const newStock = (product?.stock || 0) + adjustment
-          const { error: updateError } = await supabase.from("products").update({ stock: newStock }).eq("id", productId)
-
-          if (updateError) throw updateError
-        }
-      }
+     
 
       // Update the sale in the database
       const { error } = await updateSale(
