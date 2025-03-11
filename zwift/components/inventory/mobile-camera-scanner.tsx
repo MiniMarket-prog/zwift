@@ -251,13 +251,25 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
         logDebug(`Attempt #${attemptCount + 1} failed: ${(accessError as Error).message}`)
 
         if (attemptCount < 5) {
-          // Add increasing delay between attempts
-          const delayMs = Math.min(1000 * (attemptCount + 1), 5000)
-          logDebug(`Waiting ${delayMs}ms before next attempt...`)
+          // Exponential backoff with longer delays
+          const delayMs = Math.min(2000 * Math.pow(2, attemptCount), 10000)
+          logDebug(`Attempt failed. Waiting ${delayMs}ms before next attempt...`)
           await delay(delayMs)
+
+          // Add more detailed logging before next attempt
+          logDebug(`Camera state before next attempt:`)
+          logDebug(`- Permission state: ${permissionState}`)
+          logDebug(`- Selected device: ${selectedDeviceId || "default"}`)
+          logDebug(`- Facing mode: ${facingMode}`)
+          if (stream) {
+            const tracks = stream.getTracks()
+            tracks.forEach((track) => {
+              logDebug(`- Track ${track.id}: enabled=${track.enabled}, muted=${track.muted}, state=${track.readyState}`)
+            })
+          }
+
           startCamera()
         } else {
-          // We've tried multiple approaches, give up and show error
           throw new Error(`Failed after ${attemptCount + 1} attempts: ${(accessError as Error).message}`)
         }
       }
@@ -288,7 +300,17 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
         variant: "destructive",
       })
     }
-  }, [facingMode, stream, toast, errorMessage, attemptCount, availableCameras, getAvailableCameras])
+  }, [
+    facingMode,
+    stream,
+    toast,
+    errorMessage,
+    attemptCount,
+    availableCameras,
+    getAvailableCameras,
+    permissionState,
+    selectedDeviceId,
+  ])
 
   // Handle camera stream errors - define this AFTER startCamera
   const handleCameraStreamError = useCallback(() => {
@@ -577,13 +599,21 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
     if (stream) {
       logDebug("Stopping all tracks...")
       const tracks = stream.getTracks()
+      logDebug(`Found ${tracks.length} tracks to stop`)
+
       for (const track of tracks) {
-        logDebug(`Stopping track: ${track.kind} (${track.readyState})`)
+        logDebug(`Stopping track ${track.id} (${track.kind}):`)
+        logDebug(`- Enabled: ${track.enabled}`)
+        logDebug(`- Muted: ${track.muted}`)
+        logDebug(`- State: ${track.readyState}`)
+
         track.stop()
-        await delay(100) // Small delay between stopping tracks
+        await delay(200) // Increased delay between stopping tracks
+
+        logDebug(`Track ${track.id} stopped. Final state: ${track.readyState}`)
       }
       setStream(null)
-      logDebug("All tracks stopped")
+      logDebug("All tracks stopped and stream cleared")
     }
   }
 
