@@ -38,7 +38,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { format } from "date-fns"
 import Image from "next/image"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { SimpleBarcodeScanner } from "@/components/inventory/simple-barcode-scanner"
+import { MobileCameraScanner } from "@/components/inventory/mobile-camera-scanner"
 
 // Define the Product type to match the database schema
 type Product = {
@@ -587,8 +587,8 @@ export default function InventoryPage() {
                         <Barcode className="h-4 w-4 mr-1" />
                         Generate
                       </Button>
-                      <SimpleBarcodeScanner
-                        onBarcodeDetected={(barcode) => {
+                      <MobileCameraScanner
+                        onBarcodeDetected={(barcode: string) => {
                           setFormData((prev) => ({
                             ...prev,
                             barcode: barcode,
@@ -911,8 +911,8 @@ export default function InventoryPage() {
                     <Barcode className="h-4 w-4 mr-1" />
                     Generate
                   </Button>
-                  <SimpleBarcodeScanner
-                    onBarcodeDetected={(barcode) => {
+                  <MobileCameraScanner
+                    onBarcodeDetected={(barcode: string) => {
                       setFormData((prev) => ({
                         ...prev,
                         barcode: barcode,

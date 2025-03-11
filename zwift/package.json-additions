@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "quagga": "^0.12.1"
+  },
+  "devDependencies": {
+    "@types/quagga": "^0.12.4"
+  }
+}
+
