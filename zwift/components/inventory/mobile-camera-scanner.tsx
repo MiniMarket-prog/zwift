@@ -44,6 +44,42 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
     }
   }, [])
 
+  const logDebug = (message: string) => {
+    const timestamp = new Date().toLocaleTimeString()
+    setDebugInfo((prev) => `${prev || ""}[${timestamp}] ${message}\n`)
+  }
+
+  const handleError = (error: Error, context: string) => {
+    const errorDetails = `${context}: ${error.name} - ${error.message}`
+    logDebug(`Error: ${errorDetails}`)
+    console.error(errorDetails, error)
+
+    // Update error message with more context
+    setErrorMessage(`Camera error (${error.name}): ${error.message}\nContext: ${context}`)
+  }
+
+  const stopAllTracks = async () => {
+    if (videoRef.current) {
+      const oldStream = videoRef.current.srcObject as MediaStream
+      if (oldStream) {
+        oldStream.getTracks().forEach((track) => {
+          track.stop()
+          logDebug(`Stopped track: ${track.kind}`)
+        })
+      }
+      videoRef.current.srcObject = null
+      videoRef.current.removeAttribute("srcObject")
+    }
+
+    if (stream) {
+      stream.getTracks().forEach((track) => {
+        track.stop()
+        logDebug(`Stopped track: ${track.kind}`)
+      })
+      setStream(null)
+    }
+  }
+
   // Get available cameras
   const getAvailableCameras = useCallback(async () => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
@@ -74,7 +110,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       handleError(err as Error, "Error enumerating devices")
       return []
     }
-  }, [])
+  }, [handleError, logDebug])
 
   // Check camera permission status
   useEffect(() => {
@@ -109,7 +145,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
     }
 
     checkPermission()
-  }, [])
+  }, [handleError, logDebug])
 
   // Find back camera from available cameras
   const findBackCamera = useCallback(() => {
@@ -143,7 +179,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
     // If all else fails, return null to use facingMode constraint instead
     logDebug("Could not identify back camera, will use facingMode constraint")
     return null
-  }, [availableCameras])
+  }, [availableCameras, logDebug])
 
   // Find front camera from available cameras
   const findFrontCamera = useCallback(() => {
@@ -175,7 +211,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
     // If all else fails, return null to use facingMode constraint instead
     logDebug("Could not identify front camera, will use facingMode constraint")
     return null
-  }, [availableCameras])
+  }, [availableCameras, logDebug])
 
   // Define startCamera outside of useEffect so it can be called from other functions
   const startCamera = useCallback(async () => {
@@ -183,236 +219,93 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       setErrorMessage(null)
       setAttemptCount((prev) => prev + 1)
 
-      // Log device info for debugging
-      logDebug(`Device: ${navigator.userAgent}`)
-      logDebug(`Attempt #${attemptCount + 1}`)
-      logDebug(`Requested camera facing: ${facingMode}`)
-
-      // Check if MediaDevices API is available
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error("MediaDevices API not supported in this browser")
-      }
-
-      // Stop any existing stream
+      // First, ensure any existing streams are properly cleaned up
       await stopAllTracks()
 
-      // Get available cameras if we haven't already
+      // Reset video element
+      if (videoRef.current) {
+        videoRef.current.srcObject = null
+        videoRef.current.removeAttribute("srcObject")
+      }
+
+      // Ensure we have the video element
+      if (!videoRef.current) {
+        throw new Error("Video element not available")
+      }
+
+      // Get available cameras if needed
       if (availableCameras.length === 0) {
         await getAvailableCameras()
       }
 
-      // Determine which camera to use based on facingMode
-      let constraints: MediaStreamConstraints
-      let specificCameraId: string | null = null
-
-      if (facingMode === "environment") {
-        specificCameraId = findBackCamera()
-        if (specificCameraId) {
-          logDebug(`Using specific back camera ID: ${specificCameraId.substring(0, 8)}...`)
-          constraints = {
-            video: {
-              deviceId: { exact: specificCameraId },
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-            },
-            audio: false,
-          }
-        } else {
-          logDebug("Using environment facingMode constraint")
-          constraints = {
-            video: {
-              facingMode: "environment",
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-            },
-            audio: false,
-          }
-        }
-      } else {
-        specificCameraId = findFrontCamera()
-        if (specificCameraId) {
-          logDebug(`Using specific front camera ID: ${specificCameraId.substring(0, 8)}...`)
-          constraints = {
-            video: {
-              deviceId: { exact: specificCameraId },
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-            },
-            audio: false,
-          }
-        } else {
-          logDebug("Using user facingMode constraint")
-          constraints = {
-            video: {
-              facingMode: "user",
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-            },
-            audio: false,
-          }
-        }
+      // Set up constraints
+      const constraints: MediaStreamConstraints = {
+        video: {
+          facingMode: facingMode,
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 },
+        },
+        audio: false,
       }
 
       logDebug(`Requesting camera with constraints: ${JSON.stringify(constraints)}`)
 
-      try {
-        // Request the camera stream with current constraints
-        const newStream = await navigator.mediaDevices.getUserMedia(constraints)
+      // Request camera access
+      const newStream = await navigator.mediaDevices.getUserMedia(constraints)
 
-        // If we get here, we have camera access
-        logDebug("Camera access successful!")
-
-        // Get information about the active track
-        const videoTrack = newStream.getVideoTracks()[0]
-        if (videoTrack) {
-          setActiveCamera(videoTrack.label)
-          logDebug(`Active camera: ${videoTrack.label}`)
-
-          // Log camera capabilities
-          const capabilities = videoTrack.getCapabilities()
-          logDebug(`Camera capabilities: ${JSON.stringify(capabilities)}`)
-
-          // Try to set frame rate to improve performance
-          if (capabilities.frameRate && capabilities.frameRate.max) {
-            try {
-              const settings = { frameRate: Math.min(30, capabilities.frameRate.max) }
-              await videoTrack.applyConstraints(settings)
-              logDebug(`Applied frame rate: ${settings.frameRate} fps`)
-            } catch (e) {
-              logDebug(`Could not apply frame rate settings: ${(e as Error).message}`)
-            }
-          }
-        }
-
-        setStream(newStream)
-        setPermissionState("granted")
-
-        if (videoRef.current) {
-          // Important: Set srcObject to null first to reset any previous state
-          videoRef.current.srcObject = null
-
-          // Small delay before setting the new stream
-          await delay(100)
-
-          videoRef.current.srcObject = newStream
-
-          // Handle video element errors
-          videoRef.current.onerror = (e) => {
-            const errorEvent = e as Event
-            const errorMessage = errorEvent instanceof ErrorEvent ? errorEvent.message : "Unknown video error"
-
-            const videoError = new Error(errorMessage)
-            handleError(videoError, "Video element error")
-          }
-
-          // Make sure autoplay works
-          videoRef.current.setAttribute("autoplay", "true")
-          videoRef.current.setAttribute("playsinline", "true")
-
-          // Set video to low latency mode
-          videoRef.current.setAttribute("muted", "true")
-
-          // Optimize video performance
-          if ("mozCancelFullScreen" in document) {
-            // Firefox-specific
-            videoRef.current.setAttribute("mozfullscreenchange", "true")
-          }
-
-          try {
-            // Try to play the video
-            await videoRef.current.play()
-            logDebug("Video playing successfully")
-            setNeedsUserPlayInteraction(false)
-          } catch (playError) {
-            // If play() fails, try again with user interaction
-            handleError(playError as Error, "Video play error")
-            logDebug("Play failed, will retry on user interaction")
-
-            // We'll add a play button that appears if autoplay fails
-            setNeedsUserPlayInteraction(true)
-          }
-
-          // Reset attempt count on success
-          setAttemptCount(0)
-        } else {
-          throw new Error("Video element reference not available")
-        }
-      } catch (accessError) {
-        // If this attempt fails, log and try again with different constraints if we haven't tried too many times
-        logDebug(`Attempt #${attemptCount + 1} failed: ${(accessError as Error).message}`)
-
-        if (attemptCount < 5) {
-          // Try a different approach based on the attempt count
-          if (attemptCount === 0) {
-            // Try with basic constraints
-            logDebug("Will try with basic constraints next")
-          } else if (attemptCount === 1) {
-            // Try with the opposite camera
-            logDebug(`Will try with ${facingMode === "environment" ? "user" : "environment"} camera next`)
-            setFacingMode(facingMode === "environment" ? "user" : "environment")
-          } else if (attemptCount === 2 && availableCameras.length > 0) {
-            // Try with the first available camera
-            logDebug(`Will try with first available camera next`)
-            setSelectedDeviceId(availableCameras[0].deviceId)
-          } else if (attemptCount === 3 && availableCameras.length > 1) {
-            // Try with the second available camera
-            logDebug(`Will try with second available camera next`)
-            setSelectedDeviceId(availableCameras[1].deviceId)
-          } else {
-            // Try with minimal constraints
-            logDebug("Will try with minimal constraints next")
-          }
-
-          // Wait before trying again
-          const delayMs = Math.min(1000 * Math.pow(1.5, attemptCount), 5000)
-          logDebug(`Waiting ${delayMs}ms before next attempt...`)
-          await delay(delayMs)
-
-          startCamera()
-        } else {
-          throw new Error(`Failed after ${attemptCount + 1} attempts: ${(accessError as Error).message}`)
-        }
-      }
-    } catch (error) {
-      console.error("Error accessing camera:", error)
-      handleError(error as Error, "Camera access error")
-
-      // Handle specific error types
-      const err = error as Error
-      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-        setPermissionState("denied")
-        setErrorMessage("Camera permission denied. Please allow camera access in your browser settings.")
-      } else if (err.name === "NotFoundError") {
-        setErrorMessage("No camera found on your device.")
-      } else if (err.name === "NotReadableError" || err.name === "AbortError") {
-        setErrorMessage("Camera is already in use or not accessible. Try restarting your browser or device.")
-      } else if (err.name === "SecurityError") {
-        setErrorMessage("Camera access blocked due to security restrictions. Make sure you're using HTTPS.")
-      } else if (err.name === "OverconstrainedError") {
-        setErrorMessage("Camera doesn't support the requested settings. Please try again with different settings.")
-      } else {
-        setErrorMessage(`Could not access camera: ${err.message}`)
+      // Get the video track
+      const videoTrack = newStream.getVideoTracks()[0]
+      if (!videoTrack) {
+        throw new Error("No video track available")
       }
 
-      toast({
-        title: "Camera access error",
-        description: errorMessage || "Could not access your camera. Please check your device.",
-        variant: "destructive",
+      // Log track information
+      logDebug(`Got video track: ${videoTrack.label}`)
+      setActiveCamera(videoTrack.label)
+
+      // Set up the video element
+      const videoElement = videoRef.current
+      videoElement.playsInline = true
+      videoElement.muted = true
+      videoElement.autoplay = true
+
+      // Important: Wait for loadedmetadata before playing
+      await new Promise((resolve) => {
+        videoElement.onloadedmetadata = resolve
+        videoElement.srcObject = newStream
       })
+
+      // Try to play
+      try {
+        await videoElement.play()
+        logDebug("Video playing successfully")
+        setNeedsUserPlayInteraction(false)
+      } catch (playError) {
+        logDebug(`Play failed: ${(playError as Error).message}`)
+        setNeedsUserPlayInteraction(true)
+      }
+
+      // Store the stream
+      setStream(newStream)
+      setPermissionState("granted")
+
+      // Reset attempt count on success
+      setAttemptCount(0)
+    } catch (error) {
+      console.error("Camera access error:", error)
+      handleError(error as Error, "Camera initialization failed")
+
+      if (attemptCount < 3) {
+        // Try again with a delay
+        const delayMs = 1000 * (attemptCount + 1)
+        logDebug(`Retrying in ${delayMs}ms...`)
+        setTimeout(() => startCamera(), delayMs)
+      } else {
+        setErrorMessage(`Could not start camera: ${(error as Error).message}`)
+      }
     }
-  }, [
-    facingMode,
-    stream,
-    toast,
-    errorMessage,
-    attemptCount,
-    availableCameras,
-    getAvailableCameras,
-    permissionState,
-    selectedDeviceId,
-    findBackCamera,
-    findFrontCamera,
-  ])
+  }, [facingMode, availableCameras.length, attemptCount, getAvailableCameras, handleError, logDebug, stopAllTracks])
 
   // Handle camera stream errors - define this AFTER startCamera
   const handleCameraStreamError = useCallback(() => {
@@ -431,7 +324,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
         startCamera()
       }
     }, 1000)
-  }, [stream, isOpen, startCamera])
+  }, [stream, isOpen, startCamera, stopAllTracks, logDebug])
 
   // Start the camera when the dialog opens
   useEffect(() => {
@@ -592,7 +485,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
         track.removeEventListener("mute", onMute)
       })
     }
-  }, [stream, handleCameraStreamError])
+  }, [stream, handleCameraStreamError, logDebug])
 
   // Render permission denied or error view
   const renderErrorView = () => (
@@ -687,49 +580,6 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
     </div>
   )
 
-  const logDebug = (message: string) => {
-    const timestamp = new Date().toLocaleTimeString()
-    setDebugInfo((prev) => `${prev || ""}[${timestamp}] ${message}\n`)
-  }
-
-  const handleError = (error: Error, context: string) => {
-    const errorDetails = `${context}: ${error.name} - ${error.message}`
-    logDebug(`Error: ${errorDetails}`)
-    console.error(errorDetails, error)
-
-    // Update error message with more context
-    setErrorMessage(`Camera error (${error.name}): ${error.message}\nContext: ${context}`)
-  }
-
-  const stopAllTracks = async () => {
-    if (stream) {
-      logDebug("Stopping all tracks...")
-      const tracks = stream.getTracks()
-      logDebug(`Found ${tracks.length} tracks to stop`)
-
-      for (const track of tracks) {
-        logDebug(`Stopping track ${track.id} (${track.kind}):`)
-        logDebug(`- Enabled: ${track.enabled}`)
-        logDebug(`- Muted: ${track.muted}`)
-        logDebug(`- State: ${track.readyState}`)
-
-        track.stop()
-        await delay(200) // Increased delay between stopping tracks
-
-        logDebug(`Track ${track.id} stopped. Final state: ${track.readyState}`)
-      }
-
-      // Clear video element source before clearing stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = null
-        logDebug("Cleared video element source")
-      }
-
-      setStream(null)
-      logDebug("All tracks stopped and stream cleared")
-    }
-  }
-
   const handleManualPlay = async () => {
     if (videoRef.current && stream) {
       try {
@@ -799,7 +649,10 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
                   playsInline
                   muted
                   autoPlay
-                  style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }}
+                  style={{
+                    transform: facingMode === "user" ? "scaleX(-1)" : "none",
+                    display: stream ? "block" : "none", // Only show video when we have a stream
+                  }}
                 />
 
                 {/* Scanning overlay with animation */}
