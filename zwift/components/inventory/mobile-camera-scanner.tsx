@@ -126,11 +126,6 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
 
     // Cleanup function
     return () => {
-      if (scanIntervalRef.current) {
-        clearInterval(scanIntervalRef.current)
-        scanIntervalRef.current = null
-      }
-
       if (stream) {
         addDebugInfo("Stopping camera stream")
         stream.getTracks().forEach((track) => track.stop())
@@ -140,62 +135,24 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
     }
   }, [isOpen, facingMode])
 
-  // Function to start barcode scanning
+  // Function to start barcode scanning - now just sets up the canvas
   const startBarcodeScanning = async () => {
     if (!videoRef.current || !canvasRef.current) {
       addDebugInfo("Cannot start scanning: video or canvas ref not available")
       return
     }
 
-    setIsScanning(true)
-    addDebugInfo("Starting barcode scanning")
+    setIsScanning(false) // Set to false since we're not auto-scanning
+    addDebugInfo("Manual capture mode enabled (auto-scanning disabled)")
 
     // Check if native BarcodeDetector is available
     if (isBarcodeDetectorSupported) {
-      addDebugInfo("Using native BarcodeDetector API")
       try {
         const formats = await (window as any).BarcodeDetector.getSupportedFormats()
         addDebugInfo(`Supported formats: ${formats.join(", ")}`)
-
-        const barcodeDetector = new (window as any).BarcodeDetector({
-          formats: ["ean_13", "ean_8", "code_39", "code_128", "qr_code", "data_matrix", "upc_a", "upc_e"],
-        })
-
-        // Set up scanning interval
-        if (scanIntervalRef.current) {
-          clearInterval(scanIntervalRef.current)
-        }
-
-        scanIntervalRef.current = setInterval(async () => {
-          if (!videoRef.current || videoRef.current.paused || videoRef.current.ended) {
-            return
-          }
-
-          try {
-            const barcodes = await barcodeDetector.detect(videoRef.current)
-
-            if (barcodes.length > 0) {
-              // Get the first detected barcode
-              const barcode = barcodes[0]
-              addDebugInfo(`Detected barcode: ${barcode.rawValue} (${barcode.format})`)
-
-              // Only process if it's a new code or we haven't detected one in a while
-              if (barcode.rawValue !== lastDetectedCode) {
-                setLastDetectedCode(barcode.rawValue)
-                handleSuccessfulScan(barcode.rawValue)
-              }
-            }
-          } catch (error) {
-            addDebugInfo(`Barcode detection error: ${(error as Error).message}`)
-          }
-        }, 500) // Check every 500ms
       } catch (error) {
         addDebugInfo(`BarcodeDetector initialization error: ${(error as Error).message}`)
-        startZXingScanning() // Fall back to ZXing
       }
-    } else {
-      addDebugInfo("Native BarcodeDetector not supported, using ZXing fallback")
-      startZXingScanning()
     }
   }
 
@@ -383,6 +340,8 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       return
     }
 
+    addDebugInfo("Manual capture initiated")
+
     try {
       // Draw the current video frame to the canvas
       const canvas = canvasRef.current
@@ -413,23 +372,84 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
               handleSuccessfulScan(barcode.rawValue)
             } else {
               addDebugInfo("No barcode found in manual capture")
-              // Fallback to a simulated scan for testing
-              simulateScan()
+              toast({
+                title: "No barcode detected",
+                description: "Try adjusting the position or lighting",
+                variant: "destructive",
+              })
             }
           })
           .catch((error: Error) => {
             addDebugInfo(`Manual detection error: ${error.message}`)
-            // Fallback to a simulated scan for testing
-            simulateScan()
+            // Fallback to ZXing if available
+            detectWithZXing(canvas)
           })
       } else {
-        // If BarcodeDetector is not available, use a simulated scan for testing
-        simulateScan()
+        // If BarcodeDetector is not available, try ZXing
+        detectWithZXing(canvas)
       }
     } catch (error) {
       addDebugInfo(`Manual capture error: ${(error as Error).message}`)
-      // Fallback to a simulated scan for testing
-      simulateScan()
+      toast({
+        title: "Capture failed",
+        description: "Please try again",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Helper function to detect with ZXing
+  const detectWithZXing = async (canvas: HTMLCanvasElement) => {
+    try {
+      // Dynamically import ZXing
+      const ZXing = await import("@zxing/library")
+
+      const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas)
+      const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource))
+
+      const hints = new Map()
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+        ZXing.BarcodeFormat.EAN_13,
+        ZXing.BarcodeFormat.EAN_8,
+        ZXing.BarcodeFormat.CODE_39,
+        ZXing.BarcodeFormat.CODE_128,
+        ZXing.BarcodeFormat.UPC_A,
+        ZXing.BarcodeFormat.UPC_E,
+        ZXing.BarcodeFormat.QR_CODE,
+        ZXing.BarcodeFormat.DATA_MATRIX,
+      ])
+
+      try {
+        const result = new ZXing.MultiFormatReader().decode(binaryBitmap, hints)
+
+        if (result && result.getText()) {
+          const barcode = result.getText()
+          addDebugInfo(`ZXing detected barcode: ${barcode}`)
+          handleSuccessfulScan(barcode)
+        } else {
+          addDebugInfo("ZXing could not detect a barcode")
+          toast({
+            title: "No barcode detected",
+            description: "Try adjusting the position or lighting",
+            variant: "destructive",
+          })
+        }
+      } catch (error) {
+        addDebugInfo(`ZXing decode error: ${(error as Error).message}`)
+        toast({
+          title: "No barcode detected",
+          description: "Try adjusting the position or lighting",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      addDebugInfo(`ZXing import error: ${(error as Error).message}`)
+      // If all else fails, show a message
+      toast({
+        title: "Barcode detection failed",
+        description: "Your device may not support barcode scanning",
+        variant: "destructive",
+      })
     }
   }
 
@@ -541,35 +561,25 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
                   </div>
                 </div>
 
-                {/* Scanning indicator */}
-                {isScanning && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: "10px",
-                      right: "10px",
-                      backgroundColor: "rgba(0, 0, 0, 0.5)",
-                      color: "white",
-                      padding: "4px 8px",
-                      borderRadius: "4px",
-                      fontSize: "12px",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "4px",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: "8px",
-                        height: "8px",
-                        borderRadius: "50%",
-                        backgroundColor: "#4ade80",
-                        animation: "pulse 1s infinite",
-                      }}
-                    ></div>
-                    Scanning
-                  </div>
-                )}
+                {/* Replace the scanning indicator with a manual mode indicator */}
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "10px",
+                    right: "10px",
+                    backgroundColor: "rgba(0, 0, 0, 0.5)",
+                    color: "white",
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                    fontSize: "12px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                  }}
+                >
+                  <Camera className="h-3 w-3 mr-1" />
+                  Manual Mode
+                </div>
 
                 {/* Play button for browsers that require user interaction */}
                 {needsUserInteraction && (
@@ -636,7 +646,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
                     <div>
                       • Video dimensions: {videoRef.current?.videoWidth || 0}x{videoRef.current?.videoHeight || 0}
                     </div>
-                    <div>• Scanning active: {isScanning ? "Yes" : "No"}</div>
+                    <div>• Mode: Manual capture only</div>
                     <div>• Last detected code: {lastDetectedCode || "None"}</div>
                     {debugInfo.map((info, i) => (
                       <div key={i}>{info}</div>
