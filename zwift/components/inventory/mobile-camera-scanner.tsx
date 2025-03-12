@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { Camera, X, RefreshCw, AlertTriangle, Info } from "lucide-react"
+import { Camera, X, RefreshCw, AlertTriangle, Info, Play } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 
 // Define an extended Permissions interface for experimental features
@@ -31,6 +31,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
   const [attemptCount, setAttemptCount] = useState(0)
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
   const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([])
+  const [needsUserPlayInteraction, setNeedsUserPlayInteraction] = useState(false)
 
   // Check if running on HTTPS
   useEffect(() => {
@@ -204,42 +205,29 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
 
           // Handle video element errors
           videoRef.current.onerror = (e) => {
-            // Convert Event to Error or handle it differently
-            if (e instanceof Error) {
-              handleError(e, "Video element error")
-            } else if (typeof e === "string") {
-              handleError(new Error(`Video error: ${e}`), "Video element error")
-            } else if (e instanceof Event) {
-              handleError(new Error(`Video error: ${e.type}`), "Video element error")
-            } else {
-              handleError(new Error("Unknown video error"), "Video element error")
-            }
+            const errorEvent = e as Event
+            const errorMessage = errorEvent instanceof ErrorEvent ? errorEvent.message : "Unknown video error"
+
+            const videoError = new Error(errorMessage)
+            handleError(videoError, "Video element error")
           }
 
-          // Add event listeners for track ended or muted
-          newStream.getVideoTracks().forEach((track) => {
-            logDebug(`Track state - enabled: ${track.enabled}, muted: ${track.muted}, readyState: ${track.readyState}`)
+          // Make sure autoplay works
+          videoRef.current.setAttribute("autoplay", "true")
+          videoRef.current.setAttribute("playsinline", "true")
 
-            track.onended = () => {
-              logDebug(`Video track ended - readyState: ${track.readyState}`)
-              handleCameraStreamError()
-            }
+          try {
+            // Try to play the video
+            await videoRef.current.play()
+            logDebug("Video playing successfully")
+          } catch (playError) {
+            // If play() fails, try again with user interaction
+            handleError(playError as Error, "Video play error")
+            logDebug("Play failed, will retry on user interaction")
 
-            track.onmute = () => {
-              logDebug(`Video track muted - enabled: ${track.enabled}`)
-            }
-
-            track.onunmute = () => {
-              logDebug(`Video track unmuted - enabled: ${track.enabled}`)
-            }
-          })
-
-          await videoRef.current.play().catch((e) => {
-            handleError(e as Error, "Video play error")
-            throw e
-          })
-
-          logDebug("Video playing successfully")
+            // We'll add a play button that appears if autoplay fails
+            setNeedsUserPlayInteraction(true)
+          }
 
           // Reset attempt count on success
           setAttemptCount(0)
@@ -617,6 +605,28 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
     }
   }
 
+  const handleManualPlay = async () => {
+    if (videoRef.current && stream) {
+      try {
+        await videoRef.current.play()
+        setNeedsUserPlayInteraction(false)
+        logDebug("Video played successfully after user interaction")
+      } catch (e) {
+        handleError(e as Error, "Manual play failed")
+      }
+    }
+  }
+
+  const scanAnimation = `
+  @keyframes scan {
+    0% { top: 0; }
+    100% { top: 100%; }
+  }
+  .animate-scan {
+    animation: scan 1.5s linear infinite;
+  }
+`
+
   return (
     <>
       <Button variant="outline" size="sm" onClick={() => setIsOpen(true)} className="flex items-center gap-1">
@@ -627,10 +637,27 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       <Dialog
         open={isOpen}
         onOpenChange={(open) => {
-          setIsOpen(open)
-          if (!open && stream) {
-            stopAllTracks()
+          if (!open) {
+            // Cleanup when dialog closes
+            if (stream) {
+              logDebug("Stopping all tracks due to dialog close")
+              stream.getTracks().forEach((track) => {
+                track.stop()
+                logDebug(`Stopped track: ${track.kind}`)
+              })
+              setStream(null)
+            }
+
+            // Reset video element
+            if (videoRef.current) {
+              videoRef.current.srcObject = null
+            }
+
+            // Reset states
+            setErrorMessage(null)
+            setNeedsUserPlayInteraction(false)
           }
+          setIsOpen(open)
         }}
       >
         <DialogContent className="sm:max-w-md">
@@ -643,12 +670,37 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
           ) : (
             <>
               <div className="relative aspect-video bg-black rounded-md overflow-hidden">
-                <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" playsInline muted />
+                {/* Add loading indicator while camera initializes */}
+                {!stream && !errorMessage && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                    <div className="animate-spin h-8 w-8 border-2 border-white rounded-full border-t-transparent"></div>
+                  </div>
+                )}
 
-                {/* Scanning overlay */}
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-4/5 h-1/4 border-2 border-white rounded-md opacity-50"></div>
+                {/* Video element with improved attributes and styling */}
+                <video
+                  ref={videoRef}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  playsInline
+                  muted
+                  autoPlay
+                  style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }}
+                />
+
+                {/* Scanning overlay with animation */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="w-4/5 h-1/4 border-2 border-white rounded-md opacity-70 relative">
+                    <div className="absolute top-0 left-0 right-0 h-0.5 bg-white/70 animate-scan"></div>
+                  </div>
                 </div>
+                {needsUserPlayInteraction && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/70">
+                    <Button onClick={handleManualPlay}>
+                      <Play className="h-4 w-4 mr-2" />
+                      Tap to Start Camera
+                    </Button>
+                  </div>
+                )}
               </div>
 
               <p className="text-sm text-center text-muted-foreground">
