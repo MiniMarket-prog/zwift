@@ -87,6 +87,7 @@ const POSPage = () => {
   const searchInputRef = useRef<HTMLInputElement>(null) // Ref for search input to focus after adding
   const { toast } = useToast() // Using the correct import
   const supabase = createClient()
+  const searchTimeout = useRef<NodeJS.Timeout | null>(null)
 
   // Track the last notification to prevent duplicates
   const lastNotificationRef = useRef<{ productId: string; timestamp: number }>({ productId: "", timestamp: 0 })
@@ -125,104 +126,121 @@ const POSPage = () => {
   }, [lastAddedProduct, autoAddOnBarcode])
 
   // Fetch products and settings
-  const fetchData = useCallback(async () => {
-    setIsLoading(true)
-    try {
-      // Fetch products - limit to 10 products for better performance
-      const { data: productsData, error: productsError } = await supabase
-        .from("products")
-        .select("*")
-        .order("name")
-        .limit(10) // Limit to 10 products
-
-      if (productsError) throw productsError
-
-      // Fetch settings - handle this differently since the table might not exist
+  const fetchData = useCallback(
+    async (searchQuery = "") => {
+      setIsLoading(true)
       try {
-        console.log("Fetching settings...")
+        // Build the query for products
+        let query = supabase.from("products").select("*").order("name")
 
-        // Try to fetch global settings first
-        let { data: settingsData, error: settingsError } = await supabase
-          .from("settings")
-          .select("*")
-          .eq("type", "global")
-          .single()
+        // If there's a search query, filter on the server side
+        if (searchQuery.trim() !== "") {
+          // Use ilike for case-insensitive search
+          query = query.or(`name.ilike.%${searchQuery}%,barcode.ilike.%${searchQuery}%`)
+        } else {
+          // If no search, just get the first 20 products for better performance
+          query = query.limit(20)
+        }
 
-        // If no global settings, try system settings
-        if (settingsError || !settingsData) {
-          const { data: systemData, error: systemError } = await supabase
+        const { data: productsData, error: productsError } = await query
+
+        if (productsError) throw productsError
+
+        // Rest of your existing code for settings...
+        try {
+          console.log("Fetching settings...")
+
+          // Try to fetch global settings first
+          let { data: settingsData, error: settingsError } = await supabase
             .from("settings")
             .select("*")
-            .eq("type", "system")
+            .eq("type", "global")
             .single()
 
-          if (!systemError && systemData) {
-            settingsData = systemData
-            settingsError = null
+          // If no global settings, try system settings
+          if (settingsError || !settingsData) {
+            const { data: systemData, error: systemError } = await supabase
+              .from("settings")
+              .select("*")
+              .eq("type", "system")
+              .single()
+
+            if (!systemError && systemData) {
+              settingsData = systemData
+              settingsError = null
+            }
+          }
+
+          if (!settingsError && settingsData) {
+            console.log("Loaded settings:", settingsData)
+            setSettings({
+              id: settingsData.id,
+              tax_rate:
+                settingsData.settings &&
+                typeof settingsData.settings === "object" &&
+                settingsData.settings !== null &&
+                "taxRate" in settingsData.settings &&
+                typeof settingsData.settings.taxRate === "number"
+                  ? settingsData.settings.taxRate
+                  : typeof settingsData.tax_rate === "number"
+                    ? settingsData.tax_rate
+                    : 0,
+              store_name: settingsData.store_name || "My Store",
+              currency:
+                settingsData.currency && typeof settingsData.currency === "string"
+                  ? settingsData.currency
+                  : settingsData.settings &&
+                      typeof settingsData.settings === "object" &&
+                      settingsData.settings !== null &&
+                      "currency" in settingsData.settings &&
+                      typeof settingsData.settings.currency === "string"
+                    ? settingsData.settings.currency
+                    : "USD",
+            })
+          } else {
+            console.error("Settings error or no data:", settingsError)
+          }
+        } catch (settingsError) {
+          console.error("Error fetching settings:", settingsError)
+          // Keep using default settings
+        }
+
+        // Set products state with proper typing
+        if (productsData) {
+          console.log("Loaded products:", productsData.length)
+          setProducts(productsData as Product[])
+
+          // If this was a search query, update filtered products too
+          if (searchQuery.trim() !== "") {
+            setFilteredProducts(productsData as Product[])
+          } else {
+            setFilteredProducts([])
           }
         }
 
-        if (!settingsError && settingsData) {
-          console.log("Loaded settings:", settingsData)
-          setSettings({
-            id: settingsData.id,
-            tax_rate:
-              settingsData.settings &&
-              typeof settingsData.settings === "object" &&
-              settingsData.settings !== null &&
-              "taxRate" in settingsData.settings &&
-              typeof settingsData.settings.taxRate === "number"
-                ? settingsData.settings.taxRate
-                : typeof settingsData.tax_rate === "number"
-                  ? settingsData.tax_rate
-                  : 0,
-            store_name: settingsData.store_name || "My Store",
-            currency:
-              settingsData.currency && typeof settingsData.currency === "string"
-                ? settingsData.currency
-                : settingsData.settings &&
-                    typeof settingsData.settings === "object" &&
-                    settingsData.settings !== null &&
-                    "currency" in settingsData.settings &&
-                    typeof settingsData.settings.currency === "string"
-                  ? settingsData.settings.currency
-                  : "USD",
-          })
-        } else {
-          console.error("Settings error or no data:", settingsError)
-        }
-      } catch (settingsError) {
-        console.error("Error fetching settings:", settingsError)
-        // Keep using default settings
+        // Fetch low stock products
+        const lowStock = await getLowStockProducts()
+        setLowStockProducts(lowStock as Product[])
+
+        // Initialize edited stock levels
+        const initialStockLevels: Record<string, number> = {}
+        lowStock.forEach((product: Product) => {
+          initialStockLevels[product.id] = product.stock
+        })
+        setEditedStockLevels(initialStockLevels)
+      } catch (error) {
+        console.error("Error fetching data:", error)
+        toast({
+          title: getPOSTranslation("errorFetchingProducts", language),
+          description: "Failed to load products",
+          variant: "destructive",
+        })
+      } finally {
+        setIsLoading(false)
       }
-
-      // Set products state with proper typing
-      if (productsData) {
-        setProducts(productsData as Product[])
-        setFilteredProducts(productsData as Product[])
-      }
-
-      // Fetch low stock products
-      const lowStock = await getLowStockProducts()
-      setLowStockProducts(lowStock as Product[])
-
-      // Initialize edited stock levels
-      const initialStockLevels: Record<string, number> = {}
-      lowStock.forEach((product: Product) => {
-        initialStockLevels[product.id] = product.stock
-      })
-      setEditedStockLevels(initialStockLevels)
-    } catch (error) {
-      console.error("Error fetching data:", error)
-      toast({
-        title: getPOSTranslation("errorFetchingProducts", language),
-        description: "Failed to load products",
-        variant: "destructive",
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }, [supabase, toast, language])
+    },
+    [supabase, toast, language],
+  )
 
   // Add this right after the fetchData function in your POS page
   useEffect(() => {
@@ -401,18 +419,12 @@ const POSPage = () => {
 
   // Filter products based on search term
   useEffect(() => {
+    // We're now doing server-side filtering in fetchData, so this is only a backup
     if (searchTerm.trim() === "") {
       // When no search term, don't show any products in search results
       setFilteredProducts([])
-    } else {
-      const term = searchTerm.toLowerCase()
-      // Filter products and limit to 10 results
-      const filtered = products
-        .filter((product) => product.name.toLowerCase().includes(term) || product.barcode.toLowerCase().includes(term))
-        .slice(0, 10) // Limit to 10 results
-      setFilteredProducts(filtered)
     }
-  }, [searchTerm, products])
+  }, [searchTerm])
 
   // Handle search input change with barcode auto-add functionality
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -421,7 +433,9 @@ const POSPage = () => {
 
     // If auto-add is enabled, check for exact barcode match
     if (autoAddOnBarcode && value.trim() !== "") {
-      const exactBarcodeMatch = products.find((product) => product.barcode.toLowerCase() === value.toLowerCase())
+      const exactBarcodeMatch = products.find(
+        (product) => product.barcode && product.barcode.toLowerCase() === value.toLowerCase(),
+      )
 
       if (exactBarcodeMatch) {
         // Add product to cart with notification
@@ -436,8 +450,22 @@ const POSPage = () => {
         if (searchInputRef.current) {
           searchInputRef.current.focus()
         }
+        return
       }
     }
+
+    // Debounce search to avoid too many requests
+    if (searchTimeout.current) {
+      clearTimeout(searchTimeout.current)
+    }
+
+    searchTimeout.current = setTimeout(() => {
+      if (value.trim() !== "") {
+        fetchData(value)
+      } else {
+        setFilteredProducts([])
+      }
+    }, 300)
   }
 
   // Handle search input keydown for Enter key
