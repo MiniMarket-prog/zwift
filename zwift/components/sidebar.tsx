@@ -165,12 +165,7 @@ const Sidebar = () => {
     { href: "/reports", label: "reports" as AppTranslationKey, icon: <BarChart3 className="h-5 w-5" /> },
     { href: "/sales", label: "sales" as AppTranslationKey, icon: <DollarSign className="h-5 w-5" /> },
     { href: "/users", label: "customers" as AppTranslationKey, icon: <User className="h-5 w-5" /> },
-    {
-      href: "/alerts",
-      label: "alerts" as AppTranslationKey,
-      icon: <Bell className="h-5 w-5" />,
-      badge: unreadAlerts > 0 ? unreadAlerts : null,
-    },
+    { href: "/alerts", label: "alerts" as AppTranslationKey, icon: <Bell className="h-5 w-5" />, badge: unreadAlerts > 0 ? unreadAlerts : null, },
     { href: "/settings", label: "settings" as AppTranslationKey, icon: <Settings className="h-5 w-5" /> },
   ]
 

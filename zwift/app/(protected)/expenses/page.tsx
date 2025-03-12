@@ -39,7 +39,7 @@ import { Badge } from "@/components/ui/badge"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/components/ui/use-toast"
-import { createClient } from "@/lib/supabase-client"
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
 import type { Database } from "@/types/supabase"
 import { useUser } from "@/components/auth/user-provider"
 import { Plus } from "lucide-react"
@@ -54,6 +54,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { useLanguage } from "@/hooks/use-language"
+import { formatCurrency } from "@/lib/format-currency"
 
 // Define expense type based on the database schema
 type Expense = Database["public"]["Tables"]["expenses"]["Row"]
@@ -101,15 +102,13 @@ export default function ExpensesPage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [selectedExpense, setSelectedExpense] = useState<ExpenseWithCategory | null>(null)
 
-  const supabase = createClient()
+  // Add state for currency
+  const [currentCurrency, setCurrentCurrency] = useState<string>("USD")
+
+  const supabase = createClientComponentClient()
   const { toast } = useToast()
   const { user } = useUser()
-  const { getAppTranslation, language, isRTL } = useLanguage()
-
-  // Debug user state
-  useEffect(() => {
-    console.log("Current user state:", user)
-  }, [user])
+  const { getAppTranslation, language } = useLanguage()
 
   // Fetch expenses and categories
   const fetchData = useCallback(async () => {
@@ -147,9 +146,42 @@ export default function ExpensesPage() {
     }
   }, [supabase, toast, getAppTranslation])
 
+  // Fetch currency setting
+  const fetchCurrency = useCallback(async () => {
+    try {
+      const { data: settingsData, error } = await supabase
+        .from("settings")
+        .select("currency")
+        .eq("type", "global")
+        .single()
+
+      if (!error && settingsData?.currency) {
+        setCurrentCurrency(settingsData.currency)
+      }
+    } catch (error) {
+      console.error("Error fetching currency setting:", error)
+    }
+  }, [supabase])
+
   useEffect(() => {
     fetchData()
-  }, [fetchData])
+    fetchCurrency()
+  }, [fetchData, fetchCurrency])
+
+  // Listen for storage events (triggered when settings are updated)
+  useEffect(() => {
+    const handleStorageChange = () => {
+      fetchCurrency()
+    }
+
+    window.addEventListener("storage", handleStorageChange)
+    window.addEventListener("focus", fetchCurrency)
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange)
+      window.removeEventListener("focus", fetchCurrency)
+    }
+  }, [fetchCurrency])
 
   // Filter expenses based on date range and category
   useEffect(() => {
@@ -258,55 +290,33 @@ export default function ExpensesPage() {
     }
   }
 
-  // Add new expense with improved user session handling
+  // Add new expense
   const handleAddExpense = async () => {
-    console.log("handleAddExpense called")
+    if (!user) return
+
+    setIsSaving(true)
+
+    // Validate form
+    if (!newExpense.category_id || !newExpense.amount || !newExpense.description) {
+      toast({
+        title: getAppTranslation("validation_error"),
+        description: "Please fill in all required fields.",
+        variant: "destructive",
+      })
+      setIsSaving(false)
+      return
+    }
 
     try {
-      // Try to get the current session
-      const { data: sessionData } = await supabase.auth.getSession()
-      const currentUser = sessionData?.session?.user || user
-
-      console.log("Session check:", {
-        sessionExists: !!sessionData?.session,
-        userFromSession: !!sessionData?.session?.user,
-        userFromHook: !!user,
-      })
-
-      if (!currentUser) {
-        console.log("User is not available, cannot add expense")
-        toast({
-          title: getAppTranslation("error"),
-          description: "You must be logged in to add an expense. Please refresh the page or log in again.",
-          variant: "destructive",
-        })
-        return
-      }
-
-      // Validate form
-      if (!newExpense.category_id || !newExpense.amount || !newExpense.description) {
-        console.log("Validation failed", { newExpense })
-        toast({
-          title: getAppTranslation("validation_error"),
-          description: "Please fill in all required fields.",
-          variant: "destructive",
-        })
-        return
-      }
-
-      setIsSaving(true)
-
-      console.log("Attempting to save expense to Supabase with user ID:", currentUser.id)
       const { error } = await supabase.from("expenses").insert({
         amount: Number.parseFloat(newExpense.amount),
         description: newExpense.description,
         category_id: newExpense.category_id,
-        user_id: currentUser.id,
+        user_id: user.id,
       })
 
       if (error) throw error
 
-      console.log("Expense saved successfully")
       toast({
         title: getAppTranslation("success"),
         description: "The expense has been added successfully.",
@@ -362,37 +372,24 @@ export default function ExpensesPage() {
     setIsDeleteDialogOpen(true)
   }
 
-  // Handle update expense with improved user session handling
+  // Handle update expense
   const handleUpdateExpense = async () => {
     if (!selectedExpense) return
 
+    setIsSaving(true)
+
+    // Validate form
+    if (!newExpense.category_id || !newExpense.amount || !newExpense.description) {
+      toast({
+        title: getAppTranslation("validation_error"),
+        description: "Please fill in all required fields.",
+        variant: "destructive",
+      })
+      setIsSaving(false)
+      return
+    }
+
     try {
-      // Try to get the current session
-      const { data: sessionData } = await supabase.auth.getSession()
-      const currentUser = sessionData?.session?.user || user
-
-      if (!currentUser) {
-        toast({
-          title: getAppTranslation("error"),
-          description: "You must be logged in to update an expense. Please refresh the page or log in again.",
-          variant: "destructive",
-        })
-        return
-      }
-
-      setIsSaving(true)
-
-      // Validate form
-      if (!newExpense.category_id || !newExpense.amount || !newExpense.description) {
-        toast({
-          title: getAppTranslation("validation_error"),
-          description: "Please fill in all required fields.",
-          variant: "destructive",
-        })
-        setIsSaving(false)
-        return
-      }
-
       const { error } = await supabase
         .from("expenses")
         .update({
@@ -432,24 +429,11 @@ export default function ExpensesPage() {
     }
   }
 
-  // Handle delete expense with improved user session handling
+  // Handle delete expense
   const handleDeleteExpense = async () => {
     if (!selectedExpense) return
 
     try {
-      // Try to get the current session
-      const { data: sessionData } = await supabase.auth.getSession()
-      const currentUser = sessionData?.session?.user || user
-
-      if (!currentUser) {
-        toast({
-          title: getAppTranslation("error"),
-          description: "You must be logged in to delete an expense. Please refresh the page or log in again.",
-          variant: "destructive",
-        })
-        return
-      }
-
       const { error } = await supabase.from("expenses").delete().eq("id", selectedExpense.id)
 
       if (error) throw error
@@ -474,50 +458,10 @@ export default function ExpensesPage() {
     }
   }
 
-  // This effect is likely not needed if your useLanguage hook already handles RTL
-  // But if you want to ensure it's applied in this component:
-  useEffect(() => {
-    document.documentElement.dir = isRTL ? "rtl" : "ltr"
-
-    if (isRTL) {
-      document.documentElement.classList.add("rtl")
-    } else {
-      document.documentElement.classList.remove("rtl")
-    }
-
-    return () => {
-      // Clean up only if we changed it
-      if (isRTL && document.documentElement.dir === "rtl") {
-        document.documentElement.dir = "ltr"
-        document.documentElement.classList.remove("rtl")
-      }
-    }
-  }, [isRTL])
-
   return (
     <div className="p-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <div className="flex items-center gap-4">
-          <h1 className="text-3xl font-bold">{getAppTranslation("expenses")}</h1>
-          <Select
-            value={language}
-            onValueChange={(value) => {
-              localStorage.setItem("language", value)
-              // Trigger a refresh to apply the language change
-              window.location.reload()
-            }}
-          >
-            <SelectTrigger className="w-[150px]">
-              <SelectValue placeholder="Language" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="en">English</SelectItem>
-              <SelectItem value="es">Español</SelectItem>
-              <SelectItem value="fr">Français</SelectItem>
-              <SelectItem value="ar">العربية</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        <h1 className="text-3xl font-bold">{getAppTranslation("expenses")}</h1>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>
             <Button>
@@ -597,7 +541,7 @@ export default function ExpensesPage() {
               <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
                 {getAppTranslation("cancel")}
               </Button>
-              <Button type="button" onClick={handleAddExpense} disabled={isSaving}>
+              <Button onClick={handleAddExpense} disabled={isSaving}>
                 {isSaving ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -749,7 +693,9 @@ export default function ExpensesPage() {
                         </Badge>
                       </td>
                       <td className="px-4 py-3 text-sm">{expense.description}</td>
-                      <td className="px-4 py-3 text-sm text-right font-medium">${expense.amount.toFixed(2)}</td>
+                      <td className="px-4 py-3 text-sm text-right font-medium">
+                        {formatCurrency(expense.amount, currentCurrency, language)}
+                      </td>
                       <td className="px-4 py-3 text-sm text-center">
                         <div className="flex justify-center space-x-2">
                           <Button variant="ghost" size="icon" onClick={() => handleEditClick(expense)}>
@@ -777,14 +723,18 @@ export default function ExpensesPage() {
                   <td colSpan={3} className="px-4 py-3 text-sm font-medium text-right">
                     {getAppTranslation("page_total")}
                   </td>
-                  <td className="px-4 py-3 text-sm font-medium text-right">${currentPageTotal.toFixed(2)}</td>
+                  <td className="px-4 py-3 text-sm font-medium text-right">
+                    {formatCurrency(currentPageTotal, currentCurrency, language)}
+                  </td>
                 </tr>
                 <tr className="bg-muted/50">
                   <td colSpan={3} className="px-4 py-3 text-sm font-medium text-right">
                     {getAppTranslation("grand_total")}{" "}
                     {isFilterActive ? `(${getAppTranslation("filtered")})` : `(${getAppTranslation("all")})`}
                   </td>
-                  <td className="px-4 py-3 text-sm font-medium text-right">${allExpensesTotal.toFixed(2)}</td>
+                  <td className="px-4 py-3 text-sm font-medium text-right">
+                    {formatCurrency(allExpensesTotal, currentCurrency, language)}
+                  </td>
                 </tr>
               </tfoot>
             </table>
@@ -862,7 +812,7 @@ export default function ExpensesPage() {
             <Button variant="outline" onClick={() => setIsAddCategoryDialogOpen(false)}>
               {getAppTranslation("cancel")}
             </Button>
-            <Button type="button" onClick={handleAddCategory} disabled={isSavingCategory}>
+            <Button onClick={handleAddCategory} disabled={isSavingCategory}>
               {isSavingCategory ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -951,7 +901,7 @@ export default function ExpensesPage() {
             <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
               {getAppTranslation("cancel")}
             </Button>
-            <Button type="button" onClick={handleUpdateExpense} disabled={isSaving}>
+            <Button onClick={handleUpdateExpense} disabled={isSaving}>
               {isSaving ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -973,7 +923,7 @@ export default function ExpensesPage() {
             <AlertDialogTitle>{getAppTranslation("are_you_sure")}</AlertDialogTitle>
             <AlertDialogDescription>
               {getAppTranslation("delete_expense_warning")}
-              {selectedExpense && ` $${selectedExpense.amount.toFixed(2)}`}.
+              {selectedExpense && ` ${formatCurrency(selectedExpense.amount, currentCurrency, language)}`}.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

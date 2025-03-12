@@ -1,5 +1,7 @@
 "use client"
 
+import { DialogFooter } from "@/components/ui/dialog"
+
 import { DialogTrigger } from "@/components/ui/dialog"
 
 import type React from "react"
@@ -25,20 +27,16 @@ import {
   FolderPlus,
   RefreshCw,
 } from "lucide-react"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { useToast } from "@/components/ui/use-toast"
+import { useToast } from "@/hooks/use-toast"
 import { format } from "date-fns"
 import Image from "next/image"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { MobileCameraScanner } from "@/components/inventory/mobile-camera-scanner"
+import { useLanguage } from "@/hooks/use-language"
+import { formatCurrency } from "@/lib/format-currency"
+import { supabase } from "@/lib/supabaseClient"
 
 // Define the Product type to match the database schema
 type Product = {
@@ -133,9 +131,20 @@ export default function InventoryPage() {
   const [totalPages, setTotalPages] = useState(1)
   const [paginatedProducts, setPaginatedProducts] = useState<Product[]>([])
 
+  // Add this with the other state declarations
+  const [settings, setSettings] = useState({
+    currency: "USD",
+    tax_rate: 0,
+    store_name: "My Store",
+  })
+
+  // Add this with the other state declarations
+  const [currentCurrency, setCurrentCurrency] = useState<string>("USD")
+
   const { toast } = useToast()
   const printFrameRef = useRef<HTMLIFrameElement>(null)
   const barcodePreviewRef = useRef<HTMLDivElement>(null)
+  const { getAppTranslation, language, isRTL } = useLanguage()
 
   useEffect(() => {
     loadProducts()
@@ -169,6 +178,70 @@ export default function InventoryPage() {
     updatePaginatedProducts()
   }, [filteredProducts, pageSize, currentPage, updatePaginatedProducts])
 
+  // Add this after other useCallback functions
+  const fetchSettings = useCallback(async () => {
+    try {
+      // First try to get global settings
+      let { data: settingsData, error: settingsError } = await supabase
+        .from("settings")
+        .select("*")
+        .eq("type", "global")
+        .single()
+
+      // If no global settings, try system settings
+      if (settingsError || !settingsData) {
+        const { data: systemData, error: systemError } = await supabase
+          .from("settings")
+          .select("*")
+          .eq("type", "system")
+          .single()
+
+        if (!systemError && systemData) {
+          settingsData = systemData
+          settingsError = null
+        }
+      }
+
+      if (!settingsError && settingsData) {
+        console.log("Loaded settings:", settingsData)
+
+        // First check if settings.settings exists and has currency
+        let currencyValue = "USD"
+        let taxRateValue = 0
+
+        if (settingsData.settings && typeof settingsData.settings === "object" && settingsData.settings !== null) {
+          // Check for currency in settings.settings
+          if ("currency" in settingsData.settings && typeof settingsData.settings.currency === "string") {
+            currencyValue = settingsData.settings.currency
+          }
+
+          // Check for taxRate in settings.settings
+          if ("taxRate" in settingsData.settings && typeof settingsData.settings.taxRate === "number") {
+            taxRateValue = settingsData.settings.taxRate
+          }
+        }
+
+        // Fallback to top-level currency field if it exists
+        if (settingsData.currency && typeof settingsData.currency === "string") {
+          currencyValue = settingsData.currency
+        }
+
+        // Fallback to top-level tax_rate field if it exists
+        if (typeof settingsData.tax_rate === "number") {
+          taxRateValue = settingsData.tax_rate
+        }
+
+        setSettings({
+          currency: currencyValue,
+          tax_rate: taxRateValue,
+          store_name: settingsData.store_name || "My Store",
+        })
+      }
+    } catch (error) {
+      console.error("Error fetching settings:", error)
+    }
+  }, [supabase])
+
   const loadProducts = async () => {
     try {
       setIsLoading(true)
@@ -198,8 +271,8 @@ export default function InventoryPage() {
     } catch (error) {
       console.error("Error loading products:", error)
       toast({
-        title: "Error",
-        description: "Failed to load products",
+        title: getAppTranslation("error"),
+        description: getAppTranslation("failed_to_load_products"),
         variant: "destructive",
       })
     } finally {
@@ -220,12 +293,66 @@ export default function InventoryPage() {
     } catch (error) {
       console.error("Error loading categories:", error)
       toast({
-        title: "Error",
-        description: "Failed to load categories",
+        title: getAppTranslation("error"),
+        description: getAppTranslation("failed_to_load_categories"),
         variant: "destructive",
       })
     }
   }
+
+  // Add this after other useEffect hooks
+  useEffect(() => {
+    // Function to fetch currency setting
+    const fetchCurrency = async () => {
+      try {
+        const { data: settingsData, error } = await supabase
+          .from("settings")
+          .select("currency")
+          .eq("type", "global")
+          .single()
+
+        if (!error && settingsData?.currency) {
+          setCurrentCurrency(settingsData.currency)
+        }
+      } catch (error) {
+        console.error("Error fetching currency setting:", error)
+      }
+    }
+
+    fetchCurrency()
+
+    // Listen for storage events (triggered when settings are updated)
+    const handleStorageChange = () => {
+      fetchCurrency()
+    }
+
+    window.addEventListener("storage", handleStorageChange)
+    window.addEventListener("focus", fetchCurrency)
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange)
+      window.removeEventListener("focus", fetchCurrency)
+    }
+  }, [supabase])
+
+  // Add this after other useEffect hooks
+  useEffect(() => {
+    fetchSettings()
+
+    // Listen for storage events (which we trigger when settings are updated)
+    const handleStorageChange = () => {
+      console.log("Storage event detected, refreshing settings")
+      fetchSettings()
+    }
+
+    window.addEventListener("storage", handleStorageChange)
+    window.addEventListener("focus", fetchSettings)
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange)
+      window.removeEventListener("focus", fetchSettings)
+    }
+  }, [fetchSettings])
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value)
@@ -247,8 +374,8 @@ export default function InventoryPage() {
     }))
 
     toast({
-      title: "Barcode generated",
-      description: `New barcode: ${newBarcode}`,
+      title: getAppTranslation("barcode_generated"),
+      description: `${getAppTranslation("new_barcode")}: ${newBarcode}`,
     })
   }
 
@@ -275,14 +402,14 @@ export default function InventoryPage() {
       await loadProducts()
 
       toast({
-        title: "Product added",
-        description: "The product has been added successfully.",
+        title: getAppTranslation("product_added"),
+        description: getAppTranslation("product_added_successfully"),
       })
     } catch (error) {
       console.error("Error adding product:", error)
       toast({
-        title: "Error",
-        description: "Failed to add product. Please try again.",
+        title: getAppTranslation("error"),
+        description: getAppTranslation("failed_to_add_product"),
         variant: "destructive",
       })
     }
@@ -324,14 +451,14 @@ export default function InventoryPage() {
       await loadProducts()
 
       toast({
-        title: "Product updated",
-        description: "The product has been updated successfully.",
+        title: getAppTranslation("product_updated"),
+        description: getAppTranslation("product_updated_successfully"),
       })
     } catch (error) {
       console.error("Error updating product:", error)
       toast({
-        title: "Error",
-        description: "Failed to update product. Please try again.",
+        title: getAppTranslation("error"),
+        description: getAppTranslation("failed_to_update_product"),
         variant: "destructive",
       })
     }
@@ -351,14 +478,14 @@ export default function InventoryPage() {
       await loadProducts()
 
       toast({
-        title: "Product deleted",
-        description: "The product has been deleted successfully.",
+        title: getAppTranslation("product_deleted"),
+        description: getAppTranslation("product_deleted_successfully"),
       })
     } catch (error) {
       console.error("Error deleting product:", error)
       toast({
-        title: "Error",
-        description: "Failed to delete product. Please try again.",
+        title: getAppTranslation("error"),
+        description: getAppTranslation("failed_to_delete_product"),
         variant: "destructive",
       })
     }
@@ -377,7 +504,7 @@ export default function InventoryPage() {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Barcode: ${selectedProduct.barcode}</title>
+        <title>${getAppTranslation("barcode")}: ${selectedProduct.barcode}</title>
         <style>
           body {
             font-family: Arial, sans-serif;
@@ -424,7 +551,7 @@ export default function InventoryPage() {
           <div class="product-name">${selectedProduct.name}</div>
           <div class="barcode">*${selectedProduct.barcode}*</div>
           <div class="barcode-number">${selectedProduct.barcode}</div>
-          <div class="price">$${selectedProduct.price.toFixed(2)}</div>
+          <div class="price">${formatCurrency(selectedProduct.price, currentCurrency, language)}</div>
         </div>
       </body>
       </html>
@@ -452,8 +579,8 @@ export default function InventoryPage() {
     setIsBarcodePreviewOpen(false)
 
     toast({
-      title: "Printing barcode",
-      description: `Barcode for ${selectedProduct.name} sent to printer.`,
+      title: getAppTranslation("printing_barcode"),
+      description: `${getAppTranslation("barcode_for")} ${selectedProduct.name} ${getAppTranslation("sent_to_printer")}.`,
     })
   }
 
@@ -463,8 +590,8 @@ export default function InventoryPage() {
 
     if (!newCategoryName.trim()) {
       toast({
-        title: "Validation Error",
-        description: "Please enter a category name",
+        title: getAppTranslation("validation_error"),
+        description: getAppTranslation("please_enter_category_name"),
         variant: "destructive",
       })
       return
@@ -491,14 +618,14 @@ export default function InventoryPage() {
       }
 
       toast({
-        title: "Category added",
-        description: "The category has been added successfully.",
+        title: getAppTranslation("category_added"),
+        description: getAppTranslation("category_added_successfully"),
       })
     } catch (error) {
       console.error("Error adding category:", error)
       toast({
-        title: "Error",
-        description: "Failed to add category. Please try again.",
+        title: getAppTranslation("error"),
+        description: getAppTranslation("failed_to_add_category"),
         variant: "destructive",
       })
     } finally {
@@ -529,13 +656,13 @@ export default function InventoryPage() {
       <iframe ref={printFrameRef} style={{ display: "none" }} title="Print Frame"></iframe>
 
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <h1 className="text-3xl font-bold">Inventory</h1>
+        <h1 className="text-3xl font-bold">{getAppTranslation("inventory")}</h1>
         <div className="flex gap-2 w-full sm:w-auto">
           <div className="relative w-full sm:w-64">
-            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Search className={`absolute ${isRTL ? "right-2" : "left-2"} top-2.5 h-4 w-4 text-muted-foreground`} />
             <Input
-              placeholder="Search by name or barcode..."
-              className="pl-8"
+              placeholder={getAppTranslation("search_by_name_or_barcode")}
+              className={isRTL ? "pr-8" : "pl-8"}
               value={searchTerm}
               onChange={handleSearch}
             />
@@ -546,20 +673,20 @@ export default function InventoryPage() {
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>
               <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                Add Product
+                <Plus className={`${isRTL ? "ml-2" : "mr-2"} h-4 w-4`} />
+                {getAppTranslation("add_product")}
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle>Add New Product</DialogTitle>
-                <DialogDescription>Enter the details of the new product to add to your inventory.</DialogDescription>
+                <DialogTitle>{getAppTranslation("add_new_product")}</DialogTitle>
+                <DialogDescription>{getAppTranslation("add_product_description")}</DialogDescription>
               </DialogHeader>
               <form onSubmit={handleAddProduct}>
                 <div className="grid gap-4 py-4">
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="name" className="text-right">
-                      Name
+                      {getAppTranslation("name")}
                     </Label>
                     <Input
                       id="name"
@@ -572,7 +699,7 @@ export default function InventoryPage() {
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="barcode" className="text-right">
-                      Barcode
+                      {getAppTranslation("barcode")}
                     </Label>
                     <div className="col-span-3 flex gap-2">
                       <Input
@@ -584,8 +711,8 @@ export default function InventoryPage() {
                         required
                       />
                       <Button type="button" variant="outline" onClick={handleGenerateBarcode} size="sm">
-                        <Barcode className="h-4 w-4 mr-1" />
-                        Generate
+                        <Barcode className={`h-4 w-4 ${isRTL ? "ml-1" : "mr-1"}`} />
+                        {getAppTranslation("generate")}
                       </Button>
                       <MobileCameraScanner
                         onBarcodeDetected={(barcode: string) => {
@@ -599,7 +726,7 @@ export default function InventoryPage() {
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="price" className="text-right">
-                      Price
+                      {getAppTranslation("price")}
                     </Label>
                     <Input
                       id="price"
@@ -615,7 +742,7 @@ export default function InventoryPage() {
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="purchase_price" className="text-right">
-                      Purchase Price
+                      {getAppTranslation("purchase_price")}
                     </Label>
                     <Input
                       id="purchase_price"
@@ -626,12 +753,12 @@ export default function InventoryPage() {
                       value={formData.purchase_price}
                       onChange={handleFormChange}
                       className="col-span-3"
-                      placeholder="Optional"
+                      placeholder={getAppTranslation("optional")}
                     />
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="stock" className="text-right">
-                      Stock
+                      {getAppTranslation("stock")}
                     </Label>
                     <Input
                       id="stock"
@@ -646,7 +773,7 @@ export default function InventoryPage() {
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="min_stock" className="text-right">
-                      Min Stock
+                      {getAppTranslation("min_stock")}
                     </Label>
                     <Input
                       id="min_stock"
@@ -661,7 +788,7 @@ export default function InventoryPage() {
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="image" className="text-right">
-                      Image URL
+                      {getAppTranslation("image_url")}
                     </Label>
                     <Input
                       id="image"
@@ -670,12 +797,12 @@ export default function InventoryPage() {
                       value={formData.image}
                       onChange={handleFormChange}
                       className="col-span-3"
-                      placeholder="Optional"
+                      placeholder={getAppTranslation("optional")}
                     />
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="category_id" className="text-right">
-                      Category
+                      {getAppTranslation("category")}
                     </Label>
                     <div className="col-span-3 flex gap-2">
                       <Select
@@ -684,10 +811,10 @@ export default function InventoryPage() {
                         onValueChange={(value) => setFormData((prev) => ({ ...prev, category_id: value }))}
                       >
                         <SelectTrigger className="flex-1">
-                          <SelectValue placeholder="Select a category (optional)" />
+                          <SelectValue placeholder={getAppTranslation("select_category_optional")} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="none">None</SelectItem>
+                          <SelectItem value="none">{getAppTranslation("none")}</SelectItem>
                           {categories.map((category) => (
                             <SelectItem key={category.id} value={category.id}>
                               {category.name}
@@ -700,7 +827,7 @@ export default function InventoryPage() {
                         variant="outline"
                         size="icon"
                         onClick={() => setIsAddCategoryDialogOpen(true)}
-                        title="Add new category"
+                        title={getAppTranslation("add_new_category")}
                       >
                         <FolderPlus className="h-4 w-4" />
                       </Button>
@@ -709,9 +836,9 @@ export default function InventoryPage() {
                 </div>
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                    Cancel
+                    {getAppTranslation("cancel")}
                   </Button>
-                  <Button type="submit">Add Product</Button>
+                  <Button type="submit">{getAppTranslation("add_product")}</Button>
                 </DialogFooter>
               </form>
             </DialogContent>
@@ -723,15 +850,15 @@ export default function InventoryPage() {
         <Card>
           <CardContent className="flex flex-col items-center justify-center p-6">
             <Package className="h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground text-center">No products found. Add some products to your inventory.</p>
+            <p className="text-muted-foreground text-center">{getAppTranslation("no_products_found")}</p>
           </CardContent>
         </Card>
       ) : (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Products</CardTitle>
+            <CardTitle>{getAppTranslation("products")}</CardTitle>
             <div className="flex items-center gap-2">
-              <Label htmlFor="pageSize">Show</Label>
+              <Label htmlFor="pageSize">{getAppTranslation("show")}</Label>
               <Select value={pageSize.toString()} onValueChange={handlePageSizeChange}>
                 <SelectTrigger id="pageSize" className="w-[80px]">
                   <SelectValue placeholder={pageSize.toString()} />
@@ -744,7 +871,7 @@ export default function InventoryPage() {
                   <SelectItem value="100">100</SelectItem>
                 </SelectContent>
               </Select>
-              <span className="text-sm text-muted-foreground">entries</span>
+              <span className="text-sm text-muted-foreground">{getAppTranslation("entries")}</span>
             </div>
           </CardHeader>
           <CardContent>
@@ -752,16 +879,16 @@ export default function InventoryPage() {
               <table className="min-w-full divide-y divide-border">
                 <thead>
                   <tr className="bg-muted/50">
-                    <th className="px-4 py-3 text-left text-sm font-medium">Image</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">Name</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">Barcode</th>
-                    <th className="px-4 py-3 text-right text-sm font-medium">Price</th>
-                    <th className="px-4 py-3 text-right text-sm font-medium">Purchase Price</th>
-                    <th className="px-4 py-3 text-right text-sm font-medium">Stock</th>
-                    <th className="px-4 py-3 text-right text-sm font-medium">Min Stock</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">Category</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">Created At</th>
-                    <th className="px-4 py-3 text-center text-sm font-medium">Actions</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">{getAppTranslation("image")}</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">{getAppTranslation("name")}</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">{getAppTranslation("barcode")}</th>
+                    <th className="px-4 py-3 text-right text-sm font-medium">{getAppTranslation("price")}</th>
+                    <th className="px-4 py-3 text-right text-sm font-medium">{getAppTranslation("purchase_price")}</th>
+                    <th className="px-4 py-3 text-right text-sm font-medium">{getAppTranslation("stock")}</th>
+                    <th className="px-4 py-3 text-right text-sm font-medium">{getAppTranslation("min_stock")}</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">{getAppTranslation("category")}</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">{getAppTranslation("created_at")}</th>
+                    <th className="px-4 py-3 text-center text-sm font-medium">{getAppTranslation("actions")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -783,9 +910,13 @@ export default function InventoryPage() {
                       </td>
                       <td className="px-4 py-3 text-sm font-medium">{product.name}</td>
                       <td className="px-4 py-3 text-sm">{product.barcode}</td>
-                      <td className="px-4 py-3 text-sm text-right">${product.price.toFixed(2)}</td>
                       <td className="px-4 py-3 text-sm text-right">
-                        {product.purchase_price ? `$${product.purchase_price.toFixed(2)}` : "-"}
+                        {formatCurrency(product.price, currentCurrency, language)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right">
+                        {product.purchase_price
+                          ? formatCurrency(product.purchase_price, currentCurrency, language)
+                          : "-"}
                       </td>
                       <td className="px-4 py-3 text-sm text-right">{product.stock}</td>
                       <td className="px-4 py-3 text-sm text-right">{product.min_stock}</td>
@@ -801,7 +932,7 @@ export default function InventoryPage() {
                             variant="ghost"
                             size="icon"
                             onClick={() => handleEditClick(product)}
-                            title="Edit product"
+                            title={getAppTranslation("edit_product")}
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
@@ -809,7 +940,7 @@ export default function InventoryPage() {
                             variant="ghost"
                             size="icon"
                             onClick={() => handleDeleteClick(product)}
-                            title="Delete product"
+                            title={getAppTranslation("delete_product")}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
@@ -817,7 +948,7 @@ export default function InventoryPage() {
                             variant="ghost"
                             size="icon"
                             onClick={() => handleBarcodePreviewClick(product)}
-                            title="Print barcode"
+                            title={getAppTranslation("print_barcode")}
                           >
                             <Printer className="h-4 w-4" />
                           </Button>
@@ -832,8 +963,9 @@ export default function InventoryPage() {
             {/* Pagination controls */}
             <div className="flex items-center justify-between mt-4">
               <div className="text-sm text-muted-foreground">
-                Showing {Math.min(filteredProducts.length, (currentPage - 1) * pageSize + 1)} to{" "}
-                {Math.min(filteredProducts.length, currentPage * pageSize)} of {filteredProducts.length} entries
+                {getAppTranslation("showing")} {Math.min(filteredProducts.length, (currentPage - 1) * pageSize + 1)}{" "}
+                {getAppTranslation("to")} {Math.min(filteredProducts.length, currentPage * pageSize)}{" "}
+                {getAppTranslation("of")} {filteredProducts.length} {getAppTranslation("entries")}
               </div>
               <div className="flex items-center space-x-2">
                 <Button variant="outline" size="icon" onClick={() => handlePageChange(1)} disabled={currentPage === 1}>
@@ -848,7 +980,7 @@ export default function InventoryPage() {
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <span className="text-sm">
-                  Page {currentPage} of {totalPages}
+                  {getAppTranslation("page")} {currentPage} {getAppTranslation("of")} {totalPages}
                 </span>
                 <Button
                   variant="outline"
@@ -876,14 +1008,14 @@ export default function InventoryPage() {
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Edit Product</DialogTitle>
-            <DialogDescription>Update the details of this product.</DialogDescription>
+            <DialogTitle>{getAppTranslation("edit_product")}</DialogTitle>
+            <DialogDescription>{getAppTranslation("edit_product_description")}</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleEditProduct}>
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit-name" className="text-right">
-                  Name
+                  {getAppTranslation("name")}
                 </Label>
                 <Input
                   id="edit-name"
@@ -896,7 +1028,7 @@ export default function InventoryPage() {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit-barcode" className="text-right">
-                  Barcode
+                  {getAppTranslation("barcode")}
                 </Label>
                 <div className="col-span-3 flex gap-2">
                   <Input
@@ -908,8 +1040,8 @@ export default function InventoryPage() {
                     required
                   />
                   <Button type="button" variant="outline" onClick={handleGenerateBarcode} size="sm">
-                    <Barcode className="h-4 w-4 mr-1" />
-                    Generate
+                    <Barcode className={`h-4 w-4 ${isRTL ? "ml-1" : "mr-1"}`} />
+                    {getAppTranslation("generate")}
                   </Button>
                   <MobileCameraScanner
                     onBarcodeDetected={(barcode: string) => {
@@ -923,7 +1055,7 @@ export default function InventoryPage() {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit-price" className="text-right">
-                  Price
+                  {getAppTranslation("price")}
                 </Label>
                 <Input
                   id="edit-price"
@@ -939,7 +1071,7 @@ export default function InventoryPage() {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit-purchase_price" className="text-right">
-                  Purchase Price
+                  {getAppTranslation("purchase_price")}
                 </Label>
                 <Input
                   id="edit-purchase_price"
@@ -950,12 +1082,12 @@ export default function InventoryPage() {
                   value={formData.purchase_price}
                   onChange={handleFormChange}
                   className="col-span-3"
-                  placeholder="Optional"
+                  placeholder={getAppTranslation("optional")}
                 />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit-stock" className="text-right">
-                  Stock
+                  {getAppTranslation("stock")}
                 </Label>
                 <Input
                   id="edit-stock"
@@ -970,7 +1102,7 @@ export default function InventoryPage() {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit-min_stock" className="text-right">
-                  Min Stock
+                  {getAppTranslation("min_stock")}
                 </Label>
                 <Input
                   id="edit-min_stock"
@@ -985,7 +1117,7 @@ export default function InventoryPage() {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit-image" className="text-right">
-                  Image URL
+                  {getAppTranslation("image_url")}
                 </Label>
                 <Input
                   id="edit-image"
@@ -994,12 +1126,12 @@ export default function InventoryPage() {
                   value={formData.image}
                   onChange={handleFormChange}
                   className="col-span-3"
-                  placeholder="Optional"
+                  placeholder={getAppTranslation("optional")}
                 />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit-category_id" className="text-right">
-                  Category
+                  {getAppTranslation("category")}
                 </Label>
                 <div className="col-span-3 flex gap-2">
                   <Select
@@ -1008,10 +1140,10 @@ export default function InventoryPage() {
                     onValueChange={(value) => setFormData((prev) => ({ ...prev, category_id: value }))}
                   >
                     <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="Select a category (optional)" />
+                      <SelectValue placeholder={getAppTranslation("select_category_optional")} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="none">{getAppTranslation("none")}</SelectItem>
                       {categories.map((category) => (
                         <SelectItem key={category.id} value={category.id}>
                           {category.name}
@@ -1024,7 +1156,7 @@ export default function InventoryPage() {
                     variant="outline"
                     size="icon"
                     onClick={() => setIsAddCategoryDialogOpen(true)}
-                    title="Add new category"
+                    title={getAppTranslation("add_new_category")}
                   >
                     <FolderPlus className="h-4 w-4" />
                   </Button>
@@ -1033,9 +1165,9 @@ export default function InventoryPage() {
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
-                Cancel
+                {getAppTranslation("cancel")}
               </Button>
-              <Button type="submit">Save Changes</Button>
+              <Button type="submit">{getAppTranslation("save_changes")}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -1045,18 +1177,18 @@ export default function InventoryPage() {
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Are you sure?</DialogTitle>
+            <DialogTitle>{getAppTranslation("are_you_sure")}</DialogTitle>
             <DialogDescription>
-              This will permanently delete the product &quot;{selectedProduct?.name}&quot;. This action cannot be
-              undone.
+              {getAppTranslation("delete_product_confirmation")} &quot;{selectedProduct?.name}&quot;.{" "}
+              {getAppTranslation("action_cannot_be_undone")}
             </DialogDescription>
           </DialogHeader>
           <div className="flex justify-end space-x-2 pt-4">
             <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
-              Cancel
+              {getAppTranslation("cancel")}
             </Button>
             <Button variant="destructive" onClick={handleDeleteProduct}>
-              Delete
+              {getAppTranslation("delete")}
             </Button>
           </div>
         </DialogContent>
@@ -1066,37 +1198,37 @@ export default function InventoryPage() {
       <Dialog open={isAddCategoryDialogOpen} onOpenChange={setIsAddCategoryDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Add New Category</DialogTitle>
-            <DialogDescription>Create a new category for your products.</DialogDescription>
+            <DialogTitle>{getAppTranslation("add_new_category")}</DialogTitle>
+            <DialogDescription>{getAppTranslation("add_category_description")}</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddCategory}>
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="category-name" className="text-right">
-                  Name
+                  {getAppTranslation("name")}
                 </Label>
                 <Input
                   id="category-name"
                   value={newCategoryName}
                   onChange={(e) => setNewCategoryName(e.target.value)}
                   className="col-span-3"
-                  placeholder="Enter category name"
+                  placeholder={getAppTranslation("enter_category_name")}
                   required
                 />
               </div>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setIsAddCategoryDialogOpen(false)}>
-                Cancel
+                {getAppTranslation("cancel")}
               </Button>
               <Button type="submit" disabled={isSavingCategory}>
                 {isSavingCategory ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Saving...
+                    <Loader2 className={`${isRTL ? "ml-2" : "mr-2"} h-4 w-4 animate-spin`} />
+                    {getAppTranslation("saving")}...
                   </>
                 ) : (
-                  "Add Category"
+                  getAppTranslation("add_category")
                 )}
               </Button>
             </DialogFooter>
@@ -1108,8 +1240,8 @@ export default function InventoryPage() {
       <Dialog open={isBarcodePreviewOpen} onOpenChange={setIsBarcodePreviewOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Barcode Preview</DialogTitle>
-            <DialogDescription>Preview the barcode before printing.</DialogDescription>
+            <DialogTitle>{getAppTranslation("barcode_preview")}</DialogTitle>
+            <DialogDescription>{getAppTranslation("barcode_preview_description")}</DialogDescription>
           </DialogHeader>
 
           {selectedProduct && (
@@ -1127,17 +1259,19 @@ export default function InventoryPage() {
                     </svg>
                   </div>
                   <div className="text-xs tracking-wider mb-2">{selectedProduct.barcode}</div>
-                  <div className="text-base font-bold">${selectedProduct.price.toFixed(2)}</div>
+                  <div className="text-base font-bold">
+                    {formatCurrency(selectedProduct.price, currentCurrency, language)}
+                  </div>
                 </div>
               </div>
 
               <div className="flex justify-between mt-4">
                 <Button variant="outline" onClick={() => setIsBarcodePreviewOpen(false)}>
-                  Cancel
+                  {getAppTranslation("cancel")}
                 </Button>
                 <Button onClick={handlePrintBarcode}>
-                  <Printer className="h-4 w-4 mr-2" />
-                  Print Barcode
+                  <Printer className={`${isRTL ? "ml-2" : "mr-2"} h-4 w-4`} />
+                  {getAppTranslation("print_barcode")}
                 </Button>
               </div>
             </div>

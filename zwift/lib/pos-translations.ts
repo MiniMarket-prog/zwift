@@ -243,4 +243,3 @@ export function getPOSTranslation(key: POSTranslationKey, language = "en"): stri
   // If the key doesn't exist in the language, fall back to English
   return posTranslations[language][key] || posTranslations.en[key]
 }
-

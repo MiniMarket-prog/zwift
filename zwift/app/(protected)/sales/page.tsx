@@ -40,7 +40,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
-import { useToast } from "@/components/ui/use-toast"
+import { useToast } from "@/hooks/use-toast"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,6 +55,7 @@ import { Label } from "@/components/ui/label"
 import { updateSale, getProducts } from "@/lib/supabase"
 import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { formatCurrency } from "@/lib/format-currency"
 
 // Define proper types instead of using 'any'
 interface Product {
@@ -66,7 +67,7 @@ interface Product {
   stock: number
   min_stock?: number
   category_id?: string | null
-  purchase_price?: number | null  // Add this line
+  purchase_price?: number | null // Add this line
 }
 
 interface SaleItem {
@@ -105,6 +106,7 @@ const SalesPage = () => {
   const [activeTab, setActiveTab] = useState("items")
   const [isLoadingSaleDetails, setIsLoadingSaleDetails] = useState(false)
   const { getAppTranslation, language, isRTL } = useLanguage()
+  const [currentCurrency, setCurrentCurrency] = useState<string>("USD")
 
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(5)
@@ -114,6 +116,39 @@ const SalesPage = () => {
 
   const supabase = createClient()
   const { toast } = useToast()
+
+  // Fetch currency setting
+  const fetchCurrency = useCallback(async () => {
+    try {
+      const { data: settingsData, error } = await supabase
+        .from("settings")
+        .select("currency")
+        .eq("type", "global")
+        .single()
+
+      if (!error && settingsData?.currency) {
+        setCurrentCurrency(settingsData.currency)
+      }
+    } catch (error) {
+      console.error("Error fetching currency setting:", error)
+    }
+  }, [supabase])
+
+  // Add event listeners for currency changes
+  useEffect(() => {
+    // Listen for storage events (triggered when settings are updated)
+    const handleStorageChange = () => {
+      fetchCurrency()
+    }
+
+    window.addEventListener("storage", handleStorageChange)
+    window.addEventListener("focus", fetchCurrency)
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange)
+      window.removeEventListener("focus", fetchCurrency)
+    }
+  }, [fetchCurrency])
 
   // Fetch sales with pagination and filtering
   const fetchSales = useCallback(async () => {
@@ -184,14 +219,14 @@ const SalesPage = () => {
     } catch (error) {
       console.error("Error fetching sales:", error)
       toast({
-        title: "Error",
+        title: getAppTranslation("error", language),
         description: "Failed to load sales data",
         variant: "destructive",
       })
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, currentPage, pageSize, date, searchTerm, toast])
+  }, [supabase, currentPage, pageSize, date, searchTerm, toast, getAppTranslation, language])
 
   // Fetch sale items for a specific sale
   const fetchSaleItems = useCallback(
@@ -252,7 +287,7 @@ const SalesPage = () => {
       } catch (error) {
         console.error("Error fetching sale items:", error)
         toast({
-          title: "Error",
+          title: getAppTranslation("error", language),
           description: "Failed to load sale details",
           variant: "destructive",
         })
@@ -261,7 +296,7 @@ const SalesPage = () => {
         setIsLoadingSaleDetails(false)
       }
     },
-    [supabase, toast],
+    [supabase, toast, getAppTranslation, language],
   )
 
   // Fetch available products for adding to sales
@@ -294,19 +329,20 @@ const SalesPage = () => {
     } catch (error) {
       console.error("Error fetching products:", error)
       toast({
-        title: "Error",
-        description: "Failed to load products",
+        title: getAppTranslation("error", language),
+        description: getAppTranslation("failed_to_load_products", language),
         variant: "destructive",
       })
     } finally {
       setIsLoadingProducts(false)
     }
-  }, [toast])
+  }, [toast, getAppTranslation, language])
 
   // Initial data load
   useEffect(() => {
     fetchSales()
-  }, [fetchSales])
+    fetchCurrency()
+  }, [fetchSales, fetchCurrency])
 
   // Handle search input change
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -430,7 +466,7 @@ const SalesPage = () => {
       // Check if we have enough stock
       if (newQuantity > item.product.stock) {
         toast({
-          title: "Stock limit reached",
+          title: getAppTranslation("warning", language),
           description: `Only ${item.product.stock} units available in stock.`,
           variant: "destructive",
         })
@@ -476,7 +512,7 @@ const SalesPage = () => {
       const currentQuantity = updatedItems[existingItemIndex].quantity
       if (currentQuantity >= product.stock) {
         toast({
-          title: "Stock limit reached",
+          title: getAppTranslation("warning", language),
           description: `Only ${product.stock} units available in stock.`,
           variant: "destructive",
         })
@@ -492,7 +528,7 @@ const SalesPage = () => {
       // Check if product is in stock
       if (product.stock <= 0) {
         toast({
-          title: "Out of stock",
+          title: getAppTranslation("warning", language),
           description: `${product.name} is currently out of stock.`,
           variant: "destructive",
         })
@@ -526,7 +562,7 @@ const SalesPage = () => {
     setActiveTab("items")
 
     toast({
-      title: "Product added",
+      title: getAppTranslation("product_added", language),
       description: `${product.name} has been added to the sale.`,
     })
   }
@@ -546,7 +582,7 @@ const SalesPage = () => {
     })
 
     toast({
-      title: "Item removed",
+      title: getAppTranslation("success", language),
       description: "The item has been removed from the sale.",
     })
   }
@@ -566,8 +602,6 @@ const SalesPage = () => {
           price: item.price,
         })) || []
 
-     
-
       // Update the sale in the database
       const { error } = await updateSale(
         editedSale.id,
@@ -582,7 +616,7 @@ const SalesPage = () => {
       if (error) throw error
 
       toast({
-        title: "Sale updated",
+        title: getAppTranslation("success", language),
         description: "The sale has been updated successfully.",
       })
 
@@ -592,7 +626,7 @@ const SalesPage = () => {
     } catch (error) {
       console.error("Error updating sale:", error)
       toast({
-        title: "Error",
+        title: getAppTranslation("error", language),
         description: "Failed to update sale. Please try again.",
         variant: "destructive",
       })
@@ -650,7 +684,7 @@ const SalesPage = () => {
       if (saleError) throw saleError
 
       toast({
-        title: "Sale deleted",
+        title: getAppTranslation("success", language),
         description: "The sale has been deleted successfully.",
       })
 
@@ -660,7 +694,7 @@ const SalesPage = () => {
     } catch (error) {
       console.error("Error deleting sale:", error)
       toast({
-        title: "Error",
+        title: getAppTranslation("error", language),
         description: "Failed to delete sale. Please try again.",
         variant: "destructive",
       })
@@ -673,7 +707,7 @@ const SalesPage = () => {
     try {
       setIsLoadingMore(true)
       toast({
-        title: "Preparing export",
+        title: getAppTranslation("info", language),
         description: "Gathering all sales data for export...",
       })
 
@@ -707,7 +741,7 @@ const SalesPage = () => {
         const row = [
           sale.id,
           format(new Date(sale.created_at), "yyyy-MM-dd HH:mm:ss"),
-          `$${sale.total.toFixed(2)}`,
+          formatCurrency(sale.total, currentCurrency, language),
           sale.payment_method,
         ]
 
@@ -727,13 +761,13 @@ const SalesPage = () => {
       document.body.removeChild(link)
 
       toast({
-        title: "Export Complete",
+        title: getAppTranslation("success", language),
         description: `Exported ${allSales?.length || 0} sales records to CSV.`,
       })
     } catch (error) {
       console.error("Error exporting sales:", error)
       toast({
-        title: "Export Failed",
+        title: getAppTranslation("error", language),
         description: "There was an error exporting the sales data.",
         variant: "destructive",
       })
@@ -808,17 +842,18 @@ const SalesPage = () => {
         </div>
       ) : paginatedSales.length === 0 ? (
         <div className="text-center py-10">
-          <p className="text-muted-foreground">No sales found</p>
+          <p className="text-muted-foreground">{getAppTranslation("noResults", language)}</p>
         </div>
       ) : (
         <>
           <div className="flex justify-between items-center mb-4">
             <div className="text-sm text-muted-foreground">
-              Showing {(currentPage - 1) * pageSize + 1} to {Math.min(totalCount, currentPage * pageSize)} of{" "}
-              {totalCount} entries
+              {getAppTranslation("showing", language)} {(currentPage - 1) * pageSize + 1}{" "}
+              {getAppTranslation("to", language)} {Math.min(totalCount, currentPage * pageSize)}{" "}
+              {getAppTranslation("of", language)} {totalCount} {getAppTranslation("entries", language)}
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-sm">Show</span>
+              <span className="text-sm">{getAppTranslation("show", language)}</span>
               <Select value={pageSize.toString()} onValueChange={handlePageSizeChange}>
                 <SelectTrigger className="w-[80px]">
                   <SelectValue placeholder={pageSize.toString()} />
@@ -842,8 +877,8 @@ const SalesPage = () => {
                   <TableHead>Date</TableHead>
                   <TableHead>Payment Method</TableHead>
                   <TableHead className="text-right">Items</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                  <TableHead className="text-center">Actions</TableHead>
+                  <TableHead className="text-right">{getAppTranslation("total", language)}</TableHead>
+                  <TableHead className="text-center">{getAppTranslation("actions", language)}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -857,7 +892,9 @@ const SalesPage = () => {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">{getTotalItems(sale)}</TableCell>
-                    <TableCell className="text-right font-medium">${sale.total.toFixed(2)}</TableCell>
+                    <TableCell className="text-right font-medium">
+                      {formatCurrency(sale.total, currentCurrency, language)}
+                    </TableCell>
                     <TableCell>
                       <div className="flex justify-center gap-2">
                         <Button
@@ -913,7 +950,7 @@ const SalesPage = () => {
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <span className="text-sm px-4">
-                Page {currentPage} of {totalPages}
+                {getAppTranslation("page", language)} {currentPage} {getAppTranslation("of", language)} {totalPages}
               </span>
               <Button
                 variant="outline"
@@ -990,12 +1027,14 @@ const SalesPage = () => {
                                 <p className="font-medium">{item.product?.name}</p>
                                 <div className="flex items-center text-sm text-muted-foreground">
                                   <span>
-                                    ${item.price.toFixed(2)} × {item.quantity}
+                                    {formatCurrency(item.price, currentCurrency, language)} × {item.quantity}
                                   </span>
                                 </div>
                               </div>
                             </div>
-                            <p className="font-medium">${(item.price * item.quantity).toFixed(2)}</p>
+                            <p className="font-medium">
+                              {formatCurrency(item.price * item.quantity, currentCurrency, language)}
+                            </p>
                           </div>
                         ))}
                       </div>
@@ -1004,8 +1043,8 @@ const SalesPage = () => {
 
                   <div className="border-t mt-4 pt-4">
                     <div className="flex justify-between items-center font-medium">
-                      <span>Total</span>
-                      <span>${selectedSale.total.toFixed(2)}</span>
+                      <span>{getAppTranslation("total", language)}</span>
+                      <span>{formatCurrency(selectedSale.total, currentCurrency, language)}</span>
                     </div>
                   </div>
                 </div>
@@ -1050,7 +1089,7 @@ const SalesPage = () => {
                       <div className="space-y-3 overflow-y-auto flex-1">
                         {editedSale.items?.length === 0 ? (
                           <div className="text-center py-8 text-muted-foreground">
-                            No items in this sale. Add some products from the &quot;Add Products&quot; tab.
+                            No items in this sale. Add some products from the "Add Products" tab.
                           </div>
                         ) : (
                           editedSale.items?.map((item) => (
@@ -1076,7 +1115,9 @@ const SalesPage = () => {
                                 )}
                                 <div>
                                   <p className="font-medium">{item.product?.name}</p>
-                                  <p className="text-sm text-muted-foreground">${item.price.toFixed(2)} each</p>
+                                  <p className="text-sm text-muted-foreground">
+                                    {formatCurrency(item.price, currentCurrency, language)} each
+                                  </p>
                                 </div>
                               </div>
                               <div className="flex items-center gap-2">
@@ -1133,7 +1174,7 @@ const SalesPage = () => {
                           </div>
                         ) : filteredProducts.length === 0 ? (
                           <div className="text-center py-8 text-muted-foreground">
-                            No products found matching your search.
+                            {getAppTranslation("no_products_found", language)}
                           </div>
                         ) : (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1161,8 +1202,12 @@ const SalesPage = () => {
                                   <div className="flex-1 min-w-0">
                                     <p className="font-medium text-sm truncate">{product.name}</p>
                                     <div className="flex justify-between items-center">
-                                      <p className="text-sm font-bold">${product.price.toFixed(2)}</p>
-                                      <p className="text-xs text-muted-foreground">Stock: {product.stock}</p>
+                                      <p className="text-sm font-bold">
+                                        {formatCurrency(product.price, currentCurrency, language)}
+                                      </p>
+                                      <p className="text-xs text-muted-foreground">
+                                        {getAppTranslation("stock", language)}: {product.stock}
+                                      </p>
                                     </div>
                                   </div>
                                   <Plus className="h-4 w-4 text-muted-foreground" />
@@ -1177,25 +1222,25 @@ const SalesPage = () => {
 
                   <div className="border-t mt-4 pt-4">
                     <div className="flex justify-between items-center font-medium">
-                      <span>Total</span>
-                      <span>${editedSale.total.toFixed(2)}</span>
+                      <span>{getAppTranslation("total", language)}</span>
+                      <span>{formatCurrency(editedSale.total, currentCurrency, language)}</span>
                     </div>
                   </div>
 
                   <DialogFooter className="mt-6">
                     <Button variant="outline" onClick={() => setIsEditOpen(false)}>
-                      Cancel
+                      {getAppTranslation("cancel", language)}
                     </Button>
                     <Button onClick={handleSaveEdit} disabled={isSaving}>
                       {isSaving ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Saving...
+                          {getAppTranslation("saving", language)}...
                         </>
                       ) : (
                         <>
                           <Save className="mr-2 h-4 w-4" />
-                          Save Changes
+                          {getAppTranslation("save_changes", language)}
                         </>
                       )}
                     </Button>
@@ -1209,14 +1254,14 @@ const SalesPage = () => {
           <AlertDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                <AlertDialogTitle>{getAppTranslation("are_you_sure", language)}</AlertDialogTitle>
                 <AlertDialogDescription>
                   This action cannot be undone. This will permanently delete the sale
                   {selectedSale && ` #${selectedSale.id}`} and all its associated data.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                <AlertDialogCancel disabled={isDeleting}>{getAppTranslation("cancel", language)}</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={(e) => {
                     e.preventDefault()
@@ -1231,7 +1276,7 @@ const SalesPage = () => {
                       Deleting...
                     </>
                   ) : (
-                    "Delete"
+                    getAppTranslation("delete", language)
                   )}
                 </AlertDialogAction>
               </AlertDialogFooter>
