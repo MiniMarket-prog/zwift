@@ -32,6 +32,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
   const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([])
   const [needsUserPlayInteraction, setNeedsUserPlayInteraction] = useState(false)
+  const [activeCamera, setActiveCamera] = useState<string>("unknown")
 
   // Check if running on HTTPS
   useEffect(() => {
@@ -63,7 +64,10 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       const videoDevices = devices.filter((device) => device.kind === "videoinput")
       setAvailableCameras(videoDevices)
 
-      logDebug(`Found ${videoDevices.length} camera(s): ${videoDevices.map((d) => d.label).join(", ")}`)
+      // Log detailed camera information
+      videoDevices.forEach((device, index) => {
+        logDebug(`Camera ${index + 1}: ${device.label || "Unnamed camera"} (ID: ${device.deviceId.substring(0, 8)}...)`)
+      })
 
       return videoDevices
     } catch (err) {
@@ -107,6 +111,72 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
     checkPermission()
   }, [])
 
+  // Find back camera from available cameras
+  const findBackCamera = useCallback(() => {
+    // First, look for cameras with "back" in the label
+    const backCamera = availableCameras.find(
+      (camera) =>
+        camera.label.toLowerCase().includes("back") ||
+        camera.label.toLowerCase().includes("rear") ||
+        camera.label.toLowerCase().includes("environment"),
+    )
+
+    if (backCamera) {
+      logDebug(`Found back camera by label: ${backCamera.label}`)
+      return backCamera.deviceId
+    }
+
+    // If we have exactly two cameras, assume the second one is the back camera
+    // (This is a common pattern on mobile devices)
+    if (availableCameras.length === 2) {
+      logDebug(`Using second camera as back camera: ${availableCameras[1].label}`)
+      return availableCameras[1].deviceId
+    }
+
+    // If we have more than two cameras, try the last one
+    if (availableCameras.length > 2) {
+      const lastCamera = availableCameras[availableCameras.length - 1]
+      logDebug(`Using last camera as back camera: ${lastCamera.label}`)
+      return lastCamera.deviceId
+    }
+
+    // If all else fails, return null to use facingMode constraint instead
+    logDebug("Could not identify back camera, will use facingMode constraint")
+    return null
+  }, [availableCameras])
+
+  // Find front camera from available cameras
+  const findFrontCamera = useCallback(() => {
+    // First, look for cameras with "front" in the label
+    const frontCamera = availableCameras.find(
+      (camera) =>
+        camera.label.toLowerCase().includes("front") ||
+        camera.label.toLowerCase().includes("face") ||
+        camera.label.toLowerCase().includes("user"),
+    )
+
+    if (frontCamera) {
+      logDebug(`Found front camera by label: ${frontCamera.label}`)
+      return frontCamera.deviceId
+    }
+
+    // If we have exactly two cameras, assume the first one is the front camera
+    if (availableCameras.length === 2) {
+      logDebug(`Using first camera as front camera: ${availableCameras[0].label}`)
+      return availableCameras[0].deviceId
+    }
+
+    // If we have more than two cameras, try the first one
+    if (availableCameras.length > 0) {
+      logDebug(`Using first camera as front camera: ${availableCameras[0].label}`)
+      return availableCameras[0].deviceId
+    }
+
+    // If all else fails, return null to use facingMode constraint instead
+    logDebug("Could not identify front camera, will use facingMode constraint")
+    return null
+  }, [availableCameras])
+
   // Define startCamera outside of useEffect so it can be called from other functions
   const startCamera = useCallback(async () => {
     try {
@@ -116,6 +186,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       // Log device info for debugging
       logDebug(`Device: ${navigator.userAgent}`)
       logDebug(`Attempt #${attemptCount + 1}`)
+      logDebug(`Requested camera facing: ${facingMode}`)
 
       // Check if MediaDevices API is available
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -127,65 +198,58 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
 
       // Get available cameras if we haven't already
       if (availableCameras.length === 0) {
-        const cameras = await getAvailableCameras()
-        if (cameras.length === 0) {
-          logDebug("No cameras found on device")
-        }
+        await getAvailableCameras()
       }
 
-      // Try different approaches based on attempt count
+      // Determine which camera to use based on facingMode
       let constraints: MediaStreamConstraints
+      let specificCameraId: string | null = null
 
-      if (attemptCount === 0) {
-        // First attempt: Use the most basic constraints possible
-        logDebug("Using basic constraints (attempt #1)")
-        constraints = {
-          video: true,
-          audio: false,
-        }
-      } else if (attemptCount === 1 && availableCameras.length > 0) {
-        // Second attempt: Try with explicit device ID of first camera
-        const deviceId = availableCameras[0].deviceId
-        setSelectedDeviceId(deviceId)
-        logDebug(`Using explicit device ID (attempt #2): ${deviceId.substring(0, 8)}...`)
-        constraints = {
-          video: { deviceId: { exact: deviceId } },
-          audio: false,
-        }
-      } else if (attemptCount === 2) {
-        // Third attempt: Try with facing mode only
-        logDebug(`Using facing mode only (attempt #3): ${facingMode}`)
-        constraints = {
-          video: { facingMode: facingMode },
-          audio: false,
-        }
-      } else if (attemptCount === 3 && facingMode === "environment") {
-        // Fourth attempt: Try with user facing camera instead
-        setFacingMode("user")
-        logDebug("Switching to front camera (attempt #4)")
-        constraints = {
-          video: { facingMode: "user" },
-          audio: false,
-        }
-      } else if (attemptCount === 4 && availableCameras.length > 1) {
-        // Fifth attempt: Try with second camera if available
-        const deviceId = availableCameras[1].deviceId
-        setSelectedDeviceId(deviceId)
-        logDebug(`Using second camera (attempt #5): ${deviceId.substring(0, 8)}...`)
-        constraints = {
-          video: { deviceId: { exact: deviceId } },
-          audio: false,
+      if (facingMode === "environment") {
+        specificCameraId = findBackCamera()
+        if (specificCameraId) {
+          logDebug(`Using specific back camera ID: ${specificCameraId.substring(0, 8)}...`)
+          constraints = {
+            video: {
+              deviceId: { exact: specificCameraId },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: false,
+          }
+        } else {
+          logDebug("Using environment facingMode constraint")
+          constraints = {
+            video: {
+              facingMode: "environment",
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: false,
+          }
         }
       } else {
-        // Final fallback: Use minimal constraints with ideal (not exact) values
-        logDebug(`Using fallback constraints (attempt #${attemptCount + 1})`)
-        constraints = {
-          video: {
-            width: { ideal: 640 },
-            height: { ideal: 480 },
-            frameRate: { ideal: 15 },
-          },
-          audio: false,
+        specificCameraId = findFrontCamera()
+        if (specificCameraId) {
+          logDebug(`Using specific front camera ID: ${specificCameraId.substring(0, 8)}...`)
+          constraints = {
+            video: {
+              deviceId: { exact: specificCameraId },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: false,
+          }
+        } else {
+          logDebug("Using user facingMode constraint")
+          constraints = {
+            video: {
+              facingMode: "user",
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: false,
+          }
         }
       }
 
@@ -197,10 +261,39 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
 
         // If we get here, we have camera access
         logDebug("Camera access successful!")
+
+        // Get information about the active track
+        const videoTrack = newStream.getVideoTracks()[0]
+        if (videoTrack) {
+          setActiveCamera(videoTrack.label)
+          logDebug(`Active camera: ${videoTrack.label}`)
+
+          // Log camera capabilities
+          const capabilities = videoTrack.getCapabilities()
+          logDebug(`Camera capabilities: ${JSON.stringify(capabilities)}`)
+
+          // Try to set frame rate to improve performance
+          if (capabilities.frameRate && capabilities.frameRate.max) {
+            try {
+              const settings = { frameRate: Math.min(30, capabilities.frameRate.max) }
+              await videoTrack.applyConstraints(settings)
+              logDebug(`Applied frame rate: ${settings.frameRate} fps`)
+            } catch (e) {
+              logDebug(`Could not apply frame rate settings: ${(e as Error).message}`)
+            }
+          }
+        }
+
         setStream(newStream)
         setPermissionState("granted")
 
         if (videoRef.current) {
+          // Important: Set srcObject to null first to reset any previous state
+          videoRef.current.srcObject = null
+
+          // Small delay before setting the new stream
+          await delay(100)
+
           videoRef.current.srcObject = newStream
 
           // Handle video element errors
@@ -216,10 +309,20 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
           videoRef.current.setAttribute("autoplay", "true")
           videoRef.current.setAttribute("playsinline", "true")
 
+          // Set video to low latency mode
+          videoRef.current.setAttribute("muted", "true")
+
+          // Optimize video performance
+          if ("mozCancelFullScreen" in document) {
+            // Firefox-specific
+            videoRef.current.setAttribute("mozfullscreenchange", "true")
+          }
+
           try {
             // Try to play the video
             await videoRef.current.play()
             logDebug("Video playing successfully")
+            setNeedsUserPlayInteraction(false)
           } catch (playError) {
             // If play() fails, try again with user interaction
             handleError(playError as Error, "Video play error")
@@ -239,22 +342,31 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
         logDebug(`Attempt #${attemptCount + 1} failed: ${(accessError as Error).message}`)
 
         if (attemptCount < 5) {
-          // Exponential backoff with longer delays
-          const delayMs = Math.min(2000 * Math.pow(2, attemptCount), 10000)
-          logDebug(`Attempt failed. Waiting ${delayMs}ms before next attempt...`)
-          await delay(delayMs)
-
-          // Add more detailed logging before next attempt
-          logDebug(`Camera state before next attempt:`)
-          logDebug(`- Permission state: ${permissionState}`)
-          logDebug(`- Selected device: ${selectedDeviceId || "default"}`)
-          logDebug(`- Facing mode: ${facingMode}`)
-          if (stream) {
-            const tracks = stream.getTracks()
-            tracks.forEach((track) => {
-              logDebug(`- Track ${track.id}: enabled=${track.enabled}, muted=${track.muted}, state=${track.readyState}`)
-            })
+          // Try a different approach based on the attempt count
+          if (attemptCount === 0) {
+            // Try with basic constraints
+            logDebug("Will try with basic constraints next")
+          } else if (attemptCount === 1) {
+            // Try with the opposite camera
+            logDebug(`Will try with ${facingMode === "environment" ? "user" : "environment"} camera next`)
+            setFacingMode(facingMode === "environment" ? "user" : "environment")
+          } else if (attemptCount === 2 && availableCameras.length > 0) {
+            // Try with the first available camera
+            logDebug(`Will try with first available camera next`)
+            setSelectedDeviceId(availableCameras[0].deviceId)
+          } else if (attemptCount === 3 && availableCameras.length > 1) {
+            // Try with the second available camera
+            logDebug(`Will try with second available camera next`)
+            setSelectedDeviceId(availableCameras[1].deviceId)
+          } else {
+            // Try with minimal constraints
+            logDebug("Will try with minimal constraints next")
           }
+
+          // Wait before trying again
+          const delayMs = Math.min(1000 * Math.pow(1.5, attemptCount), 5000)
+          logDebug(`Waiting ${delayMs}ms before next attempt...`)
+          await delay(delayMs)
 
           startCamera()
         } else {
@@ -298,6 +410,8 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
     getAvailableCameras,
     permissionState,
     selectedDeviceId,
+    findBackCamera,
+    findFrontCamera,
   ])
 
   // Handle camera stream errors - define this AFTER startCamera
@@ -331,11 +445,13 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
     return () => {
       stopAllTracks()
     }
-  }, [isOpen, startCamera, stream])
+  }, [isOpen, startCamera])
 
   // Switch camera between front and back
   const switchCamera = () => {
-    setFacingMode((prev) => (prev === "environment" ? "user" : "environment"))
+    const newFacingMode = facingMode === "environment" ? "user" : "environment"
+    logDebug(`Switching camera from ${facingMode} to ${newFacingMode}`)
+    setFacingMode(newFacingMode)
     setSelectedDeviceId(null)
     setAttemptCount(0)
 
@@ -562,8 +678,10 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
         <div>• Browser: {navigator.userAgent}</div>
         <div>• Permission state: {permissionState}</div>
         <div>• Attempt count: {attemptCount}</div>
-        <div>• Selected camera: {selectedDeviceId ? `ID: ${selectedDeviceId.substring(0, 8)}...` : "default"}</div>
-        <div>• Facing mode: {facingMode}</div>
+        <div>• Requested facing mode: {facingMode}</div>
+        <div>• Active camera: {activeCamera}</div>
+        <div>• Selected device ID: {selectedDeviceId ? `${selectedDeviceId.substring(0, 8)}...` : "none"}</div>
+        <div>• Available cameras: {availableCameras.length}</div>
         <div className="whitespace-pre-wrap">{debugInfo}</div>
       </div>
     </div>
@@ -600,6 +718,13 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
 
         logDebug(`Track ${track.id} stopped. Final state: ${track.readyState}`)
       }
+
+      // Clear video element source before clearing stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = null
+        logDebug("Cleared video element source")
+      }
+
       setStream(null)
       logDebug("All tracks stopped and stream cleared")
     }
@@ -616,16 +741,6 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
       }
     }
   }
-
-  const scanAnimation = `
-  @keyframes scan {
-    0% { top: 0; }
-    100% { top: 100%; }
-  }
-  .animate-scan {
-    animation: scan 1.5s linear infinite;
-  }
-`
 
   return (
     <>
@@ -690,7 +805,14 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
                 {/* Scanning overlay with animation */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                   <div className="w-4/5 h-1/4 border-2 border-white rounded-md opacity-70 relative">
-                    <div className="absolute top-0 left-0 right-0 h-0.5 bg-white/70 animate-scan"></div>
+                    <div
+                      className="absolute left-0 right-0 h-0.5 bg-white/70"
+                      style={{
+                        top: "50%",
+                        animation: "pulse 1.5s infinite",
+                        boxShadow: "0 0 8px rgba(255, 255, 255, 0.8)",
+                      }}
+                    ></div>
                   </div>
                 </div>
                 {needsUserPlayInteraction && (
@@ -701,6 +823,11 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
                     </Button>
                   </div>
                 )}
+
+                {/* Camera info overlay */}
+                <div className="absolute bottom-2 left-2 text-xs text-white bg-black/50 px-2 py-1 rounded">
+                  {activeCamera !== "unknown" ? activeCamera.split(" ")[0] : facingMode}
+                </div>
               </div>
 
               <p className="text-sm text-center text-muted-foreground">
@@ -716,7 +843,7 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={switchCamera}>
                     <RefreshCw className="h-4 w-4 mr-2" />
-                    Switch Camera
+                    Switch Camera ({facingMode === "environment" ? "Front" : "Back"})
                   </Button>
 
                   <Button onClick={simulateScan}>
@@ -750,6 +877,15 @@ export function MobileCameraScanner({ onBarcodeDetected }: MobileCameraScannerPr
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Add global styles for animations */}
+      <style jsx global>{`
+        @keyframes pulse {
+          0% { opacity: 0.4; }
+          50% { opacity: 1; }
+          100% { opacity: 0.4; }
+        }
+      `}</style>
     </>
   )
 }
