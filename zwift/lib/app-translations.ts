@@ -239,6 +239,63 @@ export type AppTranslationKey =
   | "revenue"
   | "cost"
   | "sales_by_payment_method"
+  | "low_stock_products"
+  | "items_below_min_stock"
+  | "products_below_min_stock"
+  | "current_stock"
+  | "add_to_cart"
+  | "restock"
+  | "adjust"
+  | "no_low_stock_products"
+  | "adjust_stock_level"
+  | "update_stock_for"
+  | "update_stock_level"
+  | "stock_updated"
+  | "stock_has_been_updated"
+  | "units"
+  | "has_been_restocked"
+  | "failed_to_restock_product"
+  | "failed_to_update_stock"
+  | "uncategorized"
+  | "filter_by_category"
+  | "search_products"
+  | "stock_below_min"
+  // User management keys
+  | "user_management"
+  | "add_user"
+  | "add_new_user"
+  | "add_user_description"
+  | "edit_user"
+  | "edit_user_description"
+  | "delete_user"
+  | "user_added_successfully"
+  | "user_updated_successfully"
+  | "user_deleted_successfully"
+  | "failed_to_add_user"
+  | "failed_to_update_user"
+  | "failed_to_delete_user"
+  | "failed_to_fetch_profiles"
+  | "unexpected_error"
+  | "loading_users"
+  | "search_users"
+  | "registered_users_list"
+  | "username"
+  | "full_name"
+  | "not_available"
+  | "open_menu"
+  | "view_profile"
+  | "users"
+  | "no_users_found"
+  | "unnamed_user"
+  | "processing"
+  | "confirm_delete"
+  | "delete_user_confirmation"
+  | "role"
+  | "select_role"
+  | "role_cashier"
+  | "role_manager"
+  | "role_admin"
+  | "password"
 
 // Define translations for each supported language
 export const appTranslations: Record<string, Record<AppTranslationKey, string>> = {
@@ -403,7 +460,7 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     page_total: "Page Total",
     grand_total: "Grand Total",
     filtered: "Filtered",
-   
+    
     // Expense page translations
     expenses: "Expenses",
     add_expense: "Add Expense",
@@ -482,6 +539,63 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     revenue: "Revenue",
     cost: "Cost",
     sales_by_payment_method: "Sales by Payment Method",
+    low_stock_products: "Low Stock Products",
+    items_below_min_stock: "Items Below Minimum Stock",
+    products_below_min_stock: "Products that are below minimum stock level.",
+    current_stock: "Current Stock",
+    add_to_cart: "Add to Cart",
+    restock: "Restock",
+    adjust: "Adjust",
+    no_low_stock_products: "No low stock products found.",
+    adjust_stock_level: "Adjust Stock Level",
+    update_stock_for: "Update stock level for",
+    update_stock_level: "Update stock level",
+    stock_updated: "Stock Updated",
+    stock_has_been_updated: "stock has been updated to",
+    units: "units",
+    has_been_restocked: "has been restocked to",
+    failed_to_restock_product: "Failed to restock product",
+    failed_to_update_stock: "Failed to update stock level",
+    
+    filter_by_category: "Filter by Category",
+    search_products: "Search products...",
+    stock_below_min: "New stock level is below minimum stock threshold.",
+    // User management keys
+    user_management: "User Management",
+    add_user: "Add User",
+    add_new_user: "Add New User",
+    add_user_description: "Enter the details of the new user to add to the system.",
+    edit_user: "Edit User",
+    edit_user_description: "Update the details of this user.",
+    delete_user: "Delete User",
+    user_added_successfully: "User has been added successfully.",
+    user_updated_successfully: "User has been updated successfully.",
+    user_deleted_successfully: "User has been deleted successfully.",
+    failed_to_add_user: "Failed to add user. Please try again.",
+    failed_to_update_user: "Failed to update user. Please try again.",
+    failed_to_delete_user: "Failed to delete user. Please try again.",
+    failed_to_fetch_profiles: "Failed to fetch profiles.",
+    unexpected_error: "An unexpected error occurred.",
+    loading_users: "Loading users...",
+    search_users: "Search users...",
+    registered_users_list: "A list of your registered users.",
+    username: "Username",
+    full_name: "Full Name",
+    not_available: "N/A",
+    open_menu: "Open menu",
+    view_profile: "View Profile",
+    users: "users",
+    no_users_found: "No users found.",
+    unnamed_user: "Unnamed User",
+    processing: "Processing...",
+    confirm_delete: "Confirm Delete",
+    delete_user_confirmation: "Are you sure you want to delete user",
+    role: "Role",
+    select_role: "Select role",
+    role_cashier: "Cashier",
+    role_manager: "Manager",
+    role_admin: "Administrator",
+    
   },
   es: {
     alerts: "Alertas",
@@ -644,7 +758,7 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     page_total: "Total de Página",
     grand_total: "Total General",
     filtered: "Filtrado",
-   
+    
     // Expense page translations
     expenses: "Gastos",
     add_expense: "Añadir Gasto",
@@ -723,6 +837,63 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     revenue: "Ingresos",
     cost: "Costo",
     sales_by_payment_method: "Ventas por Método de Pago",
+    low_stock_products: "Productos con Bajo Stock",
+    items_below_min_stock: "Artículos por Debajo del Stock Mínimo",
+    products_below_min_stock: "Productos que están por debajo del nivel mínimo de stock.",
+    current_stock: "Stock Actual",
+    add_to_cart: "Añadir al Carrito",
+    restock: "Reabastecer",
+    adjust: "Ajustar",
+    no_low_stock_products: "No se encontraron productos con bajo stock.",
+    adjust_stock_level: "Ajustar Nivel de Stock",
+    update_stock_for: "Actualizar nivel de stock para",
+    update_stock_level: "Actualizar nivel de stock",
+    stock_updated: "Stock Actualizado",
+    stock_has_been_updated: "stock ha sido actualizado a",
+    units: "unidades",
+    has_been_restocked: "ha sido reabastecido a",
+    failed_to_restock_product: "Error al reabastecer el producto",
+    failed_to_update_stock: "Error al actualizar el nivel de stock",
+    
+    filter_by_category: "Filtrar por Categoría",
+    search_products: "Buscar productos...",
+    stock_below_min: "El nuevo nivel de stock está por debajo del umbral mínimo.",
+    // User management keys
+    user_management: "Gestión de Usuarios",
+    add_user: "Añadir Usuario",
+    add_new_user: "Añadir Nuevo Usuario",
+    add_user_description: "Ingresa los detalles del nuevo usuario para añadirlo al sistema.",
+    edit_user: "Editar Usuario",
+    edit_user_description: "Actualiza los detalles de este usuario.",
+    delete_user: "Eliminar Usuario",
+    user_added_successfully: "El usuario ha sido añadido exitosamente.",
+    user_updated_successfully: "El usuario ha sido actualizado exitosamente.",
+    user_deleted_successfully: "El usuario ha sido eliminado exitosamente.",
+    failed_to_add_user: "Error al añadir el usuario. Por favor, inténtalo de nuevo.",
+    failed_to_update_user: "Error al actualizar el usuario. Por favor, inténtalo de nuevo.",
+    failed_to_delete_user: "Error al eliminar el usuario. Por favor, inténtalo de nuevo.",
+    failed_to_fetch_profiles: "Error al obtener perfiles.",
+    unexpected_error: "Ocurrió un error inesperado.",
+    loading_users: "Cargando usuarios...",
+    search_users: "Buscar usuarios...",
+    registered_users_list: "Una lista de tus usuarios registrados.",
+    username: "Nombre de Usuario",
+    full_name: "Nombre Completo",
+    not_available: "N/D",
+    open_menu: "Abrir menú",
+    view_profile: "Ver Perfil",
+    users: "usuarios",
+    no_users_found: "No se encontraron usuarios.",
+    unnamed_user: "Usuario Sin Nombre",
+    processing: "Procesando...",
+    confirm_delete: "Confirmar Eliminación",
+    delete_user_confirmation: "¿Estás seguro de que quieres eliminar al usuario",
+    role: "Rol",
+    select_role: "Seleccionar rol",
+    role_cashier: "Cajero",
+    role_manager: "Gerente",
+    role_admin: "Administrador",
+    
   },
   fr: {
     alerts: "Alertes",
@@ -965,6 +1136,63 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     revenue: "Revenu",
     cost: "Coût",
     sales_by_payment_method: "Ventes par Méthode de Paiement",
+    low_stock_products: "Produits en Stock Faible",
+    items_below_min_stock: "Articles en Dessous du Stock Minimum",
+    products_below_min_stock: "Produits qui sont en dessous du niveau de stock minimum.",
+    current_stock: "Stock Actuel",
+    add_to_cart: "Ajouter au Panier",
+    restock: "Réapprovisionner",
+    adjust: "Ajuster",
+    no_low_stock_products: "Aucun produit en stock faible trouvé.",
+    adjust_stock_level: "Ajuster le Niveau de Stock",
+    update_stock_for: "Mettre à jour le niveau de stock pour",
+    update_stock_level: "Mettre à jour le niveau de stock",
+    stock_updated: "Stock Mis à Jour",
+    stock_has_been_updated: "stock a été mis à jour à",
+    units: "unités",
+    has_been_restocked: "a été réapprovisionné à",
+    failed_to_restock_product: "Échec du réapprovisionnement du produit",
+    failed_to_update_stock: "Échec de la mise à jour du niveau de stock",
+    
+    filter_by_category: "Filtrer par Catégorie",
+    search_products: "Rechercher des produits...",
+    stock_below_min: "Le nouveau niveau de stock est inférieur au seuil minimum.",
+    // User management keys
+    user_management: "Gestion des Utilisateurs",
+    add_user: "Ajouter Utilisateur",
+    add_new_user: "Ajouter Nouvel Utilisateur",
+    add_user_description: "Entrez les détails du nouvel utilisateur à ajouter au système.",
+    edit_user: "Modifier Utilisateur",
+    edit_user_description: "Mettre à jour les détails de cet utilisateur.",
+    delete_user: "Supprimer Utilisateur",
+    user_added_successfully: "L'utilisateur a été ajouté avec succès.",
+    user_updated_successfully: "L'utilisateur a été mis à jour avec succès.",
+    user_deleted_successfully: "L'utilisateur a été supprimé avec succès.",
+    failed_to_add_user: "Échec de l'ajout de l'utilisateur. Veuillez réessayer.",
+    failed_to_update_user: "Échec de la mise à jour de l'utilisateur. Veuillez réessayer.",
+    failed_to_delete_user: "Échec de la suppression de l'utilisateur. Veuillez réessayer.",
+    failed_to_fetch_profiles: "Échec de la récupération des profils.",
+    unexpected_error: "Une erreur inattendue s'est produite.",
+    loading_users: "Chargement des utilisateurs...",
+    search_users: "Rechercher des utilisateurs...",
+    registered_users_list: "Une liste de vos utilisateurs enregistrés.",
+    username: "Nom d'Utilisateur",
+    full_name: "Nom Complet",
+    not_available: "N/D",
+    open_menu: "Ouvrir le menu",
+    view_profile: "Voir le Profil",
+    users: "utilisateurs",
+    no_users_found: "Aucun utilisateur trouvé.",
+    unnamed_user: "Utilisateur Sans Nom",
+    processing: "Traitement en cours...",
+    confirm_delete: "Confirmer la Suppression",
+    delete_user_confirmation: "Êtes-vous sûr de vouloir supprimer l'utilisateur",
+    role: "Rôle",
+    select_role: "Sélectionner le rôle",
+    role_cashier: "Caissier",
+    role_manager: "Gérant",
+    role_admin: "Administrateur",
+    
   },
   ar: {
     alerts: "التنبيهات",
@@ -1206,6 +1434,63 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     revenue: "الإيرادات",
     cost: "التكلفة",
     sales_by_payment_method: "المبيعات حسب طريقة الدفع",
+    low_stock_products: "المنتجات ذات المخزون المنخفض",
+    items_below_min_stock: "العناصر أقل من الحد الأدنى للمخزون",
+    products_below_min_stock: "المنتجات التي هي أقل من مستوى المخزون الأدنى.",
+    current_stock: "المخزون الحالي",
+    add_to_cart: "أضف إلى السلة",
+    restock: "إعادة تخزين",
+    adjust: "تعديل",
+    no_low_stock_products: "لم يتم العثور على منتجات ذات مخزون منخفض.",
+    adjust_stock_level: "تعديل مستوى المخزون",
+    update_stock_for: "تحديث مستوى المخزون لـ",
+    update_stock_level: "تحديث مستوى المخزون",
+    stock_updated: "تم تحديث المخزون",
+    stock_has_been_updated: "تم تحديث المخزون إلى",
+    units: "وحدات",
+    has_been_restocked: "تمت إعادة تخزينه إلى",
+    failed_to_restock_product: "فشل في إعادة تخزين المنتج",
+    failed_to_update_stock: "فشل في تحديث مستوى المخزون",
+    
+    filter_by_category: "تصفية حسب الفئة",
+    search_products: "البحث عن المنتجات...",
+    stock_below_min: "مستوى المخزون الجديد أقل من الحد الأدنى للمخزون.",
+    // User management keys
+    user_management: "إدارة المستخدمين",
+    add_user: "إضافة مستخدم",
+    add_new_user: "إضافة مستخدم جديد",
+    add_user_description: "أدخل تفاصيل المستخدم الجديد لإضافته إلى النظام.",
+    edit_user: "تعديل المستخدم",
+    edit_user_description: "قم بتحديث تفاصيل هذا المستخدم.",
+    delete_user: "حذف المستخدم",
+    user_added_successfully: "تمت إضافة المستخدم بنجاح.",
+    user_updated_successfully: "تم تحديث المستخدم بنجاح.",
+    user_deleted_successfully: "تم حذف المستخدم بنجاح.",
+    failed_to_add_user: "فشل في إضافة المستخدم. حاول مرة أخرى.",
+    failed_to_update_user: "فشل في تحديث المستخدم. حاول مرة أخرى.",
+    failed_to_delete_user: "فشل في حذف المستخدم. حاول مرة أخرى.",
+    failed_to_fetch_profiles: "فشل في جلب الملفات الشخصية.",
+    unexpected_error: "حدث خطأ غير متوقع.",
+    loading_users: "جاري تحميل المستخدمين...",
+    search_users: "البحث عن المستخدمين...",
+    registered_users_list: "قائمة المستخدمين المسجلين لديك.",
+    username: "اسم المستخدم",
+    full_name: "الاسم الكامل",
+    not_available: "غير متوفر",
+    open_menu: "فتح القائمة",
+    view_profile: "عرض الملف الشخصي",
+    users: "مستخدمين",
+    no_users_found: "لم يتم العثور على مستخدمين.",
+    unnamed_user: "مستخدم بدون اسم",
+    processing: "جاري المعالجة...",
+    confirm_delete: "تأكيد الحذف",
+    delete_user_confirmation: "هل أنت متأكد أنك تريد حذف المستخدم",
+    role: "الدور",
+    select_role: "اختر الدور",
+    role_cashier: "أمين الصندوق",
+    role_manager: "مدير",
+    role_admin: "مسؤول",
+    
   },
 }
 

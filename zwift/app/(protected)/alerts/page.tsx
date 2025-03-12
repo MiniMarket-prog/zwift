@@ -24,6 +24,8 @@ import { Label } from "@/components/ui/label"
 import { Plus, Minus, Save } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { useLanguage } from "@/hooks/use-language"
+import { formatCurrency } from "@/lib/format-currency"
 
 // Add these types at the top of the file, after the imports
 type Product = {
@@ -51,12 +53,34 @@ const AlertsPage = () => {
   const [isLoading, setIsLoading] = useState(true)
   const { toast } = useToast()
   const supabase = createClient()
+  const { getAppTranslation, language, isRTL } = useLanguage()
+  const rtlEnabled = isRTL
+
+  // Add state for currency
+  const [currentCurrency, setCurrentCurrency] = useState<string>("USD")
 
   // Add state for the stock adjustment dialog
   const [isAdjustDialogOpen, setIsAdjustDialogOpen] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [adjustedStock, setAdjustedStock] = useState(0)
   const [isAdjusting, setIsAdjusting] = useState(false)
+
+  // Fetch currency setting
+  const fetchCurrency = useCallback(async () => {
+    try {
+      const { data: settingsData, error } = await supabase
+        .from("settings")
+        .select("currency")
+        .eq("type", "global")
+        .single()
+
+      if (!error && settingsData?.currency) {
+        setCurrentCurrency(settingsData.currency)
+      }
+    } catch (error) {
+      console.error("Error fetching currency setting:", error)
+    }
+  }, [supabase])
 
   // Fetch low stock products from Supabase
   const fetchLowStockProducts = useCallback(async () => {
@@ -76,8 +100,8 @@ const AlertsPage = () => {
     } catch (error) {
       console.error("Error fetching low stock products:", error)
       toast({
-        title: "Error",
-        description: "Failed to fetch low stock products",
+        title: getAppTranslation("error"),
+        description: getAppTranslation("failed_to_load_products"),
         variant: "destructive",
       })
       setLowStockProducts([])
@@ -85,7 +109,7 @@ const AlertsPage = () => {
     } finally {
       setIsLoading(false)
     }
-  }, [toast, supabase])
+  }, [toast, supabase, getAppTranslation])
 
   // Fetch categories from Supabase
   const fetchCategories = useCallback(async () => {
@@ -106,7 +130,23 @@ const AlertsPage = () => {
   useEffect(() => {
     fetchLowStockProducts()
     fetchCategories()
-  }, [fetchLowStockProducts, fetchCategories])
+    fetchCurrency()
+  }, [fetchLowStockProducts, fetchCategories, fetchCurrency])
+
+  // Listen for storage events (triggered when settings are updated)
+  useEffect(() => {
+    const handleStorageChange = () => {
+      fetchCurrency()
+    }
+
+    window.addEventListener("storage", handleStorageChange)
+    window.addEventListener("focus", fetchCurrency)
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange)
+      window.removeEventListener("focus", fetchCurrency)
+    }
+  }, [fetchCurrency])
 
   // Filter products based on search term and category
   useEffect(() => {
@@ -130,8 +170,8 @@ const AlertsPage = () => {
   const handleAddToCart = (product: Product) => {
     // Implement add to cart functionality
     toast({
-      title: "Added to cart",
-      description: `${product.name} has been added to the cart.`,
+      title: getAppTranslation("product_added"),
+      description: `${product.name} ${getAppTranslation("product_added").toLowerCase()}.`,
     })
   }
 
@@ -145,8 +185,8 @@ const AlertsPage = () => {
       if (error) throw error
 
       toast({
-        title: "Restocked",
-        description: `${product.name} has been restocked to ${newStock} units.`,
+        title: getAppTranslation("success"),
+        description: `${product.name} ${getAppTranslation("has_been_restocked")} ${newStock} ${getAppTranslation("units")}.`,
       })
 
       // Refresh the product list
@@ -154,8 +194,8 @@ const AlertsPage = () => {
     } catch (error) {
       console.error("Error restocking product:", error)
       toast({
-        title: "Error",
-        description: "Failed to restock product",
+        title: getAppTranslation("error"),
+        description: getAppTranslation("failed_to_restock_product"),
         variant: "destructive",
       })
     }
@@ -179,8 +219,8 @@ const AlertsPage = () => {
       if (error) throw error
 
       toast({
-        title: "Stock Updated",
-        description: `${selectedProduct.name} stock has been updated to ${adjustedStock} units.`,
+        title: getAppTranslation("stock_updated"),
+        description: `${selectedProduct.name} ${getAppTranslation("stock_has_been_updated")} ${adjustedStock} ${getAppTranslation("units")}.`,
       })
 
       // Close dialog and refresh products
@@ -189,8 +229,8 @@ const AlertsPage = () => {
     } catch (error) {
       console.error("Error adjusting stock:", error)
       toast({
-        title: "Error",
-        description: "Failed to update stock level",
+        title: getAppTranslation("error"),
+        description: getAppTranslation("failed_to_update_stock"),
         variant: "destructive",
       })
     } finally {
@@ -205,34 +245,41 @@ const AlertsPage = () => {
 
   // Get category name by ID
   const getCategoryName = (categoryId: string | null | undefined) => {
-    if (!categoryId) return "Uncategorized"
+    if (!categoryId) return getAppTranslation("uncategorized")
     const category = categories.find((c) => c.id === categoryId)
-    return category ? category.name : "Uncategorized"
+    return category ? category.name : getAppTranslation("uncategorized")
   }
 
   return (
     <div className="container mx-auto py-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
-        <h1 className="text-3xl font-bold mb-4 md:mb-0">Low Stock Alerts</h1>
+        <h1 className="text-3xl font-bold mb-4 md:mb-0">{getAppTranslation("alerts")}</h1>
         <Badge variant="outline" className="text-sm py-1 px-3 flex items-center">
-          <AlertCircle className="h-4 w-4 mr-1" />
-          {lowStockProducts.length} Items Below Minimum Stock
+          <AlertCircle className={`h-4 w-4 ${rtlEnabled ? "ml-1" : "mr-1"}`} />
+          {lowStockProducts.length} {getAppTranslation("items_below_min_stock")}
         </Badge>
       </div>
 
       <Card className="mb-6">
         <CardHeader className="pb-3">
-          <CardTitle>Low Stock Products</CardTitle>
+          <CardTitle>{getAppTranslation("low_stock_products")}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-            <Input type="text" placeholder="Search products..." onChange={handleSearch} className="max-w-xs" />
+            <div className="relative w-full sm:w-auto">
+              <Input
+                type="text"
+                placeholder={getAppTranslation("search_products")}
+                onChange={handleSearch}
+                className="max-w-xs"
+              />
+            </div>
             <Select onValueChange={handleCategoryFilter} value={categoryFilter}>
               <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Filter by Category" />
+                <SelectValue placeholder={getAppTranslation("filter_by_category")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
+                <SelectItem value="all">{getAppTranslation("all_categories")}</SelectItem>
                 {categories.map((category) => (
                   <SelectItem key={category.id} value={category.id}>
                     {category.name}
@@ -249,15 +296,15 @@ const AlertsPage = () => {
           ) : (
             <div className="border rounded-lg overflow-hidden">
               <Table>
-                <TableCaption>Products that are below minimum stock level.</TableCaption>
+                <TableCaption>{getAppTranslation("products_below_min_stock")}</TableCaption>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Price</TableHead>
-                    <TableHead className="text-center">Current Stock</TableHead>
-                    <TableHead className="text-center">Min. Stock</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead>{getAppTranslation("name")}</TableHead>
+                    <TableHead>{getAppTranslation("category")}</TableHead>
+                    <TableHead>{getAppTranslation("price")}</TableHead>
+                    <TableHead className="text-center">{getAppTranslation("current_stock")}</TableHead>
+                    <TableHead className="text-center">{getAppTranslation("min_stock")}</TableHead>
+                    <TableHead className="text-right">{getAppTranslation("actions")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -268,21 +315,21 @@ const AlertsPage = () => {
                         <TableCell>
                           <Badge variant="outline">{getCategoryName(product.category_id)}</Badge>
                         </TableCell>
-                        <TableCell>${product.price.toFixed(2)}</TableCell>
+                        <TableCell>{formatCurrency(product.price, currentCurrency, language)}</TableCell>
                         <TableCell className="text-center">
                           <Badge variant="destructive">{product.stock}</Badge>
                         </TableCell>
                         <TableCell className="text-center">{product.min_stock}</TableCell>
                         <TableCell className="text-right space-x-2">
                           <Button variant="outline" size="sm" onClick={() => handleAddToCart(product)}>
-                            <ShoppingCart className="h-4 w-4 mr-1" />
-                            Add to Cart
+                            <ShoppingCart className={`h-4 w-4 ${rtlEnabled ? "ml-1" : "mr-1"}`} />
+                            {getAppTranslation("add_to_cart")}
                           </Button>
                           <Button size="sm" onClick={() => handleRestock(product)}>
-                            Restock
+                            {getAppTranslation("restock")}
                           </Button>
                           <Button variant="secondary" size="sm" onClick={() => handleAdjustClick(product)}>
-                            Adjust
+                            {getAppTranslation("adjust")}
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -290,7 +337,7 @@ const AlertsPage = () => {
                   ) : (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center py-4">
-                        No low stock products found.
+                        {getAppTranslation("no_low_stock_products")}
                       </TableCell>
                     </TableRow>
                   )}
@@ -305,15 +352,17 @@ const AlertsPage = () => {
       <Dialog open={isAdjustDialogOpen} onOpenChange={setIsAdjustDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Adjust Stock Level</DialogTitle>
+            <DialogTitle>{getAppTranslation("adjust_stock_level")}</DialogTitle>
             <DialogDescription>
-              {selectedProduct ? `Update stock level for ${selectedProduct.name}` : "Update stock level"}
+              {selectedProduct
+                ? `${getAppTranslation("update_stock_for")} ${selectedProduct.name}`
+                : getAppTranslation("update_stock_level")}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="stock" className="text-right">
-                Current Stock
+                {getAppTranslation("current_stock")}
               </Label>
               <div className="col-span-3 flex items-center space-x-2">
                 <Button variant="outline" size="icon" onClick={() => adjustStock(-1)} disabled={adjustedStock <= 0}>
@@ -334,12 +383,12 @@ const AlertsPage = () => {
             </div>
             {selectedProduct && (
               <div className="grid grid-cols-4 items-center gap-4">
-                <Label className="text-right">Min. Stock</Label>
+                <Label className="text-right">{getAppTranslation("min_stock")}</Label>
                 <div className="col-span-3">
                   <span className="text-sm font-medium">{selectedProduct.min_stock}</span>
                   {adjustedStock < selectedProduct.min_stock && (
                     <p className="text-xs text-amber-500 mt-1">
-                      Warning: New stock level is below minimum stock threshold.
+                      {getAppTranslation("warning")}: {getAppTranslation("stock_below_min")}
                     </p>
                   )}
                 </div>
@@ -348,18 +397,18 @@ const AlertsPage = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAdjustDialogOpen(false)}>
-              Cancel
+              {getAppTranslation("cancel")}
             </Button>
             <Button onClick={handleStockAdjustment} disabled={isAdjusting}>
               {isAdjusting ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
+                  <Loader2 className={`${rtlEnabled ? "ml-2" : "mr-2"} h-4 w-4 animate-spin`} />
+                  {getAppTranslation("saving")}...
                 </>
               ) : (
                 <>
-                  <Save className="mr-2 h-4 w-4" />
-                  Save Changes
+                  <Save className={`${rtlEnabled ? "ml-2" : "mr-2"} h-4 w-4`} />
+                  {getAppTranslation("save_changes")}
                 </>
               )}
             </Button>
