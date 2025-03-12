@@ -1,9 +1,6 @@
 {
   "dependencies": {
-    "quagga": "^0.12.1"
-  },
-  "devDependencies": {
-    "@types/quagga": "^0.12.4"
+    "@zxing/library": "^0.20.0"
   }
 }
 
