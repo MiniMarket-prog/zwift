@@ -22,7 +22,6 @@ function isAuthError(error: any) {
     error?.message?.includes("JWT") ||
     error?.message?.includes("token") ||
     error?.message?.includes("session") ||
-    error?.message?.includes("auth") ||
     error?.status === 401 ||
     error?.code === "PGRST301"
   )

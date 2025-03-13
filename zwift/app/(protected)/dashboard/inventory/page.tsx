@@ -1,3 +1,6 @@
+// Add this at the top of the file to force dynamic rendering
+export const dynamic = "force-dynamic"
+
 import { Suspense } from "react"
 import { getInventoryItems, getLowStockItems } from "@/app/actions/inventory"
 import { InventoryStatusCard } from "@/components/inventory/inventory-status"
