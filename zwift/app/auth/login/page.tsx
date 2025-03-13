@@ -2,27 +2,40 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { createClient } from "@/utils/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { AlertCircle } from "lucide-react"
-import Link from "next/link"
+import { Label } from "@/components/ui/label"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Checkbox } from "@/components/ui/checkbox"
 
-// First, add the necessary imports for router
-import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase-client"
-
-// Replace the existing function with this updated version
 export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [rememberMe, setRememberMe] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirectTo = searchParams.get("redirect") || "/dashboard"
   const supabase = createClient()
+
+  // Disable auth state change listener for this page
+  useEffect(() => {
+    // Clean up any existing subscriptions to prevent redirect loops
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      // Do nothing - we don't want to redirect from the login page
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [supabase])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -30,17 +43,23 @@ export default function LoginPage() {
     setIsLoading(true)
 
     try {
+      // Set session expiration based on "Remember me" choice
+      const sessionOptions = rememberMe
+        ? { expiresIn: 60 * 60 * 24 * 30 } // 30 days in seconds
+        : { expiresIn: 60 * 60 * 24 } // 1 day in seconds (default)
+
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
+        options: sessionOptions,
       })
 
       if (error) {
         throw error
       }
 
-      // Redirect to dashboard on successful login
-      router.push("/dashboard")
+      // Redirect to the original page or dashboard on successful login
+      router.push(redirectTo)
     } catch (error: any) {
       console.error("Login error:", error)
       setError(error.message || "An error occurred during login")
@@ -50,17 +69,15 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
+    <div className="flex items-center justify-center min-h-screen bg-gray-100">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-2xl text-center">Login</CardTitle>
-          <CardDescription className="text-center">Enter your credentials to access your account</CardDescription>
+          <CardTitle>Login</CardTitle>
+          <CardDescription>Enter your credentials to access the system</CardDescription>
         </CardHeader>
         <CardContent>
           {error && (
             <Alert variant="destructive" className="mb-4">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Error</AlertTitle>
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
@@ -71,19 +88,14 @@ export default function LoginPage() {
                 <Input
                   id="email"
                   type="email"
-                  placeholder="your.email@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  placeholder="your@email.com"
                   required
                 />
               </div>
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="password">Password</Label>
-                  <Link href="/auth/forgot-password" className="text-sm text-blue-500 hover:text-blue-600">
-                    Forgot password?
-                  </Link>
-                </div>
+                <Label htmlFor="password">Password</Label>
                 <Input
                   id="password"
                   type="password"
@@ -92,19 +104,24 @@ export default function LoginPage() {
                   required
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? "Logging in..." : "Login"}
-              </Button>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="remember-me"
+                  checked={rememberMe}
+                  onCheckedChange={(checked: boolean) => setRememberMe(checked)}
+                />
+                <Label htmlFor="remember-me" className="text-sm font-normal cursor-pointer">
+                  Remember me for 30 days
+                </Label>
+              </div>
             </div>
+            <Button type="submit" className="w-full mt-6" disabled={isLoading}>
+              {isLoading ? "Logging in..." : "Login"}
+            </Button>
           </form>
         </CardContent>
         <CardFooter className="flex justify-center">
-          <p className="text-sm text-gray-500">
-            Don&apos;t have an account?{" "}
-            <Link href="/auth/register" className="text-blue-500 hover:text-blue-600">
-              Sign up
-            </Link>
-          </p>
+          <p className="text-sm text-muted-foreground">Don't have an account? Contact your administrator.</p>
         </CardFooter>
       </Card>
     </div>

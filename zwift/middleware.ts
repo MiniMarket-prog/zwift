@@ -32,13 +32,35 @@ export async function middleware(req: NextRequest) {
     data: { session },
   } = await supabase.auth.getSession()
 
-  // If user is visiting the root path and not authenticated, redirect to login
-  if (req.nextUrl.pathname === "/" && !session) {
-    return NextResponse.redirect(new URL("auth/login", req.url))
+  // Define protected routes that require authentication
+  const protectedRoutes = ["/dashboard", "/inventory", "/pos", "/sales", "/settings", "/reports"]
+
+  // Check if the current path is a protected route
+  const isProtectedRoute = protectedRoutes.some(
+    (route) => req.nextUrl.pathname.startsWith(route) || req.nextUrl.pathname === "/",
+  )
+
+  // Check if we're already on the login page
+  const isLoginPage = req.nextUrl.pathname.startsWith("/auth/login")
+
+  // If accessing a protected route without a session, redirect to login
+  if (isProtectedRoute && !session) {
+    const redirectUrl = new URL("/auth/login", req.url)
+    // Add the original URL as a query parameter to redirect back after login
+    redirectUrl.searchParams.set("redirect", req.nextUrl.pathname)
+    return NextResponse.redirect(redirectUrl)
   }
 
-  // Refresh session if expired
-  await supabase.auth.getSession()
+  // If user is visiting the login page but is already authenticated, redirect to dashboard
+  if ((isLoginPage || req.nextUrl.pathname === "/") && session) {
+    return NextResponse.redirect(new URL("/dashboard", req.url))
+  }
+
+  // Refresh session if expired, but only if not on login page
+  // This helps maintain the session across page loads
+  if (!isLoginPage && session) {
+    await supabase.auth.getSession()
+  }
 
   return res
 }
