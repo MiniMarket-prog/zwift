@@ -27,6 +27,15 @@ export default async function ProtectedLayout({
     redirect("/auth/login")
   }
 
+  // Verify the user's authentication with the server
+  const { data: { user }, error } = await supabase.auth.getUser()
+
+  // If there's an error or no authenticated user, redirect to login
+  if (error || !user) {
+    console.error("Authentication error:", error)
+    redirect("/auth/login")
+  }
+
   return (
     <div className="relative flex h-full min-h-screen">
       <Sidebar />
@@ -38,4 +47,3 @@ export default async function ProtectedLayout({
     </div>
   )
 }
-

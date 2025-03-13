@@ -279,36 +279,13 @@ export default function SettingsPage() {
                   <SelectItem value="en">English</SelectItem>
                   <SelectItem value="es">Spanish (Español)</SelectItem>
                   <SelectItem value="fr">French (Français)</SelectItem>
-                  <SelectItem value="de">German (Deutsch)</SelectItem>
-                  <SelectItem value="it">Italian (Italiano)</SelectItem>
-                  <SelectItem value="pt">Portuguese (Português)</SelectItem>
-                  <SelectItem value="ru">Russian (Русский)</SelectItem>
-                  <SelectItem value="zh">Chinese (中文)</SelectItem>
-                  <SelectItem value="ja">Japanese (日本語)</SelectItem>
                   <SelectItem value="ar">Arabic (العربية)</SelectItem>
-                  <SelectItem value="ar-sa">Arabic - Saudi (العربية السعودية)</SelectItem>
-                  <SelectItem value="ar-eg">Arabic - Egyptian (العربية المصرية)</SelectItem>
-                  <SelectItem value="ar-ma">Arabic - Moroccan (العربية المغربية)</SelectItem>
-                  <SelectItem value="ar-ae">Arabic - UAE (العربية الإماراتية)</SelectItem>
-                  <SelectItem value="he">Hebrew (עברית)</SelectItem>
-                  <SelectItem value="hi">Hindi (हिन्दी)</SelectItem>
-                  <SelectItem value="tr">Turkish (Türkçe)</SelectItem>
+
                 </SelectContent>
               </Select>
             </div>
 
-            {/* Preview section to show formatting changes */}
-            <div className="mt-6 p-4 border rounded-md bg-muted/30">
-              <h3 className="text-sm font-medium mb-2">{getAppTranslation("preview", language)}:</h3>
-              <p className={`text-sm ${rtlEnabled ? "text-right" : "text-left"}`}>
-                {rtlEnabled ? getAppTranslation("my_store", language) : getAppTranslation("my_store", language)}:{" "}
-                {formValues.store_name}
-              </p>
-              <p className={`text-sm ${rtlEnabled ? "text-right" : "text-left"}`}>
-                {rtlEnabled ? getAppTranslation("amount", language) : getAppTranslation("amount", language)}:{" "}
-                {formattedCurrency}
-              </p>
-            </div>
+           
           </CardContent>
           <CardFooter>
             <Button type="submit" disabled={loading}>

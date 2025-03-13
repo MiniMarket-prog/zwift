@@ -5,14 +5,11 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase-client"
 import {
-  Home,
   DollarSign,
   ShoppingCart,
   Package,
-  PlusCircle,
   User,
   BarChart3,
-  Bell,
   Settings,
   Menu,
   Sun,
@@ -20,6 +17,9 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
+  CircleDollarSign,
+  LayoutDashboard,
+  AlertTriangle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useTheme } from "next-themes"
@@ -28,14 +28,16 @@ import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useToast } from "@/components/ui/use-toast"
 import { useLanguage } from "@/hooks/use-language"
+import { useUser } from "@/components/user-provider"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { cn } from "@/lib/utils"
 import type { AppTranslationKey } from "@/lib/app-translations"
 
-const Sidebar = () => {
-  // Your existing code...
+export function AppSidebar() {
   const [isMounted, setIsMounted] = useState(false)
   const [unreadAlerts, setUnreadAlerts] = useState(0)
   const [isCollapsed, setIsCollapsed] = useState(false)
-  const [sidebarWidth, setSidebarWidth] = useState(256) // Default width (64px = 16rem)
+  const [sidebarWidth, setSidebarWidth] = useState(256) // Default width
   const resizeRef = useRef<HTMLDivElement>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
   const isResizing = useRef(false)
@@ -45,6 +47,7 @@ const Sidebar = () => {
   const supabase = createClient()
   const { toast } = useToast()
   const { getAppTranslation } = useLanguage()
+  const { user, profile } = useUser()
 
   useEffect(() => {
     setIsMounted(true)
@@ -158,21 +161,32 @@ const Sidebar = () => {
 
   // Map the original labels to translation keys
   const navItems = [
-    { href: "/dashboard", label: "dashboard" as AppTranslationKey, icon: <Home className="h-5 w-5" /> },
+    { href: "/dashboard", label: "dashboard" as AppTranslationKey, icon: <LayoutDashboard className="h-5 w-5" /> },
     { href: "/pos", label: "pointOfSale" as AppTranslationKey, icon: <ShoppingCart className="h-5 w-5" /> },
     { href: "/inventory", label: "inventory" as AppTranslationKey, icon: <Package className="h-5 w-5" /> },
-    { href: "/expenses", label: "expenses" as AppTranslationKey, icon: <PlusCircle className="h-5 w-5" /> },
+    { href: "/expenses", label: "expenses" as AppTranslationKey, icon: <CircleDollarSign className="h-5 w-5" /> },
     { href: "/reports", label: "reports" as AppTranslationKey, icon: <BarChart3 className="h-5 w-5" /> },
     { href: "/sales", label: "sales" as AppTranslationKey, icon: <DollarSign className="h-5 w-5" /> },
     { href: "/users", label: "customers" as AppTranslationKey, icon: <User className="h-5 w-5" /> },
-    { href: "/alerts", label: "alerts" as AppTranslationKey, icon: <Bell className="h-5 w-5" />, badge: unreadAlerts > 0 ? unreadAlerts : null, },
+    {
+      href: "/alerts",
+      label: "alerts" as AppTranslationKey,
+      icon: <AlertTriangle className="h-5 w-5" />,
+      badge: unreadAlerts > 0 ? unreadAlerts : null,
+    },
     { href: "/settings", label: "settings" as AppTranslationKey, icon: <Settings className="h-5 w-5" /> },
   ]
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between p-4">
-        {!isCollapsed && <h1 className="text-xl font-semibold">My Inventory</h1>}
+      <div className="flex items-center justify-between p-4 border-b">
+        <div className="flex items-center gap-2">
+          <Avatar className="h-8 w-8">
+            <AvatarImage src="/logo.svg" alt="Logo" />
+            <AvatarFallback>ZW</AvatarFallback>
+          </Avatar>
+          {!isCollapsed && <h1 className="text-lg font-semibold">MiniMarket</h1>}
+        </div>
         <div className="flex items-center">
           <Button variant="ghost" size="icon" onClick={toggleTheme} className="mr-1">
             {isMounted && theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
@@ -192,16 +206,23 @@ const Sidebar = () => {
               <TooltipTrigger asChild>
                 <Link
                   href={item.href}
-                  className={`flex items-center px-4 py-2 text-sm rounded-md transition-colors ${
-                    pathname === item.href
+                  className={cn(
+                    "flex items-center px-4 py-2.5 text-sm rounded-md transition-colors relative group",
+                    pathname === item.href || pathname.startsWith(item.href + "/")
                       ? "bg-primary text-primary-foreground font-medium shadow-sm"
-                      : "hover:bg-muted"
-                  }`}
+                      : "hover:bg-muted",
+                  )}
                 >
-                  {item.icon}
-                  {!isCollapsed && <span className="ml-3">{getAppTranslation(item.label)}</span>}
+                  <span className="mr-3">{item.icon}</span>
+                  {!isCollapsed && <span>{getAppTranslation(item.label)}</span>}
                   {item.badge && (
-                    <Badge variant="destructive" className={isCollapsed ? "ml-0" : "ml-auto"}>
+                    <Badge
+                      variant="destructive"
+                      className={cn(
+                        "ml-auto",
+                        isCollapsed && "absolute -right-1 -top-1 h-5 w-5 flex items-center justify-center p-0",
+                      )}
+                    >
                       {item.badge}
                     </Badge>
                   )}
@@ -214,9 +235,24 @@ const Sidebar = () => {
       </nav>
 
       <div className="p-4 border-t">
+        {!isCollapsed && (
+          <div className="flex items-center gap-3 mb-4 px-2">
+            <Avatar className="h-10 w-10">
+              <AvatarFallback>{user?.email?.charAt(0).toUpperCase() || "U"}</AvatarFallback>
+            </Avatar>
+            <div className="flex flex-col">
+              <span className="text-sm font-medium">{profile?.full_name || user?.email}</span>
+              <span className="text-xs text-muted-foreground">{profile?.role || "User"}</span>
+            </div>
+          </div>
+        )}
+
         <Button
           variant="ghost"
-          className={`w-full justify-${isCollapsed ? "center" : "start"} text-red-500 hover:text-red-600 hover:bg-red-100 dark:hover:bg-red-900/20`}
+          className={cn(
+            "w-full text-red-500 hover:text-red-600 hover:bg-red-100 dark:hover:bg-red-900/20",
+            isCollapsed ? "justify-center px-2" : "justify-start",
+          )}
           onClick={handleLogout}
         >
           <LogOut className="h-5 w-5" />
@@ -225,8 +261,8 @@ const Sidebar = () => {
       </div>
 
       {!isCollapsed && (
-        <div className="p-4 text-xs text-muted-foreground">
-          &copy; {new Date().getFullYear()} My Inventory. All rights reserved.
+        <div className="p-4 text-xs text-muted-foreground border-t">
+          &copy; {new Date().getFullYear()} Zwift Manager. All rights reserved.
         </div>
       )}
     </div>
@@ -237,7 +273,7 @@ const Sidebar = () => {
       {/* Desktop sidebar */}
       <div
         ref={sidebarRef}
-        className="fixed left-0 top-0 z-40 hidden h-screen border-r bg-background md:block transition-all duration-300"
+        className="fixed left-0 top-0 z-40 hidden h-screen border-r bg-card md:block transition-all duration-300"
         style={{ width: isCollapsed ? "72px" : `${sidebarWidth}px` }}
       >
         <SidebarContent />
@@ -251,19 +287,25 @@ const Sidebar = () => {
       <div className="md:hidden">
         <Sheet>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" className="fixed left-4 top-4 z-40">
+            <Button variant="outline" size="icon" className="fixed left-4 top-4 z-40">
               <Menu className="h-6 w-6" />
               <span className="sr-only">Open sidebar</span>
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="p-0 w-64">
+          <SheetContent side="left" className="p-0 w-72">
             <SidebarContent />
           </SheetContent>
         </Sheet>
       </div>
+
+      {/* Sidebar spacer for desktop */}
+      <div
+        className="hidden md:block flex-shrink-0 transition-all duration-300"
+        style={{ width: isCollapsed ? "72px" : `${sidebarWidth}px` }}
+      />
     </>
   )
 }
 
-export default Sidebar
+export default AppSidebar
 

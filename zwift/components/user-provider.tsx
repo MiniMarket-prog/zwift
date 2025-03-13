@@ -46,10 +46,10 @@ export const useUser = () => useContext(UserContext)
 
 export function UserProvider({
   children,
-  initialUser,
+  initialUser = null,
 }: {
   children: React.ReactNode
-  initialUser: User | null
+  initialUser?: User | null
 }) {
   const [user, setUser] = useState<User | null>(initialUser)
   const [profile, setProfile] = useState<UserProfile | null>(null)
