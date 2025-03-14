@@ -276,10 +276,11 @@ export default function SettingsPage() {
                   <SelectValue placeholder={getAppTranslation("select_language", language)} />
                 </SelectTrigger>
                 <SelectContent>
+                <SelectItem value="ar">Arabic (العربية)</SelectItem>
                   <SelectItem value="en">English</SelectItem>
                   <SelectItem value="es">Spanish (Español)</SelectItem>
                   <SelectItem value="fr">French (Français)</SelectItem>
-                  <SelectItem value="ar">Arabic (العربية)</SelectItem>
+                  
 
                 </SelectContent>
               </Select>

@@ -262,7 +262,7 @@ export function AppSidebar() {
 
       {!isCollapsed && (
         <div className="p-4 text-xs text-muted-foreground border-t">
-          &copy; {new Date().getFullYear()} Zwift Manager. All rights reserved.
+          &copy; {new Date().getFullYear()} Created By Mohamed El Alami
         </div>
       )}
     </div>
