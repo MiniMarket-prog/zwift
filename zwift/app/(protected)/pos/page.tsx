@@ -25,7 +25,6 @@ import {
   Save,
   Barcode,
 } from "lucide-react"
-import Image from "next/image"
 import { createSale, getLowStockProducts } from "@/lib/supabase"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
@@ -471,7 +470,9 @@ const POSPage = () => {
   // Handle search input keydown for Enter key
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && autoAddOnBarcode && searchTerm.trim() !== "") {
-      const exactBarcodeMatch = products.find((product) => product.barcode.toLowerCase() === searchTerm.toLowerCase())
+      const exactBarcodeMatch = products.find(
+        (product) => product.barcode && product.barcode.toLowerCase() === searchTerm.toLowerCase(),
+      )
 
       if (exactBarcodeMatch) {
         // Add product to cart with notification
@@ -864,11 +865,10 @@ const POSPage = () => {
                   <div key={item.id} className="flex items-center gap-3 border-b pb-3">
                     <div className="h-16 w-16 relative bg-muted rounded overflow-hidden flex-shrink-0">
                       {item.product.image ? (
-                        <Image
+                        <img
                           src={item.product.image || "/placeholder.svg"}
                           alt={item.product.name}
-                          fill
-                          className="object-cover"
+                          className="w-full h-full object-cover"
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
@@ -1032,11 +1032,14 @@ const POSPage = () => {
                     <CardContent className="p-1">
                       <div className="h-16 w-16 relative mb-2 bg-muted rounded-md overflow-hidden">
                         {product.image ? (
-                          <Image
+                          <img
                             src={product.image || "/placeholder.svg"}
                             alt={product.name}
-                            fill
-                            className="object-cover"
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              console.error("Image failed to load:", product.image)
+                              e.currentTarget.src = "/placeholder.svg"
+                            }}
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center bg-muted">
@@ -1092,11 +1095,14 @@ const POSPage = () => {
                         <CardContent className="p-4">
                           <div className="aspect-square relative mb-2 bg-muted rounded-md overflow-hidden">
                             {product.image ? (
-                              <Image
+                              <img
                                 src={product.image || "/placeholder.svg"}
                                 alt={product.name}
-                                fill
-                                className="object-cover"
+                                className="w-full h-full object-contain"
+                                onError={(e) => {
+                                  console.error("Image failed to load:", product.image)
+                                  e.currentTarget.src = "/placeholder.svg"
+                                }}
                               />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center bg-muted">

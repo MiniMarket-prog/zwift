@@ -21,7 +21,6 @@ import {
   Loader2,
   RefreshCw,
 } from "lucide-react"
-import Image from "next/image"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -1010,12 +1009,10 @@ const SalesPage = () => {
                             <div className="flex items-center">
                               {item.product?.image ? (
                                 <div className="h-10 w-10 rounded overflow-hidden mr-3">
-                                  <Image
+                                  <img
                                     src={item.product.image || "/placeholder.svg"}
                                     alt={item.product?.name || "Product"}
-                                    width={40}
-                                    height={40}
-                                    className="object-cover"
+                                    className="w-full h-full object-cover"
                                   />
                                 </div>
                               ) : (
@@ -1100,12 +1097,10 @@ const SalesPage = () => {
                               <div className="flex items-center">
                                 {item.product?.image ? (
                                   <div className="h-10 w-10 rounded overflow-hidden mr-3">
-                                    <Image
+                                    <img
                                       src={item.product.image || "/placeholder.svg"}
                                       alt={item.product?.name || "Product"}
-                                      width={40}
-                                      height={40}
-                                      className="object-cover"
+                                      className="w-full h-full object-cover"
                                     />
                                   </div>
                                 ) : (
@@ -1187,11 +1182,10 @@ const SalesPage = () => {
                                 <CardContent className="p-3 flex items-center gap-3">
                                   <div className="h-12 w-12 relative bg-muted rounded-md overflow-hidden flex-shrink-0">
                                     {product.image ? (
-                                      <Image
+                                      <img
                                         src={product.image || "/placeholder.svg"}
                                         alt={product.name}
-                                        fill
-                                        className="object-cover"
+                                        className="w-full h-full object-cover"
                                       />
                                     ) : (
                                       <div className="w-full h-full flex items-center justify-center">

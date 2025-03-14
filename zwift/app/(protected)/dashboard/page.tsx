@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect, useRef, Suspense } from "react"
+import { useState, useEffect, useRef, Suspense, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
@@ -27,11 +27,11 @@ import { cn } from "@/lib/utils"
 import { useToast } from "@/components/ui/use-toast"
 import { getDashboardStats, getProducts, getLowStockProducts } from "@/lib/supabase"
 import { useLanguage } from "@/hooks/use-language"
+import { formatCurrency } from "@/lib/format-currency"
 import { createClient } from "@/lib/supabase-client"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import Image from "next/image"
 import { InventoryStatusCard } from "@/components/inventory/inventory-status"
 import { LowStockCard } from "@/components/inventory/low-stock"
 import { RecentActivityCard } from "@/components/inventory/recent-activity"
@@ -78,6 +78,16 @@ type Product = {
   barcode?: string
 }
 
+// Define sort options for better type safety and translation
+const SORT_OPTIONS = {
+  STOCK_LOW: "stock-low",
+  STOCK_HIGH: "stock-high",
+  PRICE_LOW: "price-low",
+  PRICE_HIGH: "price-high",
+  NAME_ASC: "name-asc",
+  NAME_DESC: "name-desc",
+}
+
 export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -121,8 +131,9 @@ export default function DashboardPage() {
   const [recentActivity, setRecentActivity] = useState<InventoryActivity[]>([])
   const [productSearchTerm, setProductSearchTerm] = useState<string>("")
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([])
-  const [productSortBy, setProductSortBy] = useState<string>("stock-low")
+  const [productSortBy, setProductSortBy] = useState<string>(SORT_OPTIONS.STOCK_LOW)
   const [allProducts, setAllProducts] = useState<Product[]>([])
+  const [currentCurrency, setCurrentCurrency] = useState<string>("USD")
 
   const salesChartRef = useRef<HTMLCanvasElement>(null)
   const paymentMethodChartRef = useRef<HTMLCanvasElement>(null)
@@ -130,12 +141,67 @@ export default function DashboardPage() {
   const inventoryStatusChartRef = useRef<HTMLCanvasElement>(null)
 
   const { toast } = useToast()
-  const { language, getAppTranslation } = useLanguage()
+  const { language, getAppTranslation, isRTL } = useLanguage()
+  const rtlEnabled = isRTL
   const supabase = createClient()
+
+  // Helper function to get sort option label
+  const getSortOptionLabel = (sortOption: string) => {
+    switch (sortOption) {
+      case SORT_OPTIONS.STOCK_LOW:
+        return getAppTranslation("stock_low_to_high" as any, language)
+      case SORT_OPTIONS.STOCK_HIGH:
+        return getAppTranslation("stock_high_to_low" as any, language)
+      case SORT_OPTIONS.PRICE_LOW:
+        return getAppTranslation("price_low_to_high" as any, language)
+      case SORT_OPTIONS.PRICE_HIGH:
+        return getAppTranslation("price_high_to_low" as any, language)
+      case SORT_OPTIONS.NAME_ASC:
+        return getAppTranslation("name_a_to_z" as any, language)
+      case SORT_OPTIONS.NAME_DESC:
+        return getAppTranslation("name_z_to_a" as any, language)
+      default:
+        return getAppTranslation("sort_by" as any, language)
+    }
+  }
+
+  // Fetch currency setting
+  const fetchCurrency = useCallback(async () => {
+    try {
+      const supabase = createClient()
+      const { data: settingsData, error } = await supabase
+        .from("settings")
+        .select("currency")
+        .eq("type", "global")
+        .single()
+
+      if (!error && settingsData?.currency) {
+        setCurrentCurrency(settingsData.currency)
+      }
+    } catch (error) {
+      console.error("Error fetching currency setting:", error)
+    }
+  }, [])
 
   useEffect(() => {
     fetchDashboardData()
+    fetchCurrency()
   }, [dateRange]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Listen for storage events (triggered when settings are updated)
+  useEffect(() => {
+    const handleStorageChange = () => {
+      fetchCurrency()
+    }
+
+    window.addEventListener("storage", handleStorageChange)
+    window.addEventListener("focus", fetchCurrency)
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange)
+      window.removeEventListener("focus", fetchCurrency)
+    }
+  }, [fetchCurrency])
 
   const fetchDashboardData = async () => {
     try {
@@ -154,8 +220,8 @@ export default function DashboardPage() {
     } catch (error) {
       console.error("Error fetching dashboard data:", error)
       toast({
-        title: getAppTranslation("error"),
-        description: "Failed to load dashboard statistics",
+        title: getAppTranslation("error", language),
+        description: getAppTranslation("failed_fetch_expenses" as any, language),
         variant: "destructive",
       })
     } finally {
@@ -322,27 +388,28 @@ export default function DashboardPage() {
   }
 
   const handleProductSort = (value: string) => {
+    console.log("Sorting by:", value)
     setProductSortBy(value)
 
     const sorted = [...filteredProducts]
 
     switch (value) {
-      case "stock-low":
+      case SORT_OPTIONS.STOCK_LOW:
         sorted.sort((a, b) => a.stock - b.stock)
         break
-      case "stock-high":
+      case SORT_OPTIONS.STOCK_HIGH:
         sorted.sort((a, b) => b.stock - a.stock)
         break
-      case "price-low":
+      case SORT_OPTIONS.PRICE_LOW:
         sorted.sort((a, b) => a.price - b.price)
         break
-      case "price-high":
+      case SORT_OPTIONS.PRICE_HIGH:
         sorted.sort((a, b) => b.price - a.price)
         break
-      case "name-asc":
+      case SORT_OPTIONS.NAME_ASC:
         sorted.sort((a, b) => a.name.localeCompare(b.name))
         break
-      case "name-desc":
+      case SORT_OPTIONS.NAME_DESC:
         sorted.sort((a, b) => b.name.localeCompare(a.name))
         break
     }
@@ -357,9 +424,13 @@ export default function DashboardPage() {
   }
 
   const getStockStatusText = (product: Product) => {
-    if (product.stock === 0) return getAppTranslation("out_of_stock")
-    if (product.stock < product.min_stock) return getAppTranslation("low_stock")
-    return "In Stock"
+    if (product.stock === 0) {
+      return getAppTranslation("out_of_stock", language)
+    }
+    if (product.stock < product.min_stock) {
+      return getAppTranslation("low_stock", language)
+    }
+    return getAppTranslation("in_stock" as any, language)
   }
 
   const calculateStockPercentage = (product: Product) => {
@@ -396,12 +467,12 @@ export default function DashboardPage() {
   return (
     <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-bold tracking-tight">{getAppTranslation("dashboard")}</h2>
+        <h2 className="text-3xl font-bold tracking-tight">{getAppTranslation("dashboard" as any, language)}</h2>
         <div className="flex items-center gap-2">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="outline" className="justify-start text-left font-normal">
-                <CalendarIcon className="mr-2 h-4 w-4" />
+                <CalendarIcon className={`${rtlEnabled ? "ml-2" : "mr-2"} h-4 w-4`} />
                 {dateRange?.from ? (
                   dateRange.to ? (
                     <>
@@ -411,7 +482,7 @@ export default function DashboardPage() {
                     format(dateRange.from, "LLL dd, y")
                   )
                 ) : (
-                  <span>{getAppTranslation("pick_date_range")}</span>
+                  <span>{getAppTranslation("pick_date_range" as any, language)}</span>
                 )}
               </Button>
             </PopoverTrigger>
@@ -428,8 +499,10 @@ export default function DashboardPage() {
             </PopoverContent>
           </Popover>
           <Button variant="outline" onClick={fetchDashboardData} disabled={isRefreshing}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
-            {isRefreshing ? "Refreshing..." : "Refresh"}
+            <RefreshCw className={`${rtlEnabled ? "ml-2" : "mr-2"} h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+            {isRefreshing
+              ? getAppTranslation("refreshing" as any, language)
+              : getAppTranslation("refresh" as any, language)}
           </Button>
         </div>
       </div>
@@ -437,47 +510,55 @@ export default function DashboardPage() {
       {isLoading ? (
         <div className="flex justify-center items-center h-64">
           <Loader2 className="h-8 w-8 animate-spin" />
-          <span className="ml-2">{getAppTranslation("loading_dashboard_data")}</span>
+          <span className="ml-2">{getAppTranslation("loading_dashboard_data" as any, language)}</span>
         </div>
       ) : (
         <Tabs defaultValue="overview" className="space-y-4">
           <TabsList>
-            <TabsTrigger value="overview">{getAppTranslation("overview")}</TabsTrigger>
-            <TabsTrigger value="sales">{getAppTranslation("sales")}</TabsTrigger>
-            <TabsTrigger value="inventory">{getAppTranslation("inventory")}</TabsTrigger>
+            <TabsTrigger value="overview">{getAppTranslation("overview" as any, language)}</TabsTrigger>
+            <TabsTrigger value="sales">{getAppTranslation("sales" as any, language)}</TabsTrigger>
+            <TabsTrigger value="inventory">{getAppTranslation("inventory" as any, language)}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">{getAppTranslation("total_sales")}</CardTitle>
+                  <CardTitle className="text-sm font-medium">
+                    {getAppTranslation("total_sales" as any, language)}
+                  </CardTitle>
                   <DollarSign className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">${stats.totalSales.toFixed(2)}</div>
+                  <div className="text-2xl font-bold">
+                    {formatCurrency(stats.totalSales, currentCurrency, language)}
+                  </div>
                   <p className="text-xs text-muted-foreground">
-                    {stats.salesCount} {getAppTranslation("transactions")}
+                    {stats.salesCount} {getAppTranslation("transactions" as any, language)}
                   </p>
                 </CardContent>
               </Card>
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">{getAppTranslation("total_expenses")}</CardTitle>
+                  <CardTitle className="text-sm font-medium">
+                    {getAppTranslation("total_expenses" as any, language)}
+                  </CardTitle>
                   <CreditCard className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">${stats.totalExpenses.toFixed(2)}</div>
+                  <div className="text-2xl font-bold">
+                    {formatCurrency(stats.totalExpenses, currentCurrency, language)}
+                  </div>
                   <p className="text-xs text-muted-foreground">
-                    {stats.expensesCount} {getAppTranslation("expenses")}
+                    {stats.expensesCount} {getAppTranslation("expenses" as any, language)}
                   </p>
                 </CardContent>
               </Card>
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">{getAppTranslation("profit")}</CardTitle>
+                  <CardTitle className="text-sm font-medium">{getAppTranslation("profit" as any, language)}</CardTitle>
                   {stats.profit >= 0 ? (
                     <TrendingUp className="h-4 w-4 text-green-500" />
                   ) : (
@@ -486,18 +567,22 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent>
                   <div className={cn("text-2xl font-bold", stats.profit >= 0 ? "text-green-500" : "text-destructive")}>
-                    ${Math.abs(stats.profit).toFixed(2)}
+                    {formatCurrency(Math.abs(stats.profit), currentCurrency, language)}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {stats.profit >= 0 ? getAppTranslation("profit") : getAppTranslation("loss")}{" "}
-                    {getAppTranslation("for_selected_period")}
+                    {stats.profit >= 0
+                      ? getAppTranslation("profit" as any, language)
+                      : getAppTranslation("loss" as any, language)}{" "}
+                    {getAppTranslation("for_selected_period" as any, language)}
                   </p>
                 </CardContent>
               </Card>
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">{getAppTranslation("inventory_status")}</CardTitle>
+                  <CardTitle className="text-sm font-medium">
+                    {getAppTranslation("inventory_status" as any, language)}
+                  </CardTitle>
                   <Package className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
@@ -505,8 +590,8 @@ export default function DashboardPage() {
                   <div className="flex items-center mt-1">
                     <AlertTriangle className="h-3 w-3 text-amber-500 mr-1" />
                     <p className="text-xs text-muted-foreground">
-                      {stats.lowStockCount} {getAppTranslation("low_stock")}, {stats.outOfStockCount}{" "}
-                      {getAppTranslation("out_of_stock")}
+                      {stats.lowStockCount} {getAppTranslation("low_stock", language)}, {stats.outOfStockCount}{" "}
+                      {getAppTranslation("out_of_stock", language)}
                     </p>
                   </div>
                 </CardContent>
@@ -516,14 +601,19 @@ export default function DashboardPage() {
             <div className="grid gap-4 md:grid-cols-2">
               <Card>
                 <CardHeader>
-                  <CardTitle>{getAppTranslation("recent_sales")}</CardTitle>
+                  <CardTitle>{getAppTranslation("recent_sales" as any, language)}</CardTitle>
                   <CardDescription>
-                    {getAppTranslation("last_n_sales").replace("{n}", Math.min(stats.recentSales.length, 5).toString())}
+                    {getAppTranslation("last_n_sales" as any, language).replace(
+                      "{n}",
+                      Math.min(stats.recentSales.length, 5).toString(),
+                    )}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   {stats.recentSales.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">{getAppTranslation("no_recent_sales_found")}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {getAppTranslation("no_recent_sales_found" as any, language)}
+                    </p>
                   ) : (
                     <div className="space-y-4">
                       {stats.recentSales.map((sale: any) => (
@@ -532,14 +622,14 @@ export default function DashboardPage() {
                             <ShoppingCart className="h-4 w-4 mr-2 text-muted-foreground" />
                             <div>
                               <p className="text-sm font-medium">
-                                {getAppTranslation("sale")} #{sale.id.substring(0, 8)}
+                                {getAppTranslation("sale" as any, language)} #{sale.id.substring(0, 8)}
                               </p>
                               <p className="text-xs text-muted-foreground">
                                 {format(new Date(sale.created_at), "MMM d, yyyy h:mm a")}
                               </p>
                             </div>
                           </div>
-                          <p className="text-sm font-medium">${sale.total.toFixed(2)}</p>
+                          <p className="text-sm font-medium">{formatCurrency(sale.total, currentCurrency, language)}</p>
                         </div>
                       ))}
                     </div>
@@ -549,9 +639,9 @@ export default function DashboardPage() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>{getAppTranslation("recent_expenses")}</CardTitle>
+                  <CardTitle>{getAppTranslation("recent_expenses" as any, language)}</CardTitle>
                   <CardDescription>
-                    {getAppTranslation("last_n_expenses").replace(
+                    {getAppTranslation("last_n_expenses" as any, language).replace(
                       "{n}",
                       Math.min(stats.recentExpenses.length, 5).toString(),
                     )}
@@ -559,7 +649,9 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent>
                   {stats.recentExpenses.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">{getAppTranslation("no_recent_expenses_found")}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {getAppTranslation("no_recent_expenses_found" as any, language)}
+                    </p>
                   ) : (
                     <div className="space-y-4">
                       {stats.recentExpenses.map((expense: any) => (
@@ -571,11 +663,13 @@ export default function DashboardPage() {
                               <p className="text-xs text-muted-foreground">
                                 {expense.created_at
                                   ? format(new Date(expense.created_at), "MMM d, yyyy")
-                                  : getAppTranslation("unknown_date")}
+                                  : getAppTranslation("unknown_date" as any, language)}
                               </p>
                             </div>
                           </div>
-                          <p className="text-sm font-medium">${expense.amount.toFixed(2)}</p>
+                          <p className="text-sm font-medium">
+                            {formatCurrency(expense.amount, currentCurrency, language)}
+                          </p>
                         </div>
                       ))}
                     </div>
@@ -602,8 +696,8 @@ export default function DashboardPage() {
                   fallback={
                     <Card>
                       <CardHeader>
-                        <CardTitle>{getAppTranslation("inventory_status")}</CardTitle>
-                        <CardDescription>{"Loading data..."}</CardDescription>
+                        <CardTitle>{getAppTranslation("inventory_status" as any, language)}</CardTitle>
+                        <CardDescription>{getAppTranslation("loading_data" as any, language)}</CardDescription>
                       </CardHeader>
                       <CardContent>
                         <div className="h-40 flex items-center justify-center">
@@ -621,8 +715,8 @@ export default function DashboardPage() {
                   fallback={
                     <Card>
                       <CardHeader>
-                        <CardTitle>Low Stock</CardTitle>
-                        <CardDescription>{"Loading data..."}</CardDescription>
+                        <CardTitle>{getAppTranslation("low_stock", language)}</CardTitle>
+                        <CardDescription>{getAppTranslation("loading_data" as any, language)}</CardDescription>
                       </CardHeader>
                       <CardContent>
                         <div className="h-40 flex items-center justify-center">
@@ -640,8 +734,8 @@ export default function DashboardPage() {
                   fallback={
                     <Card>
                       <CardHeader>
-                        <CardTitle>Recent Activity</CardTitle>
-                        <CardDescription>{"Loading data..."}</CardDescription>
+                        <CardTitle>{getAppTranslation("recent_activity" as any, language)}</CardTitle>
+                        <CardDescription>{getAppTranslation("loading_data" as any, language)}</CardDescription>
                       </CardHeader>
                       <CardContent>
                         <div className="h-40 flex items-center justify-center">
@@ -658,15 +752,17 @@ export default function DashboardPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>{getAppTranslation("inventory")}</CardTitle>
-                <CardDescription>{getAppTranslation("inventory_details_displayed_here")}</CardDescription>
+                <CardTitle>{getAppTranslation("inventory" as any, language)}</CardTitle>
+                <CardDescription>
+                  {getAppTranslation("inventory_details_displayed_here" as any, language)}
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col md:flex-row gap-4 mb-4">
                   <div className="relative flex-1">
                     <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input
-                      placeholder="Search products..."
+                      placeholder={getAppTranslation("search_products" as any, language)}
                       className="pl-8"
                       value={productSearchTerm}
                       onChange={handleProductSearch}
@@ -674,19 +770,33 @@ export default function DashboardPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Filter className="h-4 w-4 text-muted-foreground" />
-                    <Select value={productSortBy} onValueChange={handleProductSort}>
-                      <SelectTrigger className="w-[180px]">
-                        <SelectValue placeholder="Sort by" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="stock-low">Stock (Low to High)</SelectItem>
-                        <SelectItem value="stock-high">Stock (High to Low)</SelectItem>
-                        <SelectItem value="price-low">Price (Low to High)</SelectItem>
-                        <SelectItem value="price-high">Price (High to Low)</SelectItem>
-                        <SelectItem value="name-asc">Name (A to Z)</SelectItem>
-                        <SelectItem value="name-desc">Name (Z to A)</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <div className="w-[180px]">
+                      <Select value={productSortBy} onValueChange={handleProductSort}>
+                        <SelectTrigger className="w-[180px]">
+                          <SelectValue>{getSortOptionLabel(productSortBy)}</SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={SORT_OPTIONS.STOCK_LOW}>
+                            {getAppTranslation("stock_low_to_high" as any, language)}
+                          </SelectItem>
+                          <SelectItem value={SORT_OPTIONS.STOCK_HIGH}>
+                            {getAppTranslation("stock_high_to_low" as any, language)}
+                          </SelectItem>
+                          <SelectItem value={SORT_OPTIONS.PRICE_LOW}>
+                            {getAppTranslation("price_low_to_high" as any, language)}
+                          </SelectItem>
+                          <SelectItem value={SORT_OPTIONS.PRICE_HIGH}>
+                            {getAppTranslation("price_high_to_low" as any, language)}
+                          </SelectItem>
+                          <SelectItem value={SORT_OPTIONS.NAME_ASC}>
+                            {getAppTranslation("name_a_to_z" as any, language)}
+                          </SelectItem>
+                          <SelectItem value={SORT_OPTIONS.NAME_DESC}>
+                            {getAppTranslation("name_z_to_a" as any, language)}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 </div>
 
@@ -694,10 +804,18 @@ export default function DashboardPage() {
                   <table className="min-w-full divide-y divide-border">
                     <thead>
                       <tr className="bg-muted/50">
-                        <th className="px-4 py-3 text-left text-sm font-medium">{getAppTranslation("name")}</th>
-                        <th className="px-4 py-3 text-right text-sm font-medium">{getAppTranslation("price")}</th>
-                        <th className="px-4 py-3 text-right text-sm font-medium">{getAppTranslation("stock")}</th>
-                        <th className="px-4 py-3 text-right text-sm font-medium">{getAppTranslation("status")}</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">
+                          {getAppTranslation("name" as any, language)}
+                        </th>
+                        <th className="px-4 py-3 text-right text-sm font-medium">
+                          {getAppTranslation("price" as any, language)}
+                        </th>
+                        <th className="px-4 py-3 text-right text-sm font-medium">
+                          {getAppTranslation("stock" as any, language)}
+                        </th>
+                        <th className="px-4 py-3 text-right text-sm font-medium">
+                          {getAppTranslation("status" as any, language)}
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -707,11 +825,10 @@ export default function DashboardPage() {
                             <div className="flex items-center">
                               <div className="h-10 w-10 relative bg-muted rounded overflow-hidden flex-shrink-0 mr-3">
                                 {product.image ? (
-                                  <Image
+                                  <img
                                     src={product.image || "/placeholder.svg"}
                                     alt={product.name}
-                                    fill
-                                    className="object-cover"
+                                    className="object-cover w-full h-full"
                                   />
                                 ) : (
                                   <Package className="h-6 w-6 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -725,7 +842,9 @@ export default function DashboardPage() {
                               </div>
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-sm text-right">${product.price.toFixed(2)}</td>
+                          <td className="px-4 py-3 text-sm text-right">
+                            {formatCurrency(product.price, currentCurrency, language)}
+                          </td>
                           <td className="px-4 py-3 text-sm text-right">
                             {product.stock} / {product.min_stock}
                           </td>
@@ -738,7 +857,11 @@ export default function DashboardPage() {
                                     ? "outline"
                                     : "default"
                               }
-                              className={product.stock < product.min_stock && product.stock > 0 ? "bg-amber-500" : ""}
+                              className={
+                                product.stock < product.min_stock && product.stock > 0
+                                  ? "bg-amber-500 hover:bg-amber-500/80 text-white border-amber-500"
+                                  : ""
+                              }
                             >
                               {getStockStatusText(product)}
                             </Badge>
@@ -751,7 +874,7 @@ export default function DashboardPage() {
               </CardContent>
               <CardFooter>
                 <Button variant="outline" className="w-full" asChild>
-                  <a href="/inventory">View All Products</a>
+                  <a href="/inventory">{getAppTranslation("view_all_products" as any, language)}</a>
                 </Button>
               </CardFooter>
             </Card>

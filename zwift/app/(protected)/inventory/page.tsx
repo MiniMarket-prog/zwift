@@ -1,15 +1,12 @@
 "use client"
 
 import { DialogFooter } from "@/components/ui/dialog"
-
 import { DialogTrigger } from "@/components/ui/dialog"
-
 import type React from "react"
-
 import { useState, useEffect, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { getProducts, addProduct, updateProduct, deleteProduct, getCategories, addCategory } from "@/lib/supabase"
 import {
   Loader2,
@@ -31,12 +28,18 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { format } from "date-fns"
-import Image from "next/image"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { MobileCameraScanner } from "@/components/inventory/mobile-camera-scanner"
 import { useLanguage } from "@/hooks/use-language"
 import { formatCurrency } from "@/lib/format-currency"
-import { supabase } from "@/lib/supabaseClient"
+import { createClient } from "@/lib/supabase-client"
+
+// Add this type declaration at the top of the file, after the imports
+declare global {
+  interface Window {
+    JsBarcode: any
+  }
+}
 
 // Define the Product type to match the database schema
 type Product = {
@@ -141,10 +144,74 @@ export default function InventoryPage() {
   // Add this with the other state declarations
   const [currentCurrency, setCurrentCurrency] = useState<string>("USD")
 
+  // Add authentication error state
+  const [authError, setAuthError] = useState<string | null>(null)
+  // Add this state to track if JsBarcode is loaded
+  const [isBarcodeLibLoaded, setIsBarcodeLibLoaded] = useState(false)
+
   const { toast } = useToast()
   const printFrameRef = useRef<HTMLIFrameElement>(null)
   const barcodePreviewRef = useRef<HTMLDivElement>(null)
   const { getAppTranslation, language, isRTL } = useLanguage()
+
+  // Create a Supabase client with error handling
+  const getSupabaseClient = useCallback(async () => {
+    const supabase = createClient()
+
+    // Check if the session is valid
+    try {
+      const { data, error } = await supabase.auth.getSession()
+
+      if (error) {
+        console.error("Session error:", error)
+        setAuthError("Authentication error: " + error.message)
+        throw new Error("Authentication failed")
+      }
+
+      if (!data.session) {
+        setAuthError("No active session found. Please log in again.")
+        throw new Error("No session")
+      }
+
+      // Check if token is about to expire (within 5 minutes)
+      const expiresAt = data.session.expires_at
+      const now = Math.floor(Date.now() / 1000)
+
+      if (expiresAt && expiresAt - now < 300) {
+        console.log("Token about to expire, attempting to refresh")
+        try {
+          // Try to refresh the token
+          const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
+
+          if (refreshError) {
+            console.error("Error refreshing token:", refreshError)
+            setAuthError("Failed to refresh authentication. Please log in again.")
+            throw new Error("Authentication failed")
+          }
+
+          if (!refreshData.session) {
+            setAuthError("Session expired. Please log in again.")
+            throw new Error("No session after refresh")
+          }
+
+          // Return a new client after successful refresh
+          return createClient()
+        } catch (refreshError) {
+          console.error("Failed to refresh session:", refreshError)
+          setAuthError("Failed to refresh authentication. Please log in again.")
+          throw new Error("Authentication failed")
+        }
+      }
+
+      return supabase
+    } catch (error) {
+      console.error("Error checking session:", error)
+      if (!authError) {
+        setAuthError("Error checking authentication status")
+      }
+      throw error
+    }
+  }, [authError])
 
   useEffect(() => {
     loadProducts()
@@ -181,6 +248,8 @@ export default function InventoryPage() {
   // Add this after other useCallback functions
   const fetchSettings = useCallback(async () => {
     try {
+      const supabase = await getSupabaseClient()
+
       // First try to get global settings
       let { data: settingsData, error: settingsError } = await supabase
         .from("settings")
@@ -239,12 +308,27 @@ export default function InventoryPage() {
       }
     } catch (error) {
       console.error("Error fetching settings:", error)
+
+      if (
+        error instanceof Error &&
+        (error.message === "Authentication failed" ||
+          error.message === "No session" ||
+          error.message === "No session after refresh")
+      ) {
+        // Already handled in getSupabaseClient
+        return
+      }
     }
-  }, [supabase])
+  }, [getSupabaseClient])
 
   const loadProducts = async () => {
     try {
       setIsLoading(true)
+      setAuthError(null)
+
+      // Check authentication first
+      await getSupabaseClient()
+
       const productsData = await getProducts()
 
       // Ensure all products have the required fields and proper data types
@@ -270,9 +354,20 @@ export default function InventoryPage() {
       setFilteredProducts(productsArray)
     } catch (error) {
       console.error("Error loading products:", error)
+
+      if (
+        error instanceof Error &&
+        (error.message === "Authentication failed" ||
+          error.message === "No session" ||
+          error.message === "No session after refresh")
+      ) {
+        // Already handled in getSupabaseClient
+        return
+      }
+
       toast({
-        title: getAppTranslation("error"),
-        description: getAppTranslation("failed_to_load_products"),
+        title: getAppTranslation("error", language),
+        description: getAppTranslation("failed_to_load_products", language),
         variant: "destructive",
       })
     } finally {
@@ -288,13 +383,27 @@ export default function InventoryPage() {
 
   const loadCategories = async () => {
     try {
+      // Check authentication first
+      await getSupabaseClient()
+
       const categoriesData = await getCategories()
       setCategories(categoriesData as Category[])
     } catch (error) {
       console.error("Error loading categories:", error)
+
+      if (
+        error instanceof Error &&
+        (error.message === "Authentication failed" ||
+          error.message === "No session" ||
+          error.message === "No session after refresh")
+      ) {
+        // Already handled in getSupabaseClient
+        return
+      }
+
       toast({
-        title: getAppTranslation("error"),
-        description: getAppTranslation("failed_to_load_categories"),
+        title: getAppTranslation("error", language),
+        description: getAppTranslation("failed_to_load_categories", language),
         variant: "destructive",
       })
     }
@@ -305,6 +414,7 @@ export default function InventoryPage() {
     // Function to fetch currency setting
     const fetchCurrency = async () => {
       try {
+        const supabase = await getSupabaseClient()
         const { data: settingsData, error } = await supabase
           .from("settings")
           .select("currency")
@@ -316,6 +426,16 @@ export default function InventoryPage() {
         }
       } catch (error) {
         console.error("Error fetching currency setting:", error)
+
+        if (
+          error instanceof Error &&
+          (error.message === "Authentication failed" ||
+            error.message === "No session" ||
+            error.message === "No session after refresh")
+        ) {
+          // Already handled in getSupabaseClient
+          return
+        }
       }
     }
 
@@ -333,7 +453,7 @@ export default function InventoryPage() {
       window.removeEventListener("storage", handleStorageChange)
       window.removeEventListener("focus", fetchCurrency)
     }
-  }, [supabase])
+  }, [getSupabaseClient, language])
 
   // Add this after other useEffect hooks
   useEffect(() => {
@@ -353,6 +473,21 @@ export default function InventoryPage() {
       window.removeEventListener("focus", fetchSettings)
     }
   }, [fetchSettings])
+
+  // Add this useEffect to load JsBarcode
+  useEffect(() => {
+    // Only load if not already loaded
+    if (!window.JsBarcode && !document.getElementById("jsbarcode-script")) {
+      const script = document.createElement("script")
+      script.id = "jsbarcode-script"
+      script.src = "https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"
+      script.async = true
+      script.onload = () => setIsBarcodeLibLoaded(true)
+      document.body.appendChild(script)
+    } else {
+      setIsBarcodeLibLoaded(true)
+    }
+  }, [])
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value)
@@ -374,8 +509,8 @@ export default function InventoryPage() {
     }))
 
     toast({
-      title: getAppTranslation("barcode_generated"),
-      description: `${getAppTranslation("new_barcode")}: ${newBarcode}`,
+      title: getAppTranslation("barcode_generated", language),
+      description: `${getAppTranslation("new_barcode", language)}: ${newBarcode}`,
     })
   }
 
@@ -383,6 +518,9 @@ export default function InventoryPage() {
     e.preventDefault()
 
     try {
+      // Check authentication first
+      await getSupabaseClient()
+
       await addProduct(formData)
 
       // Reset form and close dialog
@@ -402,14 +540,25 @@ export default function InventoryPage() {
       await loadProducts()
 
       toast({
-        title: getAppTranslation("product_added"),
-        description: getAppTranslation("product_added_successfully"),
+        title: getAppTranslation("product_added", language),
+        description: getAppTranslation("product_added_successfully", language),
       })
     } catch (error) {
       console.error("Error adding product:", error)
+
+      if (
+        error instanceof Error &&
+        (error.message === "Authentication failed" ||
+          error.message === "No session" ||
+          error.message === "No session after refresh")
+      ) {
+        // Already handled in getSupabaseClient
+        return
+      }
+
       toast({
-        title: getAppTranslation("error"),
-        description: getAppTranslation("failed_to_add_product"),
+        title: getAppTranslation("error", language),
+        description: getAppTranslation("failed_to_add_product", language),
         variant: "destructive",
       })
     }
@@ -435,6 +584,9 @@ export default function InventoryPage() {
     if (!selectedProduct) return
 
     try {
+      // Check authentication first
+      await getSupabaseClient()
+
       // Ensure numeric values are properly converted
       const processedFormData = {
         ...formData,
@@ -451,14 +603,25 @@ export default function InventoryPage() {
       await loadProducts()
 
       toast({
-        title: getAppTranslation("product_updated"),
-        description: getAppTranslation("product_updated_successfully"),
+        title: getAppTranslation("product_updated", language),
+        description: getAppTranslation("product_updated_successfully", language),
       })
     } catch (error) {
       console.error("Error updating product:", error)
+
+      if (
+        error instanceof Error &&
+        (error.message === "Authentication failed" ||
+          error.message === "No session" ||
+          error.message === "No session after refresh")
+      ) {
+        // Already handled in getSupabaseClient
+        return
+      }
+
       toast({
-        title: getAppTranslation("error"),
-        description: getAppTranslation("failed_to_update_product"),
+        title: getAppTranslation("error", language),
+        description: getAppTranslation("failed_to_update_product", language),
         variant: "destructive",
       })
     }
@@ -473,114 +636,235 @@ export default function InventoryPage() {
     if (!selectedProduct) return
 
     try {
+      // Check authentication first
+      await getSupabaseClient()
+
       await deleteProduct(selectedProduct.id)
       setIsDeleteDialogOpen(false)
       await loadProducts()
 
       toast({
-        title: getAppTranslation("product_deleted"),
-        description: getAppTranslation("product_deleted_successfully"),
+        title: getAppTranslation("product_deleted", language),
+        description: getAppTranslation("product_deleted_successfully", language),
       })
     } catch (error) {
       console.error("Error deleting product:", error)
+
+      if (
+        error instanceof Error &&
+        (error.message === "Authentication failed" ||
+          error.message === "No session" ||
+          error.message === "No session after refresh")
+      ) {
+        // Already handled in getSupabaseClient
+        return
+      }
+
       toast({
-        title: getAppTranslation("error"),
-        description: getAppTranslation("failed_to_delete_product"),
+        title: getAppTranslation("error", language),
+        description: getAppTranslation("failed_to_delete_product", language),
         variant: "destructive",
       })
     }
   }
 
+  // Update the handleBarcodePreviewClick function
   const handleBarcodePreviewClick = (product: Product) => {
     setSelectedProduct(product)
     setIsBarcodePreviewOpen(true)
+
+    // Generate barcode after dialog opens
+    setTimeout(() => {
+      if (window.JsBarcode && document.getElementById("preview-barcode")) {
+        window.JsBarcode("#preview-barcode", product.barcode, {
+          format: "EAN13",
+          width: 2,
+          height: 100,
+          displayValue: false,
+          margin: 10,
+          background: "#ffffff",
+        })
+      }
+    }, 100)
   }
 
+  // Update the handlePrintBarcode function to ensure the barcode doesn't split during printing
+
+  // Find the handlePrintBarcode function and replace it with this improved version:
   const handlePrintBarcode = () => {
     if (!selectedProduct) return
 
-    // Create a printable document with the barcode
-    const printContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>${getAppTranslation("barcode")}: ${selectedProduct.barcode}</title>
-        <style>
-          body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-          }
-          .barcode-container {
-            text-align: center;
-            margin: 20px auto;
-            page-break-inside: avoid;
-          }
-          .product-name {
-            font-size: 14px;
-            margin-bottom: 5px;
-          }
-          .barcode {
-            font-family: 'Libre Barcode 39', cursive;
-            font-size: 60px;
-            margin: 10px 0;
-          }
-          .barcode-number {
-            font-size: 12px;
-            letter-spacing: 3px;
-          }
-          .price {
-            font-size: 16px;
-            font-weight: bold;
-            margin-top: 5px;
-          }
-          @media print {
-            @page {
-              size: 2.25in 1.25in;
-              margin: 0;
-            }
-            body {
-              padding: 0.125in;
-            }
-          }
-        </style>
-        <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39&display=swap" rel="stylesheet">
-      </head>
-      <body>
-        <div class="barcode-container">
-          <div class="product-name">${selectedProduct.name}</div>
-          <div class="barcode">*${selectedProduct.barcode}*</div>
-          <div class="barcode-number">${selectedProduct.barcode}</div>
-          <div class="price">${formatCurrency(selectedProduct.price, currentCurrency, language)}</div>
-        </div>
-      </body>
-      </html>
-    `
-
-    // Use an iframe for printing
-    if (printFrameRef.current) {
-      const iframe = printFrameRef.current
-      const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document
-
-      if (iframeDoc) {
-        iframeDoc.open()
-        iframeDoc.write(printContent)
-        iframeDoc.close()
-
-        // Wait for content to load before printing
-        setTimeout(() => {
-          iframe.contentWindow?.focus()
-          iframe.contentWindow?.print()
-        }, 500)
-      }
+    const printWindow = window.open("", "_blank")
+    if (!printWindow) {
+      toast({
+        title: getAppTranslation("error", language),
+        description: "Popup blocked. Please allow popups for this site.",
+        variant: "destructive",
+      })
+      return
     }
 
-    // Close the preview dialog
+    const printContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>${getAppTranslation("barcode", language)}: ${selectedProduct.barcode}</title>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+      <style>
+        @media print {
+          @page {
+            size: 2.25in 1.25in;
+            margin: 0;
+          }
+          body {
+            margin: 0;
+            padding: 0;
+            width: 2.25in;
+            height: 1.25in;
+            overflow: hidden;
+          }
+          .barcode-container {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            display: block !important;
+            position: relative !important;
+            height: 1.25in !important;
+            width: 2.25in !important;
+          }
+          .print-button {
+            display: none !important;
+          }
+        }
+        
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          text-align: center;
+          background: white;
+          margin: 0;
+          padding: 0;
+        }
+        
+        .barcode-container {
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          padding: 5px;
+          background: white;
+          width: 2.25in;
+          height: 1.25in;
+          margin: 0 auto;
+          position: relative;
+        }
+        
+        .product-name {
+          font-size: 10px;
+          font-weight: 500;
+          margin: 0 0 3px 0;
+          max-width: 2in;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          line-height: 1.2;
+        }
+        
+        .barcode-wrapper {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          width: 100%;
+          height: 50px;
+          margin: 0;
+        }
+        
+        svg#print-barcode {
+          max-width: 100%;
+          height: 40px;
+        }
+        
+        .barcode-number {
+          font-size: 9px;
+          margin: 2px 0;
+          letter-spacing: 0.5px;
+          line-height: 1;
+        }
+        
+        .price {
+          font-size: 12px;
+          font-weight: 600;
+          margin: 2px 0 0 0;
+          line-height: 1;
+        }
+        
+        .print-button {
+          margin: 20px auto;
+          padding: 12px 24px;
+          background: #0070f3;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 16px;
+          font-weight: bold;
+          display: block;
+          transition: background-color 0.2s;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .print-button:hover {
+          background: #0051a8;
+          box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .print-button:focus {
+          outline: 2px solid #0070f3;
+          outline-offset: 2px;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="barcode-container">
+        <div class="product-name">${selectedProduct.name}</div>
+        <div class="barcode-wrapper">
+          <svg id="print-barcode"></svg>
+        </div>
+        <div class="barcode-number">${selectedProduct.barcode}</div>
+        <div class="price">${formatCurrency(selectedProduct.price, currentCurrency, language)}</div>
+      </div>
+      <button class="print-button" onclick="window.print()">${getAppTranslation("print_barcode", language)}</button>
+      <script>
+        // Wait for JsBarcode to load
+        window.onload = function() {
+          if (window.JsBarcode) {
+            JsBarcode("#print-barcode", "${selectedProduct.barcode}", {
+              format: "EAN13",
+              width: 1.2,
+              height: 40,
+              displayValue: false,
+              margin: 0,
+              background: "#ffffff"
+            });
+            // No automatic printing - user must click the button
+            document.querySelector('.print-button').focus();
+          }
+        };
+      </script>
+    </body>
+    </html>
+  `
+
+    printWindow.document.open()
+    printWindow.document.write(printContent)
+    printWindow.document.close()
+
     setIsBarcodePreviewOpen(false)
 
     toast({
-      title: getAppTranslation("printing_barcode"),
-      description: `${getAppTranslation("barcode_for")} ${selectedProduct.name} ${getAppTranslation("sent_to_printer")}.`,
+      title: getAppTranslation("printing_barcode", language),
+      description: `${getAppTranslation("barcode_for", language)} ${selectedProduct.name} ${getAppTranslation("sent_to_printer", language)}.`,
     })
   }
 
@@ -590,8 +874,8 @@ export default function InventoryPage() {
 
     if (!newCategoryName.trim()) {
       toast({
-        title: getAppTranslation("validation_error"),
-        description: getAppTranslation("please_enter_category_name"),
+        title: getAppTranslation("validation_error", language),
+        description: getAppTranslation("please_enter_category_name", language),
         variant: "destructive",
       })
       return
@@ -600,6 +884,9 @@ export default function InventoryPage() {
     setIsSavingCategory(true)
 
     try {
+      // Check authentication first
+      await getSupabaseClient()
+
       const newCategory = await addCategory(newCategoryName)
 
       // Refresh categories
@@ -618,14 +905,25 @@ export default function InventoryPage() {
       }
 
       toast({
-        title: getAppTranslation("category_added"),
-        description: getAppTranslation("category_added_successfully"),
+        title: getAppTranslation("category_added", language),
+        description: getAppTranslation("category_added_successfully", language),
       })
     } catch (error) {
       console.error("Error adding category:", error)
+
+      if (
+        error instanceof Error &&
+        (error.message === "Authentication failed" ||
+          error.message === "No session" ||
+          error.message === "No session after refresh")
+      ) {
+        // Already handled in getSupabaseClient
+        return
+      }
+
       toast({
-        title: getAppTranslation("error"),
-        description: getAppTranslation("failed_to_add_category"),
+        title: getAppTranslation("error", language),
+        description: getAppTranslation("failed_to_add_category", language),
         variant: "destructive",
       })
     } finally {
@@ -642,6 +940,34 @@ export default function InventoryPage() {
     setCurrentPage(page)
   }
 
+  // If there's an authentication error, show it
+  if (authError) {
+    return (
+      <div className="p-6">
+        <Card className="mx-auto max-w-md">
+          <CardHeader>
+            <CardTitle className="text-destructive">Authentication Error</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p>{authError}</p>
+            <p className="mt-4">Please try logging in again.</p>
+          </CardContent>
+          <CardFooter>
+            <Button
+              onClick={() => {
+                // Force a hard redirect to login
+                window.location.href = "/auth/login"
+              }}
+              className="w-full"
+            >
+              Go to Login
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
+    )
+  }
+
   if (isLoading) {
     return (
       <div className="flex justify-center items-center h-[calc(100vh-4rem)]">
@@ -656,12 +982,12 @@ export default function InventoryPage() {
       <iframe ref={printFrameRef} style={{ display: "none" }} title="Print Frame"></iframe>
 
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <h1 className="text-3xl font-bold">{getAppTranslation("inventory")}</h1>
+        <h1 className="text-3xl font-bold">{getAppTranslation("inventory", language)}</h1>
         <div className="flex gap-2 w-full sm:w-auto">
           <div className="relative w-full sm:w-64">
             <Search className={`absolute ${isRTL ? "right-2" : "left-2"} top-2.5 h-4 w-4 text-muted-foreground`} />
             <Input
-              placeholder={getAppTranslation("search_by_name_or_barcode")}
+              placeholder={getAppTranslation("search_by_name_or_barcode", language)}
               className={isRTL ? "pr-8" : "pl-8"}
               value={searchTerm}
               onChange={handleSearch}
@@ -674,19 +1000,19 @@ export default function InventoryPage() {
             <DialogTrigger asChild>
               <Button>
                 <Plus className={`${isRTL ? "ml-2" : "mr-2"} h-4 w-4`} />
-                {getAppTranslation("add_product")}
+                {getAppTranslation("add_product", language)}
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle>{getAppTranslation("add_new_product")}</DialogTitle>
-                <DialogDescription>{getAppTranslation("add_product_description")}</DialogDescription>
+                <DialogTitle>{getAppTranslation("add_new_product", language)}</DialogTitle>
+                <DialogDescription>{getAppTranslation("add_product_description", language)}</DialogDescription>
               </DialogHeader>
               <form onSubmit={handleAddProduct}>
                 <div className="grid gap-4 py-4">
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="name" className="text-right">
-                      {getAppTranslation("name")}
+                      {getAppTranslation("name", language)}
                     </Label>
                     <Input
                       id="name"
@@ -699,7 +1025,7 @@ export default function InventoryPage() {
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="barcode" className="text-right">
-                      {getAppTranslation("barcode")}
+                      {getAppTranslation("barcode", language)}
                     </Label>
                     <div className="col-span-3 flex gap-2">
                       <Input
@@ -711,8 +1037,8 @@ export default function InventoryPage() {
                         required
                       />
                       <Button type="button" variant="outline" onClick={handleGenerateBarcode} size="sm">
-                        <Barcode className={`h-4 w-4 ${isRTL ? "ml-1" : "mr-1"}`} />
-                        {getAppTranslation("generate")}
+                        <Barcode className={`h-4 w-4 ${isRTL ? "ml-2" : "mr-2"}`} />
+                        {getAppTranslation("generate", language)}
                       </Button>
                       <MobileCameraScanner
                         onBarcodeDetected={(barcode: string) => {
@@ -726,7 +1052,7 @@ export default function InventoryPage() {
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="price" className="text-right">
-                      {getAppTranslation("price")}
+                      {getAppTranslation("price", language)}
                     </Label>
                     <Input
                       id="price"
@@ -742,7 +1068,7 @@ export default function InventoryPage() {
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="purchase_price" className="text-right">
-                      {getAppTranslation("purchase_price")}
+                      {getAppTranslation("purchase_price", language)}
                     </Label>
                     <Input
                       id="purchase_price"
@@ -753,12 +1079,12 @@ export default function InventoryPage() {
                       value={formData.purchase_price}
                       onChange={handleFormChange}
                       className="col-span-3"
-                      placeholder={getAppTranslation("optional")}
+                      placeholder={getAppTranslation("optional", language)}
                     />
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="stock" className="text-right">
-                      {getAppTranslation("stock")}
+                      {getAppTranslation("stock", language)}
                     </Label>
                     <Input
                       id="stock"
@@ -773,7 +1099,7 @@ export default function InventoryPage() {
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="min_stock" className="text-right">
-                      {getAppTranslation("min_stock")}
+                      {getAppTranslation("min_stock", language)}
                     </Label>
                     <Input
                       id="min_stock"
@@ -788,7 +1114,7 @@ export default function InventoryPage() {
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="image" className="text-right">
-                      {getAppTranslation("image_url")}
+                      {getAppTranslation("image_url", language)}
                     </Label>
                     <Input
                       id="image"
@@ -797,12 +1123,12 @@ export default function InventoryPage() {
                       value={formData.image}
                       onChange={handleFormChange}
                       className="col-span-3"
-                      placeholder={getAppTranslation("optional")}
+                      placeholder={getAppTranslation("optional", language)}
                     />
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="category_id" className="text-right">
-                      {getAppTranslation("category")}
+                      {getAppTranslation("category", language)}
                     </Label>
                     <div className="col-span-3 flex gap-2">
                       <Select
@@ -811,10 +1137,10 @@ export default function InventoryPage() {
                         onValueChange={(value) => setFormData((prev) => ({ ...prev, category_id: value }))}
                       >
                         <SelectTrigger className="flex-1">
-                          <SelectValue placeholder={getAppTranslation("select_category_optional")} />
+                          <SelectValue placeholder={getAppTranslation("select_category_optional", language)} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="none">{getAppTranslation("none")}</SelectItem>
+                          <SelectItem value="none">{getAppTranslation("none", language)}</SelectItem>
                           {categories.map((category) => (
                             <SelectItem key={category.id} value={category.id}>
                               {category.name}
@@ -827,7 +1153,7 @@ export default function InventoryPage() {
                         variant="outline"
                         size="icon"
                         onClick={() => setIsAddCategoryDialogOpen(true)}
-                        title={getAppTranslation("add_new_category")}
+                        title={getAppTranslation("add_new_category", language)}
                       >
                         <FolderPlus className="h-4 w-4" />
                       </Button>
@@ -836,9 +1162,9 @@ export default function InventoryPage() {
                 </div>
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                    {getAppTranslation("cancel")}
+                    {getAppTranslation("cancel", language)}
                   </Button>
-                  <Button type="submit">{getAppTranslation("add_product")}</Button>
+                  <Button type="submit">{getAppTranslation("add_product", language)}</Button>
                 </DialogFooter>
               </form>
             </DialogContent>
@@ -850,15 +1176,15 @@ export default function InventoryPage() {
         <Card>
           <CardContent className="flex flex-col items-center justify-center p-6">
             <Package className="h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground text-center">{getAppTranslation("no_products_found")}</p>
+            <p className="text-muted-foreground text-center">{getAppTranslation("no_products_found", language)}</p>
           </CardContent>
         </Card>
       ) : (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>{getAppTranslation("products")}</CardTitle>
+            <CardTitle>{getAppTranslation("products", language)}</CardTitle>
             <div className="flex items-center gap-2">
-              <Label htmlFor="pageSize">{getAppTranslation("show")}</Label>
+              <Label htmlFor="pageSize">{getAppTranslation("show", language)}</Label>
               <Select value={pageSize.toString()} onValueChange={handlePageSizeChange}>
                 <SelectTrigger id="pageSize" className="w-[80px]">
                   <SelectValue placeholder={pageSize.toString()} />
@@ -871,7 +1197,7 @@ export default function InventoryPage() {
                   <SelectItem value="100">100</SelectItem>
                 </SelectContent>
               </Select>
-              <span className="text-sm text-muted-foreground">{getAppTranslation("entries")}</span>
+              <span className="text-sm text-muted-foreground">{getAppTranslation("entries", language)}</span>
             </div>
           </CardHeader>
           <CardContent>
@@ -879,16 +1205,28 @@ export default function InventoryPage() {
               <table className="min-w-full divide-y divide-border">
                 <thead>
                   <tr className="bg-muted/50">
-                    <th className="px-4 py-3 text-left text-sm font-medium">{getAppTranslation("image")}</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">{getAppTranslation("name")}</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">{getAppTranslation("barcode")}</th>
-                    <th className="px-4 py-3 text-right text-sm font-medium">{getAppTranslation("price")}</th>
-                    <th className="px-4 py-3 text-right text-sm font-medium">{getAppTranslation("purchase_price")}</th>
-                    <th className="px-4 py-3 text-right text-sm font-medium">{getAppTranslation("stock")}</th>
-                    <th className="px-4 py-3 text-right text-sm font-medium">{getAppTranslation("min_stock")}</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">{getAppTranslation("category")}</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">{getAppTranslation("created_at")}</th>
-                    <th className="px-4 py-3 text-center text-sm font-medium">{getAppTranslation("actions")}</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">{getAppTranslation("image", language)}</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">{getAppTranslation("name", language)}</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">
+                      {getAppTranslation("barcode", language)}
+                    </th>
+                    <th className="px-4 py-3 text-right text-sm font-medium">{getAppTranslation("price", language)}</th>
+                    <th className="px-4 py-3 text-right text-sm font-medium">
+                      {getAppTranslation("purchase_price", language)}
+                    </th>
+                    <th className="px-4 py-3 text-right text-sm font-medium">{getAppTranslation("stock", language)}</th>
+                    <th className="px-4 py-3 text-right text-sm font-medium">
+                      {getAppTranslation("min_stock", language)}
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">
+                      {getAppTranslation("category", language)}
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">
+                      {getAppTranslation("created_at", language)}
+                    </th>
+                    <th className="px-4 py-3 text-center text-sm font-medium">
+                      {getAppTranslation("actions", language)}
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -897,11 +1235,10 @@ export default function InventoryPage() {
                       <td className="px-4 py-3">
                         <div className="h-10 w-10 relative rounded-md overflow-hidden bg-muted">
                           {product.image ? (
-                            <Image
+                            <img
                               src={product.image || "/placeholder.svg"}
                               alt={product.name}
-                              fill
-                              className="object-cover"
+                              className="w-full h-full object-cover"
                             />
                           ) : (
                             <Package className="h-6 w-6 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -932,7 +1269,7 @@ export default function InventoryPage() {
                             variant="ghost"
                             size="icon"
                             onClick={() => handleEditClick(product)}
-                            title={getAppTranslation("edit_product")}
+                            title={getAppTranslation("edit_product", language)}
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
@@ -940,7 +1277,7 @@ export default function InventoryPage() {
                             variant="ghost"
                             size="icon"
                             onClick={() => handleDeleteClick(product)}
-                            title={getAppTranslation("delete_product")}
+                            title={getAppTranslation("delete_product", language)}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
@@ -948,7 +1285,7 @@ export default function InventoryPage() {
                             variant="ghost"
                             size="icon"
                             onClick={() => handleBarcodePreviewClick(product)}
-                            title={getAppTranslation("print_barcode")}
+                            title={getAppTranslation("print_barcode", language)}
                           >
                             <Printer className="h-4 w-4" />
                           </Button>
@@ -963,9 +1300,10 @@ export default function InventoryPage() {
             {/* Pagination controls */}
             <div className="flex items-center justify-between mt-4">
               <div className="text-sm text-muted-foreground">
-                {getAppTranslation("showing")} {Math.min(filteredProducts.length, (currentPage - 1) * pageSize + 1)}{" "}
-                {getAppTranslation("to")} {Math.min(filteredProducts.length, currentPage * pageSize)}{" "}
-                {getAppTranslation("of")} {filteredProducts.length} {getAppTranslation("entries")}
+                {getAppTranslation("showing", language)}{" "}
+                {Math.min(filteredProducts.length, (currentPage - 1) * pageSize + 1)}{" "}
+                {getAppTranslation("to", language)} {Math.min(filteredProducts.length, currentPage * pageSize)}{" "}
+                {getAppTranslation("of", language)} {filteredProducts.length} {getAppTranslation("entries", language)}
               </div>
               <div className="flex items-center space-x-2">
                 <Button variant="outline" size="icon" onClick={() => handlePageChange(1)} disabled={currentPage === 1}>
@@ -980,7 +1318,7 @@ export default function InventoryPage() {
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <span className="text-sm">
-                  {getAppTranslation("page")} {currentPage} {getAppTranslation("of")} {totalPages}
+                  {getAppTranslation("page", language)} {currentPage} {getAppTranslation("of", language)} {totalPages}
                 </span>
                 <Button
                   variant="outline"
@@ -1008,14 +1346,14 @@ export default function InventoryPage() {
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{getAppTranslation("edit_product")}</DialogTitle>
-            <DialogDescription>{getAppTranslation("edit_product_description")}</DialogDescription>
+            <DialogTitle>{getAppTranslation("edit_product", language)}</DialogTitle>
+            <DialogDescription>{getAppTranslation("edit_product_description", language)}</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleEditProduct}>
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit-name" className="text-right">
-                  {getAppTranslation("name")}
+                  {getAppTranslation("name", language)}
                 </Label>
                 <Input
                   id="edit-name"
@@ -1028,7 +1366,7 @@ export default function InventoryPage() {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit-barcode" className="text-right">
-                  {getAppTranslation("barcode")}
+                  {getAppTranslation("barcode", language)}
                 </Label>
                 <div className="col-span-3 flex gap-2">
                   <Input
@@ -1041,7 +1379,7 @@ export default function InventoryPage() {
                   />
                   <Button type="button" variant="outline" onClick={handleGenerateBarcode} size="sm">
                     <Barcode className={`h-4 w-4 ${isRTL ? "ml-1" : "mr-1"}`} />
-                    {getAppTranslation("generate")}
+                    {getAppTranslation("generate", language)}
                   </Button>
                   <MobileCameraScanner
                     onBarcodeDetected={(barcode: string) => {
@@ -1055,7 +1393,7 @@ export default function InventoryPage() {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit-price" className="text-right">
-                  {getAppTranslation("price")}
+                  {getAppTranslation("price", language)}
                 </Label>
                 <Input
                   id="edit-price"
@@ -1071,7 +1409,7 @@ export default function InventoryPage() {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit-purchase_price" className="text-right">
-                  {getAppTranslation("purchase_price")}
+                  {getAppTranslation("purchase_price", language)}
                 </Label>
                 <Input
                   id="edit-purchase_price"
@@ -1082,12 +1420,12 @@ export default function InventoryPage() {
                   value={formData.purchase_price}
                   onChange={handleFormChange}
                   className="col-span-3"
-                  placeholder={getAppTranslation("optional")}
+                  placeholder={getAppTranslation("optional", language)}
                 />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit-stock" className="text-right">
-                  {getAppTranslation("stock")}
+                  {getAppTranslation("stock", language)}
                 </Label>
                 <Input
                   id="edit-stock"
@@ -1102,7 +1440,7 @@ export default function InventoryPage() {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit-min_stock" className="text-right">
-                  {getAppTranslation("min_stock")}
+                  {getAppTranslation("min_stock", language)}
                 </Label>
                 <Input
                   id="edit-min_stock"
@@ -1117,7 +1455,7 @@ export default function InventoryPage() {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit-image" className="text-right">
-                  {getAppTranslation("image_url")}
+                  {getAppTranslation("image_url", language)}
                 </Label>
                 <Input
                   id="edit-image"
@@ -1126,12 +1464,12 @@ export default function InventoryPage() {
                   value={formData.image}
                   onChange={handleFormChange}
                   className="col-span-3"
-                  placeholder={getAppTranslation("optional")}
+                  placeholder={getAppTranslation("optional", language)}
                 />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit-category_id" className="text-right">
-                  {getAppTranslation("category")}
+                  {getAppTranslation("category", language)}
                 </Label>
                 <div className="col-span-3 flex gap-2">
                   <Select
@@ -1140,10 +1478,10 @@ export default function InventoryPage() {
                     onValueChange={(value) => setFormData((prev) => ({ ...prev, category_id: value }))}
                   >
                     <SelectTrigger className="flex-1">
-                      <SelectValue placeholder={getAppTranslation("select_category_optional")} />
+                      <SelectValue placeholder={getAppTranslation("select_category_optional", language)} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">{getAppTranslation("none")}</SelectItem>
+                      <SelectItem value="none">{getAppTranslation("none", language)}</SelectItem>
                       {categories.map((category) => (
                         <SelectItem key={category.id} value={category.id}>
                           {category.name}
@@ -1156,7 +1494,7 @@ export default function InventoryPage() {
                     variant="outline"
                     size="icon"
                     onClick={() => setIsAddCategoryDialogOpen(true)}
-                    title={getAppTranslation("add_new_category")}
+                    title={getAppTranslation("add_new_category", language)}
                   >
                     <FolderPlus className="h-4 w-4" />
                   </Button>
@@ -1165,9 +1503,9 @@ export default function InventoryPage() {
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
-                {getAppTranslation("cancel")}
+                {getAppTranslation("cancel", language)}
               </Button>
-              <Button type="submit">{getAppTranslation("save_changes")}</Button>
+              <Button type="submit">{getAppTranslation("save_changes", language)}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -1177,18 +1515,18 @@ export default function InventoryPage() {
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{getAppTranslation("are_you_sure")}</DialogTitle>
+            <DialogTitle>{getAppTranslation("are_you_sure", language)}</DialogTitle>
             <DialogDescription>
-              {getAppTranslation("delete_product_confirmation")} &quot;{selectedProduct?.name}&quot;.{" "}
-              {getAppTranslation("action_cannot_be_undone")}
+              {getAppTranslation("delete_product_confirmation", language)} &quot;{selectedProduct?.name}&quot;.{" "}
+              {getAppTranslation("action_cannot_be_undone", language)}
             </DialogDescription>
           </DialogHeader>
           <div className="flex justify-end space-x-2 pt-4">
             <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
-              {getAppTranslation("cancel")}
+              {getAppTranslation("cancel", language)}
             </Button>
             <Button variant="destructive" onClick={handleDeleteProduct}>
-              {getAppTranslation("delete")}
+              {getAppTranslation("delete", language)}
             </Button>
           </div>
         </DialogContent>
@@ -1198,37 +1536,37 @@ export default function InventoryPage() {
       <Dialog open={isAddCategoryDialogOpen} onOpenChange={setIsAddCategoryDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{getAppTranslation("add_new_category")}</DialogTitle>
-            <DialogDescription>{getAppTranslation("add_category_description")}</DialogDescription>
+            <DialogTitle>{getAppTranslation("add_new_category", language)}</DialogTitle>
+            <DialogDescription>{getAppTranslation("add_category_description", language)}</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddCategory}>
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="category-name" className="text-right">
-                  {getAppTranslation("name")}
+                  {getAppTranslation("name", language)}
                 </Label>
                 <Input
                   id="category-name"
                   value={newCategoryName}
                   onChange={(e) => setNewCategoryName(e.target.value)}
                   className="col-span-3"
-                  placeholder={getAppTranslation("enter_category_name")}
+                  placeholder={getAppTranslation("enter_category_name", language)}
                   required
                 />
               </div>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setIsAddCategoryDialogOpen(false)}>
-                {getAppTranslation("cancel")}
+                {getAppTranslation("cancel", language)}
               </Button>
               <Button type="submit" disabled={isSavingCategory}>
                 {isSavingCategory ? (
                   <>
                     <Loader2 className={`${isRTL ? "ml-2" : "mr-2"} h-4 w-4 animate-spin`} />
-                    {getAppTranslation("saving")}...
+                    {getAppTranslation("saving", language)}...
                   </>
                 ) : (
-                  getAppTranslation("add_category")
+                  getAppTranslation("add_category", language)
                 )}
               </Button>
             </DialogFooter>
@@ -1240,8 +1578,8 @@ export default function InventoryPage() {
       <Dialog open={isBarcodePreviewOpen} onOpenChange={setIsBarcodePreviewOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{getAppTranslation("barcode_preview")}</DialogTitle>
-            <DialogDescription>{getAppTranslation("barcode_preview_description")}</DialogDescription>
+            <DialogTitle>{getAppTranslation("barcode_preview", language)}</DialogTitle>
+            <DialogDescription>{getAppTranslation("barcode_preview_description", language)}</DialogDescription>
           </DialogHeader>
 
           {selectedProduct && (
@@ -1250,13 +1588,7 @@ export default function InventoryPage() {
                 <div className="text-center">
                   <div className="text-sm font-medium mb-2">{selectedProduct.name}</div>
                   <div className="flex justify-center mb-2">
-                    {/* Display barcode image */}
-                    <svg className="h-16" viewBox="0 0 200 100">
-                      {/* Simple barcode visualization */}
-                      <text x="100" y="40" fontFamily="'Libre Barcode 39', cursive" fontSize="60" textAnchor="middle">
-                        *{selectedProduct.barcode}*
-                      </text>
-                    </svg>
+                    <svg id="preview-barcode"></svg>
                   </div>
                   <div className="text-xs tracking-wider mb-2">{selectedProduct.barcode}</div>
                   <div className="text-base font-bold">
@@ -1267,11 +1599,15 @@ export default function InventoryPage() {
 
               <div className="flex justify-between mt-4">
                 <Button variant="outline" onClick={() => setIsBarcodePreviewOpen(false)}>
-                  {getAppTranslation("cancel")}
+                  {getAppTranslation("cancel", language)}
                 </Button>
-                <Button onClick={handlePrintBarcode}>
-                  <Printer className={`${isRTL ? "ml-2" : "mr-2"} h-4 w-4`} />
-                  {getAppTranslation("print_barcode")}
+                <Button onClick={handlePrintBarcode} disabled={!isBarcodeLibLoaded}>
+                  {!isBarcodeLibLoaded ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Printer className={`${isRTL ? "ml-2" : "mr-2"} h-4 w-4`} />
+                  )}
+                  {getAppTranslation("print_barcode", language)}
                 </Button>
               </div>
             </div>

@@ -1,4 +1,7 @@
+"use client"
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useLanguage } from "@/hooks/use-language"
 
 type InventoryItem = {
   id: string
@@ -12,6 +15,7 @@ type InventoryItem = {
 
 export function InventoryStatusCard({ items }: { items: InventoryItem[] }) {
   console.log("InventoryStatusCard received items:", items.length)
+  const { getAppTranslation, language } = useLanguage()
 
   // Calculate inventory status
   const getThreshold = (item: InventoryItem) => {
@@ -48,23 +52,23 @@ export function InventoryStatusCard({ items }: { items: InventoryItem[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Inventory Status</CardTitle>
-        <CardDescription>Overview of your current inventory levels</CardDescription>
+        <CardTitle>{getAppTranslation("inventory_status" as any, language)}</CardTitle>
+        <CardDescription>{getAppTranslation("inventory_overview" as any, language)}</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
           <div className="grid grid-cols-3 gap-4 text-center">
             <div>
               <div className="text-2xl font-bold text-green-500">{healthyStock}</div>
-              <div className="text-sm text-muted-foreground">Healthy</div>
+              <div className="text-sm text-muted-foreground">{getAppTranslation("healthy" as any, language)}</div>
             </div>
             <div>
               <div className="text-2xl font-bold text-amber-500">{lowStock}</div>
-              <div className="text-sm text-muted-foreground">Low Stock</div>
+              <div className="text-sm text-muted-foreground">{getAppTranslation("low_stock", language)}</div>
             </div>
             <div>
               <div className="text-2xl font-bold text-red-500">{outOfStock}</div>
-              <div className="text-sm text-muted-foreground">Out of Stock</div>
+              <div className="text-sm text-muted-foreground">{getAppTranslation("out_of_stock", language)}</div>
             </div>
           </div>
 
@@ -81,7 +85,9 @@ export function InventoryStatusCard({ items }: { items: InventoryItem[] }) {
           </div>
 
           <div className="text-xs text-center text-muted-foreground">
-            {healthyStockPercent}% Healthy • {lowStockPercent}% Low Stock • {outOfStockPercent}% Out of Stock
+            {healthyStockPercent}% {getAppTranslation("healthy" as any, language)} •{lowStockPercent}%{" "}
+            {getAppTranslation("low_stock", language)} •{outOfStockPercent}%{" "}
+            {getAppTranslation("out_of_stock", language)}
           </div>
         </div>
       </CardContent>
