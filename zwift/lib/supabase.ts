@@ -537,3 +537,21 @@ export async function refreshSettings(setSettings: any) {
   }
 }
 
+// Add this function to update existing categories
+export async function updateCategoryName(categoryId: string, name: string) {
+  try {
+    const supabase = createClient()
+
+    const { data, error } = await supabase.from("categories").update({ name }).eq("id", categoryId).select().single()
+
+    if (error) {
+      console.error("Error updating category:", error)
+      throw error
+    }
+
+    return data
+  } catch (error) {
+    console.error("Exception in updateCategoryName:", error)
+    throw error
+  }
+}

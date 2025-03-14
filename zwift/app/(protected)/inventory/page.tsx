@@ -7,7 +7,15 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
-import { getProducts, addProduct, updateProduct, deleteProduct, getCategories, addCategory } from "@/lib/supabase"
+import {
+  getProducts,
+  addProduct,
+  updateProduct,
+  deleteProduct,
+  getCategories,
+  addCategory,
+  updateCategoryName,
+} from "@/lib/supabase"
 import {
   Loader2,
   Search,
@@ -127,6 +135,13 @@ export default function InventoryPage() {
   const [isAddCategoryDialogOpen, setIsAddCategoryDialogOpen] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState("")
   const [isSavingCategory, setIsSavingCategory] = useState(false)
+
+  // Add these new state variables for category editing
+  const [isEditCategoryDialogOpen, setIsEditCategoryDialogOpen] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null)
+  const [editCategoryName, setEditCategoryName] = useState("")
+  const [isEditingCategory, setIsEditingCategory] = useState(false)
+  const [isCategoryManagementOpen, setIsCategoryManagementOpen] = useState(false)
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
@@ -744,8 +759,6 @@ export default function InventoryPage() {
     }, 100)
   }
 
-  // Update the handlePrintBarcode function to ensure the barcode doesn't split during printing
-
   // Find the handlePrintBarcode function and replace it with this improved version:
   const handlePrintBarcode = () => {
     if (!selectedProduct) return
@@ -987,6 +1000,70 @@ export default function InventoryPage() {
     }
   }
 
+  // Add this new function to handle editing a category
+  const handleEditCategory = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!editCategoryName.trim() || !selectedCategory) {
+      toast({
+        title: getAppTranslation("validation_error", language),
+        description: getAppTranslation("please_enter_category_name", language),
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsEditingCategory(true)
+
+    try {
+      // Check authentication first
+      await getSupabaseClient()
+
+      // Call the updateCategoryName function
+      await updateCategoryName(selectedCategory.id, editCategoryName)
+
+      // Refresh categories
+      await loadCategories()
+
+      // Reset form and close dialog
+      setEditCategoryName("")
+      setSelectedCategory(null)
+      setIsEditCategoryDialogOpen(false)
+
+      toast({
+        title: "Category Updated",
+        description: "The category has been updated successfully.",
+      })
+    } catch (error) {
+      console.error("Error updating category:", error)
+
+      if (
+        error instanceof Error &&
+        (error.message === "Authentication failed" ||
+          error.message === "No session" ||
+          error.message === "No session after refresh")
+      ) {
+        // Already handled in getSupabaseClient
+        return
+      }
+
+      toast({
+        title: getAppTranslation("error", language),
+        description: "Failed to update category. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsEditingCategory(false)
+    }
+  }
+
+  // Add this function to handle clicking the edit button for a category
+  const handleEditCategoryClick = (category: Category) => {
+    setSelectedCategory(category)
+    setEditCategoryName(category.name)
+    setIsEditCategoryDialogOpen(true)
+  }
+
   const handlePageSizeChange = (value: string) => {
     setPageSize(Number.parseInt(value))
     setCurrentPage(1) // Reset to first page when changing page size
@@ -1223,6 +1300,54 @@ export default function InventoryPage() {
                   <Button type="submit">{getAppTranslation("add_product", language)}</Button>
                 </DialogFooter>
               </form>
+            </DialogContent>
+          </Dialog>
+          <Dialog open={isCategoryManagementOpen} onOpenChange={setIsCategoryManagementOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <FolderPlus className={`${isRTL ? "ml-2" : "mr-2"} h-4 w-4`} />
+                Manage Categories
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Manage Categories</DialogTitle>
+                <DialogDescription>View, edit, or add product categories.</DialogDescription>
+              </DialogHeader>
+
+              <div className="py-4">
+                <h3 className="text-sm font-medium mb-2">Existing Categories</h3>
+                {categories.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No categories found.</p>
+                ) : (
+                  <div className="border rounded-md divide-y">
+                    {categories.map((category) => (
+                      <div key={category.id} className="flex items-center justify-between p-2">
+                        <span>{category.name}</span>
+                        <Button variant="ghost" size="sm" onClick={() => handleEditCategoryClick(category)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="mt-4">
+                  <h3 className="text-sm font-medium mb-2">{getAppTranslation("add_new_category", language)}</h3>
+                  <form onSubmit={handleAddCategory} className="flex gap-2">
+                    <Input
+                      value={newCategoryName}
+                      onChange={(e) => setNewCategoryName(e.target.value)}
+                      placeholder={getAppTranslation("enter_category_name", language)}
+                      className="flex-1"
+                      required
+                    />
+                    <Button type="submit" disabled={isSavingCategory}>
+                      {isSavingCategory ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
+                    </Button>
+                  </form>
+                </div>
+              </div>
             </DialogContent>
           </Dialog>
         </div>
@@ -1647,6 +1772,48 @@ export default function InventoryPage() {
                   </>
                 ) : (
                   getAppTranslation("add_category", language)
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Category Dialog */}
+      <Dialog open={isEditCategoryDialogOpen} onOpenChange={setIsEditCategoryDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Category</DialogTitle>
+            <DialogDescription>Update the category name.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleEditCategory}>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="edit-category-name" className="text-right">
+                  {getAppTranslation("name", language)}
+                </Label>
+                <Input
+                  id="edit-category-name"
+                  value={editCategoryName}
+                  onChange={(e) => setEditCategoryName(e.target.value)}
+                  className="col-span-3"
+                  placeholder={getAppTranslation("enter_category_name", language)}
+                  required
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsEditCategoryDialogOpen(false)}>
+                {getAppTranslation("cancel", language)}
+              </Button>
+              <Button type="submit" disabled={isEditingCategory}>
+                {isEditingCategory ? (
+                  <>
+                    <Loader2 className={`${isRTL ? "ml-2" : "mr-2"} h-4 w-4 animate-spin`} />
+                    {getAppTranslation("saving", language)}...
+                  </>
+                ) : (
+                  "Update Category"
                 )}
               </Button>
             </DialogFooter>
