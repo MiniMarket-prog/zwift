@@ -149,6 +149,9 @@ export default function InventoryPage() {
   // Add this state to track if JsBarcode is loaded
   const [isBarcodeLibLoaded, setIsBarcodeLibLoaded] = useState(false)
 
+  // Add a new state to track if the selected product is used in sales
+  const [productInUse, setProductInUse] = useState(false)
+
   const { toast } = useToast()
   const printFrameRef = useRef<HTMLIFrameElement>(null)
   const barcodePreviewRef = useRef<HTMLDivElement>(null)
@@ -627,8 +630,28 @@ export default function InventoryPage() {
     }
   }
 
-  const handleDeleteClick = (product: Product) => {
+  const handleDeleteClick = async (product: Product) => {
     setSelectedProduct(product)
+
+    // Check if the product is used in any sales before showing the dialog
+    try {
+      const supabase = createClient()
+      const { data: saleItems, error: checkError } = await supabase
+        .from("sale_items")
+        .select("id")
+        .eq("product_id", product.id)
+        .limit(1)
+
+      if (checkError) throw checkError
+
+      // Set the state based on whether the product is used in sales
+      setProductInUse(saleItems && saleItems.length > 0)
+    } catch (error) {
+      console.error("Error checking if product is in use:", error)
+      // Default to false if there's an error checking
+      setProductInUse(false)
+    }
+
     setIsDeleteDialogOpen(true)
   }
 
@@ -639,6 +662,29 @@ export default function InventoryPage() {
       // Check authentication first
       await getSupabaseClient()
 
+      // First check if the product is used in any sales
+      const supabase = createClient()
+      const { data: saleItems, error: checkError } = await supabase
+        .from("sale_items")
+        .select("id")
+        .eq("product_id", selectedProduct.id)
+        .limit(1)
+
+      if (checkError) throw checkError
+
+      // If product is used in sales, show a specific error message
+      if (saleItems && saleItems.length > 0) {
+        toast({
+          title: getAppTranslation("error", language),
+          description:
+            "This product cannot be deleted because it is used in sales records. Consider archiving it instead.",
+          variant: "destructive",
+        })
+        setIsDeleteDialogOpen(false)
+        return
+      }
+
+      // If not used in sales, proceed with deletion
       await deleteProduct(selectedProduct.id)
       setIsDeleteDialogOpen(false)
       await loadProducts()
@@ -660,11 +706,21 @@ export default function InventoryPage() {
         return
       }
 
-      toast({
-        title: getAppTranslation("error", language),
-        description: getAppTranslation("failed_to_delete_product", language),
-        variant: "destructive",
-      })
+      // Check for foreign key constraint error
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "23503") {
+        toast({
+          title: getAppTranslation("error", language),
+          description:
+            "This product cannot be deleted because it is used in sales records. Consider archiving it instead.",
+          variant: "destructive",
+        })
+      } else {
+        toast({
+          title: getAppTranslation("error", language),
+          description: getAppTranslation("failed_to_delete_product", language),
+          variant: "destructive",
+        })
+      }
     }
   }
 
@@ -1517,18 +1573,42 @@ export default function InventoryPage() {
           <DialogHeader>
             <DialogTitle>{getAppTranslation("are_you_sure", language)}</DialogTitle>
             <DialogDescription>
-              {getAppTranslation("delete_product_confirmation", language)} &quot;{selectedProduct?.name}&quot;.{" "}
-              {getAppTranslation("action_cannot_be_undone", language)}
+              {productInUse ? (
+                <>
+                  <p className="text-amber-600 dark:text-amber-400 font-medium mb-2">
+                    Warning: This product cannot be deleted because it is used in sales records.
+                  </p>
+                  <p>
+                    Deleting "{selectedProduct?.name}" would break the integrity of your sales history. Consider
+                    updating the product information instead, or archiving it by setting the stock to zero.
+                  </p>
+                </>
+              ) : (
+                <>
+                  {getAppTranslation("delete_product_confirmation", language)} &quot;{selectedProduct?.name}&quot;.{" "}
+                  {getAppTranslation("action_cannot_be_undone", language)}
+                  <p className="mt-2 text-amber-600 dark:text-amber-400">
+                    Note: Products that have been used in sales cannot be deleted.
+                  </p>
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
-          <div className="flex justify-end space-x-2 pt-4">
+          <DialogFooter className="flex justify-end space-x-2 pt-4">
             <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
               {getAppTranslation("cancel", language)}
             </Button>
-            <Button variant="destructive" onClick={handleDeleteProduct}>
-              {getAppTranslation("delete", language)}
-            </Button>
-          </div>
+            {!productInUse && (
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  handleDeleteProduct()
+                }}
+              >
+                {getAppTranslation("delete", language)}
+              </Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

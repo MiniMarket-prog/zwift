@@ -94,4 +94,3 @@ export function InventoryStatusCard({ items }: { items: InventoryItem[] }) {
     </Card>
   )
 }
-
