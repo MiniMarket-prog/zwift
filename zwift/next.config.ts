@@ -16,6 +16,11 @@ const nextConfig = {
 
   // Disable strict mode which can cause additional warnings
   reactStrictMode: false,
+
+  // Add the images configuration to allow i.postimg.cc domain
+  images: {
+    domains: ["i.postimg.cc"],
+  },
 }
 
 module.exports = nextConfig

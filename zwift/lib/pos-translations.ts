@@ -44,6 +44,13 @@ export type POSTranslationKey =
   | "price"
   | "id"
   | "adjustStockLevelsDescription"
+  | "expiry_date"
+  | "notify_before_days"
+  | "select_date"
+  | "expiring_products_alert"
+  | "expiring_products"
+  | "expiring_products_description"
+  | "edit"
 
 // Define translations for each supported language
 export const posTranslations: Record<string, Record<POSTranslationKey, string>> = {
@@ -92,6 +99,14 @@ export const posTranslations: Record<string, Record<POSTranslationKey, string>> 
     price: "Price",
     id: "ID",
     adjustStockLevelsDescription: "Adjust stock levels directly or add products to cart.",
+    // New translations for expiry date feature
+    expiry_date: "Expiry Date",
+    notify_before_days: "Notify Days Before",
+    select_date: "Select date",
+    expiring_products_alert: "Products Expiring Soon",
+    expiring_products: "Expiring Products",
+    expiring_products_description: "The following products are nearing their expiration date.",
+    edit: "Edit",
   },
   es: {
     shoppingCart: "Carrito de Compras",
@@ -138,6 +153,14 @@ export const posTranslations: Record<string, Record<POSTranslationKey, string>> 
     price: "Precio",
     id: "ID",
     adjustStockLevelsDescription: "Ajuste los niveles de stock directamente o añada productos al carrito.",
+    // New translations for expiry date feature
+    expiry_date: "Fecha de Caducidad",
+    notify_before_days: "Notificar Días Antes",
+    select_date: "Seleccionar fecha",
+    expiring_products_alert: "Productos a Punto de Caducar",
+    expiring_products: "Productos Caducando",
+    expiring_products_description: "Los siguientes productos están cerca de su fecha de caducidad.",
+    edit: "Editar",
   },
   fr: {
     shoppingCart: "Panier d'Achat",
@@ -184,6 +207,14 @@ export const posTranslations: Record<string, Record<POSTranslationKey, string>> 
     price: "Prix",
     id: "ID",
     adjustStockLevelsDescription: "Ajustez les niveaux de stock directement ou ajoutez des produits au panier.",
+    // New translations for expiry date feature
+    expiry_date: "Date d'Expiration",
+    notify_before_days: "Notifier Jours Avant",
+    select_date: "Sélectionner une date",
+    expiring_products_alert: "Produits Bientôt Expirés",
+    expiring_products: "Produits en Expiration",
+    expiring_products_description: "Les produits suivants approchent de leur date d'expiration.",
+    edit: "Modifier",
   },
   ar: {
     shoppingCart: "عربة التسوق",
@@ -230,6 +261,14 @@ export const posTranslations: Record<string, Record<POSTranslationKey, string>> 
     price: "السعر",
     id: "المعرف",
     adjustStockLevelsDescription: "ضبط مستويات المخزون مباشرة أو إضافة المنتجات إلى السلة.",
+    // New translations for expiry date feature
+    expiry_date: "تاريخ انتهاء الصلاحية",
+    notify_before_days: "التنبيه قبل أيام",
+    select_date: "اختر تاريخ",
+    expiring_products_alert: "منتجات على وشك انتهاء الصلاحية",
+    expiring_products: "المنتجات منتهية الصلاحية",
+    expiring_products_description: "المنتجات التالية تقترب من تاريخ انتهاء صلاحيتها.",
+    edit: "تعديل",
   },
 }
 
@@ -243,3 +282,4 @@ export function getPOSTranslation(key: POSTranslationKey, language = "en"): stri
   // If the key doesn't exist in the language, fall back to English
   return posTranslations[language][key] || posTranslations.en[key]
 }
+

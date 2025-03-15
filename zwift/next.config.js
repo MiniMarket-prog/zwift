@@ -11,10 +11,16 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
 
-  // Remove the serverExternalPackages line as it's not recognized
+  // Add this to suppress the specific warning
+  serverExternalPackages: ["@supabase/auth-helpers-nextjs"],
 
   // Disable strict mode which can cause additional warnings
   reactStrictMode: false,
+
+  // Add the images configuration to allow i.postimg.cc domain
+  images: {
+    domains: ["i.postimg.cc"],
+  },
 }
 
 module.exports = nextConfig

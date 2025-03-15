@@ -31,16 +31,23 @@ import {
   ChevronsRight,
   FolderPlus,
   RefreshCw,
+  AlertTriangle,
+  CalendarIcon,
 } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
-import { format } from "date-fns"
+import { format as dateFormat } from "date-fns"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { MobileCameraScanner } from "@/components/inventory/mobile-camera-scanner"
 import { useLanguage } from "@/hooks/use-language"
 import { formatCurrency } from "@/lib/format-currency"
 import { createClient } from "@/lib/supabase-client"
+import { Calendar } from "@/components/ui/calendar"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { isValid, parseISO, addDays, isBefore } from "date-fns"
+import { cn } from "@/lib/utils"
+import { Badge } from "@/components/ui/badge"
 
 // Add this type declaration at the top of the file, after the imports
 declare global {
@@ -60,6 +67,8 @@ type Product = {
   image: string | null
   category_id: string | null
   purchase_price: number | null
+  expiry_date: string | null
+  expiry_notification_days: number | null
   created_at?: string | null
 }
 
@@ -79,6 +88,8 @@ interface FormDataState {
   image: string
   category_id: string
   purchase_price: string
+  expiry_date: string
+  expiry_notification_days: string
 }
 
 // Function to generate a unique EAN-13 barcode
@@ -128,6 +139,8 @@ export default function InventoryPage() {
     image: "",
     category_id: "",
     purchase_price: "",
+    expiry_date: "",
+    expiry_notification_days: "30",
   })
 
   // Category state
@@ -166,6 +179,10 @@ export default function InventoryPage() {
 
   // Add a new state to track if the selected product is used in sales
   const [productInUse, setProductInUse] = useState(false)
+
+  // Add a state for expiring products
+  const [expiringProducts, setExpiringProducts] = useState<Product[]>([])
+  const [showExpiryDialog, setShowExpiryDialog] = useState(false)
 
   const { toast } = useToast()
   const printFrameRef = useRef<HTMLIFrameElement>(null)
@@ -368,6 +385,13 @@ export default function InventoryPage() {
           }))
         : []
 
+      if (productsData) {
+        console.log("Loaded products:", productsData.length)
+        const formattedProducts = productsData as Product[]
+        setProducts(formattedProducts)
+        checkExpiringProducts(formattedProducts)
+      }
+
       setProducts(productsArray)
       setFilteredProducts(productsArray)
     } catch (error) {
@@ -507,6 +531,24 @@ export default function InventoryPage() {
     }
   }, [])
 
+  // Add this function to check for expiring products
+  const checkExpiringProducts = useCallback((productsData: Product[]) => {
+    const today = new Date()
+    const expiring = productsData.filter((product) => {
+      if (!product.expiry_date) return false
+
+      const expiryDate = parseISO(product.expiry_date)
+      if (!isValid(expiryDate)) return false
+
+      const notificationDays = product.expiry_notification_days || 30
+      const notificationDate = addDays(today, notificationDays)
+
+      return isBefore(expiryDate, notificationDate) && product.stock > 0
+    })
+
+    setExpiringProducts(expiring)
+  }, [])
+
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value)
   }
@@ -532,12 +574,18 @@ export default function InventoryPage() {
     })
   }
 
+  // Let's check the form handling in the inventory page to ensure the expiry_date is properly captured
+
+  // In the handleAddProduct function, add some debugging:
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault()
 
     try {
       // Check authentication first
       await getSupabaseClient()
+
+      // Log the form data for debugging
+      console.log("Form data before submission:", formData)
 
       await addProduct(formData)
 
@@ -551,6 +599,8 @@ export default function InventoryPage() {
         image: "",
         category_id: "",
         purchase_price: "",
+        expiry_date: "",
+        expiry_notification_days: "30",
       })
       setIsAddDialogOpen(false)
 
@@ -582,21 +632,7 @@ export default function InventoryPage() {
     }
   }
 
-  const handleEditClick = (product: Product) => {
-    setSelectedProduct(product)
-    setFormData({
-      name: product.name,
-      price: product.price.toString(),
-      barcode: product.barcode,
-      stock: product.stock.toString(),
-      min_stock: product.min_stock.toString(),
-      image: product.image || "",
-      category_id: product.category_id || "",
-      purchase_price: product.purchase_price?.toString() || "",
-    })
-    setIsEditDialogOpen(true)
-  }
-
+  // Similarly, update the handleEditProduct function:
   const handleEditProduct = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedProduct) return
@@ -605,14 +641,8 @@ export default function InventoryPage() {
       // Check authentication first
       await getSupabaseClient()
 
-      // Ensure numeric values are properly converted
-      const processedFormData = {
-        ...formData,
-        stock: formData.stock.trim() ? Number.parseInt(formData.stock, 10) : 0,
-        min_stock: formData.min_stock.trim() ? Number.parseInt(formData.min_stock, 10) : 0,
-        price: formData.price.trim() ? Number.parseFloat(formData.price) : 0,
-        purchase_price: formData.purchase_price.trim() ? Number.parseFloat(formData.purchase_price) : null,
-      }
+      // Log the form data for debugging
+      console.log("Form data before update:", formData)
 
       await updateProduct(selectedProduct.id, formData)
       setIsEditDialogOpen(false)
@@ -806,7 +836,7 @@ export default function InventoryPage() {
             display: none !important;
           }
         }
-        
+
         body {
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
           text-align: center;
@@ -814,7 +844,7 @@ export default function InventoryPage() {
           margin: 0;
           padding: 0;
         }
-        
+
         .barcode-container {
           box-sizing: border-box;
           display: flex;
@@ -828,7 +858,7 @@ export default function InventoryPage() {
           margin: 0 auto;
           position: relative;
         }
-        
+
         .product-name {
           font-size: 10px;
           font-weight: 500;
@@ -839,7 +869,7 @@ export default function InventoryPage() {
           text-overflow: ellipsis;
           line-height: 1.2;
         }
-        
+
         .barcode-wrapper {
           display: flex;
           justify-content: center;
@@ -848,26 +878,26 @@ export default function InventoryPage() {
           height: 50px;
           margin: 0;
         }
-        
+
         svg#print-barcode {
           max-width: 100%;
           height: 40px;
         }
-        
+
         .barcode-number {
           font-size: 9px;
           margin: 2px 0;
           letter-spacing: 0.5px;
           line-height: 1;
         }
-        
+
         .price {
           font-size: 12px;
           font-weight: 600;
           margin: 2px 0 0 0;
           line-height: 1;
         }
-        
+
         .print-button {
           margin: 20px auto;
           padding: 12px 24px;
@@ -1109,8 +1139,81 @@ export default function InventoryPage() {
     )
   }
 
+  // Declare handleEditClick here
+  const handleEditClick = (product: Product) => {
+    setSelectedProduct(product)
+    setFormData({
+      name: product.name,
+      price: String(product.price),
+      barcode: product.barcode,
+      stock: String(product.stock),
+      min_stock: String(product.min_stock),
+      image: product.image || "",
+      category_id: product.category_id || "",
+      purchase_price: String(product.purchase_price || ""),
+      expiry_date: product.expiry_date || "",
+      expiry_notification_days: String(product.expiry_notification_days || "30"),
+    })
+    setIsEditDialogOpen(true)
+  }
+
   return (
     <div className="p-6">
+      {expiringProducts.length > 0 && (
+        <Dialog open={showExpiryDialog} onOpenChange={setShowExpiryDialog}>
+          <DialogTrigger asChild>
+            <div className="flex items-center justify-between p-3 mb-2 border border-amber-500 bg-amber-50 dark:bg-amber-950/20 rounded-md cursor-pointer">
+              <div className="flex items-center">
+                <AlertTriangle className="h-5 w-5 text-amber-500 mr-2" />
+                <span className="font-medium text-amber-700 dark:text-amber-400">{"Products Expiring Soon"}</span>
+              </div>
+              <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300">
+                {expiringProducts.length}
+              </Badge>
+            </div>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>{"Expiring Products"}</DialogTitle>
+              <DialogDescription>{"The following products are nearing their expiration date."}</DialogDescription>
+            </DialogHeader>
+            <div className="max-h-[60vh] overflow-auto">
+              <div className="space-y-3 mt-4">
+                {expiringProducts.map((product) => (
+                  <div key={product.id} className="p-3 border rounded-md">
+                    <div className="flex justify-between items-center mb-2">
+                      <p className="font-medium">{product.name}</p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          handleEditClick(product)
+                          setShowExpiryDialog(false)
+                        }}
+                      >
+                        <Pencil className="h-4 w-4 mr-1" />
+                        {getAppTranslation("edit", language)}
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">{"Expiry Date"}:</span>{" "}
+                        <span className="font-medium">
+                          {product.expiry_date ? dateFormat(new Date(product.expiry_date), "PPP") : "-"}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">{getAppTranslation("current_stock", language)}:</span>{" "}
+                        <span className="font-medium">{product.stock}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
       {/* Hidden iframe for printing */}
       <iframe ref={printFrameRef} style={{ display: "none" }} title="Print Frame"></iframe>
 
@@ -1292,6 +1395,61 @@ export default function InventoryPage() {
                       </Button>
                     </div>
                   </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="expiry_date" className="text-right">
+                      {"Expiry Date"}
+                    </Label>
+                    <div className="col-span-3">
+                      // Fix the date selection in the Popover component for adding a product
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant={"outline"}
+                            className={cn(
+                              "w-full justify-start text-left font-normal",
+                              !formData.expiry_date && "text-muted-foreground",
+                            )}
+                          >
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {formData.expiry_date ? (
+                              dateFormat(new Date(formData.expiry_date), "PPP")
+                            ) : (
+                              <span>{getAppTranslation("select_date", language)}</span>
+                            )}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0">
+                          <Calendar
+                            mode="single"
+                            selected={formData.expiry_date ? new Date(formData.expiry_date) : undefined}
+                            onSelect={(date) => {
+                              console.log("Date selected:", date)
+                              setFormData((prev) => ({
+                                ...prev,
+                                expiry_date: date ? date.toISOString().split("T")[0] : "", // Format as YYYY-MM-DD
+                              }))
+                            }}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="expiry_notification_days" className="text-right">
+                      {"Notify Days Before"}
+                    </Label>
+                    <Input
+                      id="expiry_notification_days"
+                      name="expiry_notification_days"
+                      type="number"
+                      min="1"
+                      value={formData.expiry_notification_days}
+                      onChange={handleFormChange}
+                      className="col-span-3"
+                      placeholder="30"
+                    />
+                  </div>
                 </div>
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>
@@ -1405,6 +1563,7 @@ export default function InventoryPage() {
                     <th className="px-4 py-3 text-left text-sm font-medium">
                       {getAppTranslation("created_at", language)}
                     </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">{"Expiry Date"}</th>
                     <th className="px-4 py-3 text-center text-sm font-medium">
                       {getAppTranslation("actions", language)}
                     </th>
@@ -1442,7 +1601,10 @@ export default function InventoryPage() {
                         {product.category_id ? categories.find((c) => c.id === product.category_id)?.name || "-" : "-"}
                       </td>
                       <td className="px-4 py-3 text-sm">
-                        {product.created_at ? format(new Date(product.created_at), "PPp") : "-"}
+                        {product.created_at ? dateFormat(new Date(product.created_at), "PPp") : "-"}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {product.expiry_date ? dateFormat(new Date(product.expiry_date), "PP") : "-"}
                       </td>
                       <td className="px-4 py-3 text-sm">
                         <div className="flex justify-center gap-1">
@@ -1680,6 +1842,67 @@ export default function InventoryPage() {
                     <FolderPlus className="h-4 w-4" />
                   </Button>
                 </div>
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="expiry_date" className="text-right">
+                  {"Expiry Date"}
+                </Label>
+                <div className="col-span-3">
+                  // Fix the date selection in the Popover component for editing a product
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant={"outline"}
+                        className={cn(
+                          "w-full justify-start text-left font-normal",
+                          !formData.expiry_date && "text-muted-foreground",
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {formData.expiry_date ? (
+                          dateFormat(new Date(formData.expiry_date), "PPP")
+                        ) : (
+                          <span>{getAppTranslation("select_date", language)}</span>
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <Calendar
+                        mode="single"
+                        selected={formData.expiry_date ? new Date(formData.expiry_date) : undefined}
+                        onSelect={(date) => {
+                          console.log("Date selected for edit (raw):", date)
+                          const formattedDate = date ? date.toISOString().split("T")[0] : ""
+                          console.log("Formatted date for database:", formattedDate)
+                          setFormData((prev) => {
+                            const newFormData = {
+                              ...prev,
+                              expiry_date: formattedDate,
+                            }
+                            console.log("Updated form data expiry_date:", newFormData.expiry_date)
+                            return newFormData
+                          })
+                        }}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="expiry_notification_days" className="text-right">
+                  {"Notify Days Before"}
+                </Label>
+                <Input
+                  id="edit-expiry_notification_days"
+                  name="expiry_notification_days"
+                  type="number"
+                  min="1"
+                  value={formData.expiry_notification_days}
+                  onChange={handleFormChange}
+                  className="col-span-3"
+                  placeholder="30"
+                />
               </div>
             </div>
             <DialogFooter>

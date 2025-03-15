@@ -3,13 +3,10 @@
 // Inspired by react-hot-toast library
 import * as React from "react"
 
-import type {
-  ToastActionElement,
-  ToastProps,
-} from "@/components/ui/toast"
+import type { ToastActionElement, ToastProps } from "@/components/ui/toast"
 
 const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 1000000
+const TOAST_REMOVE_DELAY = 5000 // 5 seconds instead of 1000000
 
 type ToasterToast = ToastProps & {
   id: string
@@ -85,9 +82,7 @@ export const reducer = (state: State, action: Action): State => {
     case "UPDATE_TOAST":
       return {
         ...state,
-        toasts: state.toasts.map((t) =>
-          t.id === action.toast.id ? { ...t, ...action.toast } : t
-        ),
+        toasts: state.toasts.map((t) => (t.id === action.toast.id ? { ...t, ...action.toast } : t)),
       }
 
     case "DISMISS_TOAST": {
@@ -111,16 +106,26 @@ export const reducer = (state: State, action: Action): State => {
                 ...t,
                 open: false,
               }
-            : t
+            : t,
         ),
       }
     }
-    case "REMOVE_TOAST":
+    case actionTypes.REMOVE_TOAST:
       if (action.toastId === undefined) {
+        // Clear all timeouts when removing all toasts
+        toastTimeouts.forEach((timeout, id) => {
+          clearTimeout(timeout)
+          toastTimeouts.delete(id)
+        })
         return {
           ...state,
           toasts: [],
         }
+      }
+      // Clear the specific timeout
+      if (toastTimeouts.has(action.toastId)) {
+        clearTimeout(toastTimeouts.get(action.toastId))
+        toastTimeouts.delete(action.toastId)
       }
       return {
         ...state,
@@ -134,10 +139,18 @@ const listeners: Array<(state: State) => void> = []
 let memoryState: State = { toasts: [] }
 
 function dispatch(action: Action) {
-  memoryState = reducer(memoryState, action)
-  listeners.forEach((listener) => {
-    listener(memoryState)
-  })
+  try {
+    memoryState = reducer(memoryState, action)
+    listeners.forEach((listener) => {
+      try {
+        listener(memoryState)
+      } catch (error) {
+        console.error("Error in toast listener:", error)
+      }
+    })
+  } catch (error) {
+    console.error("Error dispatching toast action:", error, action)
+  }
 }
 
 type Toast = Omit<ToasterToast, "id">
@@ -175,20 +188,32 @@ function useToast() {
   const [state, setState] = React.useState<State>(memoryState)
 
   React.useEffect(() => {
-    listeners.push(setState)
+    // Create a stable callback that won't change on re-renders
+    const stableSetState = (newState: State) => {
+      setState(newState)
+    }
+
+    listeners.push(stableSetState)
+
+    // Initial sync with memory state
+    if (JSON.stringify(state.toasts) !== JSON.stringify(memoryState.toasts)) {
+      setState(memoryState)
+    }
+
     return () => {
-      const index = listeners.indexOf(setState)
+      const index = listeners.indexOf(stableSetState)
       if (index > -1) {
         listeners.splice(index, 1)
       }
     }
-  }, [state])
+  }, []) // Empty dependency array to run only on mount/unmount
 
   return {
     ...state,
     toast,
-    dismiss: (toastId?: string) => dispatch({ type: "DISMISS_TOAST", toastId }),
+    dismiss: (toastId?: string) => dispatch({ type: actionTypes.DISMISS_TOAST, toastId }),
   }
 }
 
 export { useToast, toast }
+

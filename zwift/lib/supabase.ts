@@ -42,20 +42,65 @@ export async function getProducts() {
   }
 }
 
-// Function to update an existing product
-export async function updateProduct(
-  id: string,
-  productData: {
-    name: string
-    price: string
-    barcode: string
-    stock: string
-    min_stock: string
-    image?: string
-    category_id?: string
-    purchase_price?: string
-  },
-) {
+// Update the existing updateCategoryName function
+export async function updateCategoryName(categoryId: string, name: string) {
+  try {
+    const supabase = createClient()
+
+    const { data, error } = await supabase.from("categories").update({ name }).eq("id", categoryId).select().single()
+
+    if (error) {
+      console.error("Error updating category:", error)
+      throw error
+    }
+
+    return data
+  } catch (error) {
+    console.error("Exception in updateCategoryName:", error)
+    throw error
+  }
+}
+
+// Add this function to update existing products with random barcodes for testing
+export async function generateTestBarcodes() {
+  const supabase = createClient()
+
+  // Get all products without barcodes
+  const { data: products, error } = await supabase.from("products").select("id").is("barcode", null)
+
+  if (error) {
+    console.error("Error fetching products:", error)
+    return
+  }
+
+  // Generate and update barcodes
+  for (const product of products) {
+    // Generate a random 13-digit EAN barcode
+    const barcode = Array.from({ length: 13 }, () => Math.floor(Math.random() * 10)).join("")
+
+    const { error: updateError } = await supabase.from("products").update({ barcode }).eq("id", product.id)
+
+    if (updateError) {
+      console.error(`Error updating barcode for product ${product.id}:`, updateError)
+    }
+  }
+
+  console.log("Barcode generation complete")
+}
+
+// Update the existing addProduct function to include expiry_date and expiry_notification_days
+export async function addProduct(productData: {
+  name: string
+  price: string
+  barcode: string
+  stock: string
+  min_stock: string
+  image?: string
+  category_id?: string
+  purchase_price?: string
+  expiry_date?: string
+  expiry_notification_days?: string
+}) {
   const supabase = createClient()
 
   try {
@@ -69,11 +114,92 @@ export async function updateProduct(
       image: productData.image || null,
       category_id: productData.category_id === "none" ? null : productData.category_id || null,
       purchase_price: productData.purchase_price ? Number.parseFloat(productData.purchase_price) : null,
+      // Ensure expiry_date is properly formatted or null if empty
+      expiry_date: productData.expiry_date && productData.expiry_date.trim() !== "" ? productData.expiry_date : null,
+      expiry_notification_days: productData.expiry_notification_days
+        ? Number.parseInt(productData.expiry_notification_days)
+        : 30,
     }
+
+    console.log("Adding product with data:", formattedData)
+
+    const { data, error } = await supabase.from("products").insert(formattedData).select().single()
+
+    if (error) {
+      console.error("Database error adding product:", error)
+      throw error
+    }
+
+    return data
+  } catch (error) {
+    console.error("Error adding product:", error)
+    throw error
+  }
+}
+
+// Find the updateProduct function and replace it with this version that includes more detailed logging
+export async function updateProduct(
+  id: string,
+  productData: {
+    name: string
+    price: string
+    barcode: string
+    stock: string
+    min_stock: string
+    image?: string
+    category_id?: string
+    purchase_price?: string
+    expiry_date?: string
+    expiry_notification_days?: string
+  },
+) {
+  const supabase = createClient()
+
+  try {
+    // Log the raw expiry_date value from the form
+    console.log("Raw expiry_date from form:", productData.expiry_date)
+
+    // Convert string values to appropriate types
+    const formattedData = {
+      name: productData.name,
+      price: Number.parseFloat(productData.price) || 0,
+      barcode: productData.barcode,
+      stock: Number.parseInt(productData.stock) || 0,
+      min_stock: Number.parseInt(productData.min_stock) || 0,
+      image: productData.image || null,
+      category_id: productData.category_id === "none" ? null : productData.category_id || null,
+      purchase_price: productData.purchase_price ? Number.parseFloat(productData.purchase_price) : null,
+      // Ensure expiry_date is properly formatted or null if empty
+      expiry_date: productData.expiry_date && productData.expiry_date.trim() !== "" ? productData.expiry_date : null,
+      expiry_notification_days: productData.expiry_notification_days
+        ? Number.parseInt(productData.expiry_notification_days)
+        : 30,
+    }
+
+    // Log the formatted expiry_date that will be sent to the database
+    console.log("Formatted expiry_date for database:", formattedData.expiry_date)
+
+    console.log("Updating product with data:", formattedData)
+
+    // Log the actual SQL query that will be executed (as close as we can get)
+    console.log(
+      "Executing equivalent to: UPDATE products SET expiry_date = '" +
+        formattedData.expiry_date +
+        "' WHERE id = '" +
+        id +
+        "'",
+    )
 
     const { data, error } = await supabase.from("products").update(formattedData).eq("id", id).select().single()
 
-    if (error) throw error
+    if (error) {
+      console.error("Database error updating product:", error)
+      throw error
+    }
+
+    // Log the returned data from the database
+    console.log("Updated product data returned from database:", data)
+    console.log("Returned expiry_date from database:", data.expiry_date)
 
     return data
   } catch (error) {
@@ -418,43 +544,6 @@ export async function deleteCategory(id: string) {
   }
 }
 
-// Function to add a new product
-export async function addProduct(productData: {
-  name: string
-  price: string
-  barcode: string
-  stock: string
-  min_stock: string
-  image?: string
-  category_id?: string
-  purchase_price?: string
-}) {
-  const supabase = createClient()
-
-  try {
-    // Convert string values to appropriate types
-    const formattedData = {
-      name: productData.name,
-      price: Number.parseFloat(productData.price) || 0,
-      barcode: productData.barcode,
-      stock: Number.parseInt(productData.stock) || 0,
-      min_stock: Number.parseInt(productData.min_stock) || 0,
-      image: productData.image || null,
-      category_id: productData.category_id === "none" ? null : productData.category_id || null,
-      purchase_price: productData.purchase_price ? Number.parseFloat(productData.purchase_price) : null,
-    }
-
-    const { data, error } = await supabase.from("products").insert(formattedData).select().single()
-
-    if (error) throw error
-
-    return data
-  } catch (error) {
-    console.error("Error adding product:", error)
-    throw error
-  }
-}
-
 // Function to delete a product
 export async function deleteProduct(id: string) {
   const supabase = createClient()
@@ -537,21 +626,40 @@ export async function refreshSettings(setSettings: any) {
   }
 }
 
-// Add this function to update existing categories
-export async function updateCategoryName(categoryId: string, name: string) {
+// Function to get expiring products
+export async function getExpiringProducts(daysThreshold = 30) {
+  const supabase = createClient()
+
   try {
-    const supabase = createClient()
+    // Get all products with expiry dates
+    const { data, error } = await supabase.from("products").select("*").not("expiry_date", "is", null).gt("stock", 0) // Only include products with stock > 0
 
-    const { data, error } = await supabase.from("categories").update({ name }).eq("id", categoryId).select().single()
+    if (error) throw error
 
-    if (error) {
-      console.error("Error updating category:", error)
-      throw error
-    }
+    // Calculate the date threshold
+    const today = new Date()
+    const thresholdDate = new Date()
+    thresholdDate.setDate(today.getDate() + daysThreshold)
 
-    return data
+    // Filter products that are expiring within the threshold
+    const expiringProducts =
+      data?.filter((product) => {
+        if (!product.expiry_date) return false
+
+        const expiryDate = new Date(product.expiry_date)
+        const notificationDays = product.expiry_notification_days || daysThreshold
+
+        // Calculate the notification date for this specific product
+        const productThresholdDate = new Date()
+        productThresholdDate.setDate(today.getDate() + notificationDays)
+
+        return expiryDate <= productThresholdDate
+      }) || []
+
+    return expiringProducts
   } catch (error) {
-    console.error("Exception in updateCategoryName:", error)
+    console.error("Error fetching expiring products:", error)
     throw error
   }
 }
+
