@@ -108,6 +108,9 @@ const POSPage = () => {
   const { toast } = useToast() // Using the correct import
   const supabase = createClient()
   const searchTimeout = useRef<NodeJS.Timeout | null>(null)
+  const barcodeBuffer = useRef<string>("")
+  const lastKeyTime = useRef<number>(0)
+  const processingBarcode = useRef<boolean>(false)
 
   // Track the last notification to prevent duplicates
   const lastNotificationRef = useRef<{ productId: string; timestamp: number }>({ productId: "", timestamp: 0 })
@@ -146,6 +149,115 @@ const POSPage = () => {
     }
   }, [lastAddedProduct, autoAddOnBarcode])
 
+  // Global keyboard listener for barcode scanner
+  useEffect(() => {
+    if (!autoAddOnBarcode) return
+
+    const BARCODE_SCAN_TIMEOUT = 50 // Typical barcode scanners send characters very quickly
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only process if we're not in an input field (except our search input)
+      const target = e.target as HTMLElement
+      if (
+        target.tagName === "INPUT" &&
+        target !== searchInputRef.current &&
+        !target.classList.contains("barcode-input")
+      ) {
+        return
+      }
+
+      const currentTime = new Date().getTime()
+
+      // If there's a significant delay between keystrokes, reset the buffer
+      if (currentTime - lastKeyTime.current > BARCODE_SCAN_TIMEOUT && barcodeBuffer.current.length > 0) {
+        console.log("Resetting barcode buffer due to timeout")
+        barcodeBuffer.current = ""
+      }
+
+      lastKeyTime.current = currentTime
+
+      // Handle Enter key as the end of barcode input
+      if (e.key === "Enter" && barcodeBuffer.current.length > 3) {
+        e.preventDefault()
+
+        if (processingBarcode.current) {
+          console.log("Already processing a barcode, ignoring this one")
+          return
+        }
+
+        processingBarcode.current = true
+        console.log("Processing barcode from global listener:", barcodeBuffer.current)
+
+        // Process the barcode
+        processBarcode(barcodeBuffer.current)
+
+        // Reset the buffer
+        barcodeBuffer.current = ""
+        return
+      }
+
+      // Add character to buffer if it's a valid barcode character
+      if (e.key.length === 1 && /[\w\d]/.test(e.key)) {
+        barcodeBuffer.current += e.key
+        console.log("Added to barcode buffer:", e.key, "Current buffer:", barcodeBuffer.current)
+      }
+    }
+
+    // Add the global event listener
+    window.addEventListener("keydown", handleKeyDown)
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [autoAddOnBarcode, products])
+
+  // Process a barcode and add the product to cart
+  const processBarcode = (barcode: string) => {
+    console.log("Processing barcode:", barcode)
+
+    if (!barcode || barcode.trim() === "") {
+      processingBarcode.current = false
+      return
+    }
+
+    // Find the product with this barcode
+    const exactBarcodeMatch = products.find(
+      (product) => product.barcode && product.barcode.toLowerCase() === barcode.toLowerCase(),
+    )
+
+    if (exactBarcodeMatch) {
+      console.log("Found exact barcode match:", exactBarcodeMatch.name)
+
+      // Add product to cart with notification
+      const wasAdded = addToCart(exactBarcodeMatch, true)
+
+      if (wasAdded) {
+        console.log("Product added to cart successfully")
+
+        // Set last added product for beep sound
+        setLastAddedProduct(exactBarcodeMatch)
+
+        // Clear search field and focus it for the next scan
+        setSearchTerm("")
+        if (searchInputRef.current) {
+          searchInputRef.current.focus()
+        }
+      }
+    } else {
+      console.log("No product found with barcode:", barcode)
+      toast({
+        title: "Product Not Found",
+        description: `No product found with barcode: ${barcode}`,
+        variant: "destructive",
+      })
+    }
+
+    // Reset processing flag after a short delay to prevent double processing
+    setTimeout(() => {
+      processingBarcode.current = false
+    }, 300)
+  }
+
   // Fetch products and settings
   const fetchData = useCallback(
     async (searchQuery = "") => {
@@ -159,8 +271,8 @@ const POSPage = () => {
           // Use ilike for case-insensitive search
           query = query.or(`name.ilike.%${searchQuery}%,barcode.ilike.%${searchQuery}%`)
         } else {
-          // If no search, just get the first 20 products for better performance
-          query = query.limit(20)
+          // If no search, just get all products for better barcode matching
+          query = query.limit(1000)
         }
 
         const { data: productsData, error: productsError } = await query
@@ -543,6 +655,11 @@ const POSPage = () => {
 
           // Prevent form submission
           e.preventDefault()
+
+          // Focus the search input again for the next scan
+          if (searchInputRef.current) {
+            searchInputRef.current.focus()
+          }
         }
       }
     }
@@ -1422,7 +1539,7 @@ const POSPage = () => {
                 value={searchTerm}
                 onChange={handleSearch}
                 onKeyDown={handleSearchKeyDown}
-                className={rtlEnabled ? "pr-10" : "pl-10"}
+                className={`barcode-input ${rtlEnabled ? "pr-10" : "pl-10"}`}
                 autoComplete="off"
               />
             </div>
