@@ -108,11 +108,6 @@ const POSPage = () => {
   const { toast } = useToast() // Using the correct import
   const supabase = createClient()
   const searchTimeout = useRef<NodeJS.Timeout | null>(null)
-  const barcodeBuffer = useRef<string>("")
-  const lastKeyTime = useRef<number>(0)
-  const processingBarcode = useRef<boolean>(false)
-
-  // Track the last notification to prevent duplicates
   const lastNotificationRef = useRef<{ productId: string; timestamp: number }>({ productId: "", timestamp: 0 })
 
   // Add a new state for recently sold products after the other state declarations
@@ -149,114 +144,223 @@ const POSPage = () => {
     }
   }, [lastAddedProduct, autoAddOnBarcode])
 
+  const addToCart = useCallback(
+    (product: Product, showNotification = true): boolean => {
+      if (product.stock <= 0) {
+        toast({
+          title: getPOSTranslation("outOfStock", language),
+          description: `${product.name} ${getPOSTranslation("outOfStock", language).toLowerCase()}.`,
+          variant: "destructive",
+        })
+        return false
+      }
+
+      let wasAdded = false
+      const now = Date.now()
+
+      // Check if we should show a notification (debounce)
+      const shouldShowNotification =
+        showNotification &&
+        (lastNotificationRef.current.productId !== product.id || now - lastNotificationRef.current.timestamp > 500)
+
+      // Find if the product already exists in the cart before updating state
+      const existingItem = cart.find((item) => item.product.id === product.id)
+
+      if (existingItem) {
+        // Check if we have enough stock
+        if (existingItem.quantity >= product.stock) {
+          toast({
+            title: getPOSTranslation("stockLimitReached", language),
+            description: `${getPOSTranslation("stockLimitReached", language)}: ${product.stock} ${product.name}`,
+            variant: "destructive",
+          })
+          return false
+        }
+
+        // Show notification for adding another unit
+        if (shouldShowNotification) {
+          toast({
+            title: getPOSTranslation("productUpdated", language),
+            description: `${getPOSTranslation("productUpdated", language)}: ${product.name} (${existingItem.quantity + 1})`,
+          })
+
+          // Update the last notification reference
+          lastNotificationRef.current = {
+            productId: product.id,
+            timestamp: now,
+          }
+        }
+
+        // Update cart with increased quantity
+        setCart((prevCart) =>
+          prevCart.map((item) => (item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item)),
+        )
+
+        wasAdded = true
+      } else {
+        // Show notification for adding new product
+        if (shouldShowNotification) {
+          toast({
+            title: getPOSTranslation("productAdded", language),
+            description: `${product.name} ${getPOSTranslation("productAdded", language).toLowerCase()}`,
+          })
+
+          // Update the last notification reference
+          lastNotificationRef.current = {
+            productId: product.id,
+            timestamp: now,
+          }
+        }
+
+        // Add new product to cart
+        setCart((prevCart) => [
+          ...prevCart,
+          {
+            id: product.id,
+            product,
+            quantity: 1,
+            price: product.price,
+          },
+        ])
+
+        wasAdded = true
+      }
+
+      return wasAdded
+    },
+    [cart, language, toast],
+  )
+
   // Global keyboard listener for barcode scanner
   useEffect(() => {
     if (!autoAddOnBarcode) return
 
-    const BARCODE_SCAN_TIMEOUT = 50 // Typical barcode scanners send characters very quickly
+    // Barcode scanner configuration
+    const BARCODE_SCAN_TIMEOUT = 50 // Time between keystrokes in ms
+    const BARCODE_COMPLETE_TIMEOUT = 300 // Time to wait after last keystroke to process barcode
+    const MIN_BARCODE_LENGTH = 3 // Minimum valid barcode length
+
+    let barcodeBuffer = ""
+    let lastKeyTime = 0
+    let barcodeTimeoutId: NodeJS.Timeout | null = null
+
+    const processBarcode = (barcode: string) => {
+      console.log("Processing barcode:", barcode)
+
+      if (!barcode || barcode.trim() === "" || barcode.length < MIN_BARCODE_LENGTH) {
+        console.log("Invalid barcode, ignoring:", barcode)
+        return
+      }
+
+      // Find the product with this barcode
+      const exactBarcodeMatch = products.find(
+        (product) => product.barcode && product.barcode.toLowerCase() === barcode.toLowerCase(),
+      )
+
+      if (exactBarcodeMatch) {
+        console.log("Found exact barcode match:", exactBarcodeMatch.name)
+
+        // Add product to cart with notification
+        const wasAdded = addToCart(exactBarcodeMatch, true)
+
+        if (wasAdded) {
+          console.log("Product added to cart successfully")
+
+          // Set last added product for beep sound
+          setLastAddedProduct(exactBarcodeMatch)
+
+          // Clear search field and focus it for the next scan
+          setSearchTerm("")
+          if (searchInputRef.current) {
+            searchInputRef.current.focus()
+          }
+        }
+      } else {
+        console.log("No product found with barcode:", barcode)
+        toast({
+          title: "Product Not Found",
+          description: `No product found with barcode: ${barcode}`,
+          variant: "destructive",
+        })
+      }
+    }
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Only process if we're not in an input field (except our search input)
+      // Skip if we're in an input field that's not our search input
       const target = e.target as HTMLElement
-      if (
-        target.tagName === "INPUT" &&
-        target !== searchInputRef.current &&
-        !target.classList.contains("barcode-input")
-      ) {
+      const isInputElement = target.tagName === "INPUT" || target.tagName === "TEXTAREA"
+      const isOurSearchInput = target === searchInputRef.current || target.classList.contains("barcode-input")
+
+      if (isInputElement && !isOurSearchInput) {
         return
       }
 
       const currentTime = new Date().getTime()
+      const keyChar = e.key
 
-      // If there's a significant delay between keystrokes, reset the buffer
-      if (currentTime - lastKeyTime.current > BARCODE_SCAN_TIMEOUT && barcodeBuffer.current.length > 0) {
-        console.log("Resetting barcode buffer due to timeout")
-        barcodeBuffer.current = ""
-      }
+      // If this is an Enter key and we have a barcode in the buffer
+      if (keyChar === "Enter" && barcodeBuffer.length >= MIN_BARCODE_LENGTH) {
+        e.preventDefault() // Prevent form submission
 
-      lastKeyTime.current = currentTime
-
-      // Handle Enter key as the end of barcode input
-      if (e.key === "Enter" && barcodeBuffer.current.length > 3) {
-        e.preventDefault()
-
-        if (processingBarcode.current) {
-          console.log("Already processing a barcode, ignoring this one")
-          return
+        // Clear any pending timeout
+        if (barcodeTimeoutId) {
+          clearTimeout(barcodeTimeoutId)
+          barcodeTimeoutId = null
         }
 
-        processingBarcode.current = true
-        console.log("Processing barcode from global listener:", barcodeBuffer.current)
-
         // Process the barcode
-        processBarcode(barcodeBuffer.current)
-
-        // Reset the buffer
-        barcodeBuffer.current = ""
+        const barcodeToProcess = barcodeBuffer
+        barcodeBuffer = "" // Reset buffer immediately
+        processBarcode(barcodeToProcess)
         return
       }
 
-      // Add character to buffer if it's a valid barcode character
-      if (e.key.length === 1 && /[\w\d]/.test(e.key)) {
-        barcodeBuffer.current += e.key
-        console.log("Added to barcode buffer:", e.key, "Current buffer:", barcodeBuffer.current)
+      // If it's a printable character
+      if (keyChar.length === 1 && /[\w\d]/.test(keyChar)) {
+        // If there's a significant delay since the last keystroke, start a new barcode
+        if (currentTime - lastKeyTime > BARCODE_SCAN_TIMEOUT && barcodeBuffer.length > 0) {
+          console.log("Starting new barcode due to timing gap")
+          barcodeBuffer = keyChar
+        } else {
+          // Add to existing barcode
+          barcodeBuffer += keyChar
+        }
+
+        lastKeyTime = currentTime
+
+        // Clear any existing timeout
+        if (barcodeTimeoutId) {
+          clearTimeout(barcodeTimeoutId)
+        }
+
+        // Set a timeout to process the barcode after a short delay
+        // This handles scanners that don't send an Enter key
+        barcodeTimeoutId = setTimeout(() => {
+          if (barcodeBuffer.length >= MIN_BARCODE_LENGTH) {
+            console.log("Processing barcode after timeout:", barcodeBuffer)
+            const barcodeToProcess = barcodeBuffer
+            barcodeBuffer = "" // Reset buffer
+            processBarcode(barcodeToProcess)
+          } else {
+            // Reset if it's too short to be a valid barcode
+            barcodeBuffer = ""
+          }
+          barcodeTimeoutId = null
+        }, BARCODE_COMPLETE_TIMEOUT)
       }
     }
 
     // Add the global event listener
     window.addEventListener("keydown", handleKeyDown)
+    console.log("Global barcode scanner listener activated")
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown)
-    }
-  }, [autoAddOnBarcode, products])
-
-  // Process a barcode and add the product to cart
-  const processBarcode = (barcode: string) => {
-    console.log("Processing barcode:", barcode)
-
-    if (!barcode || barcode.trim() === "") {
-      processingBarcode.current = false
-      return
-    }
-
-    // Find the product with this barcode
-    const exactBarcodeMatch = products.find(
-      (product) => product.barcode && product.barcode.toLowerCase() === barcode.toLowerCase(),
-    )
-
-    if (exactBarcodeMatch) {
-      console.log("Found exact barcode match:", exactBarcodeMatch.name)
-
-      // Add product to cart with notification
-      const wasAdded = addToCart(exactBarcodeMatch, true)
-
-      if (wasAdded) {
-        console.log("Product added to cart successfully")
-
-        // Set last added product for beep sound
-        setLastAddedProduct(exactBarcodeMatch)
-
-        // Clear search field and focus it for the next scan
-        setSearchTerm("")
-        if (searchInputRef.current) {
-          searchInputRef.current.focus()
-        }
+      if (barcodeTimeoutId) {
+        clearTimeout(barcodeTimeoutId)
       }
-    } else {
-      console.log("No product found with barcode:", barcode)
-      toast({
-        title: "Product Not Found",
-        description: `No product found with barcode: ${barcode}`,
-        variant: "destructive",
-      })
     }
-
-    // Reset processing flag after a short delay to prevent double processing
-    setTimeout(() => {
-      processingBarcode.current = false
-    }, 300)
-  }
+  }, [autoAddOnBarcode, products, addToCart, toast])
 
   // Fetch products and settings
   const fetchData = useCallback(
@@ -578,46 +682,51 @@ const POSPage = () => {
     setSearchTerm(value)
 
     // Debug log to help troubleshoot
-    console.log("Search value:", value, "Auto-add enabled:", autoAddOnBarcode)
+    console.log("Search value changed:", value, "Auto-add enabled:", autoAddOnBarcode)
 
     // If auto-add is enabled, check for exact barcode match
     if (autoAddOnBarcode && value.trim() !== "") {
-      // Log the current products array length to debug
-      console.log("Checking barcode match among", products.length, "products")
+      // Check if the value ends with a return character (common for barcode scanners)
+      const hasReturnChar = /[\r\n]$/.test(value)
 
-      const exactBarcodeMatch = products.find(
-        (product) => product.barcode && product.barcode.toLowerCase() === value.toLowerCase(),
-      )
+      if (hasReturnChar) {
+        // Clean the value by removing return characters
+        const cleanValue = value.replace(/[\r\n]/g, "")
+        console.log("Detected return character, processing as barcode:", cleanValue)
 
-      if (exactBarcodeMatch) {
-        console.log("Found exact barcode match:", exactBarcodeMatch.name)
+        // Find exact match
+        const exactBarcodeMatch = products.find(
+          (product) => product.barcode && product.barcode.toLowerCase() === cleanValue.toLowerCase(),
+        )
 
-        // Add product to cart with notification
-        const wasAdded = addToCart(exactBarcodeMatch, true)
+        if (exactBarcodeMatch) {
+          console.log("Found exact barcode match:", exactBarcodeMatch.name)
 
-        if (wasAdded) {
-          console.log("Product added to cart successfully")
+          // Add product to cart
+          const wasAdded = addToCart(exactBarcodeMatch, true)
 
-          // Set last added product for beep sound
-          setLastAddedProduct(exactBarcodeMatch)
+          if (wasAdded) {
+            // Set last added product for beep sound
+            setLastAddedProduct(exactBarcodeMatch)
 
-          // Clear search field
-          setSearchTerm("")
+            // Clear search field
+            setSearchTerm("")
 
-          // Focus the search input again for the next scan
-          if (searchInputRef.current) {
-            searchInputRef.current.focus()
+            // Focus the search input again for the next scan
+            setTimeout(() => {
+              if (searchInputRef.current) {
+                searchInputRef.current.focus()
+              }
+            }, 100)
           }
-        }
 
-        // Return early to prevent the debounced search
-        return
-      } else {
-        console.log("No exact barcode match found")
+          // Return early to prevent the debounced search
+          return
+        }
       }
     }
 
-    // Debounce search to avoid too many requests
+    // Regular search behavior continues if no return character was detected
     if (searchTimeout.current) {
       clearTimeout(searchTimeout.current)
     }
@@ -663,91 +772,6 @@ const POSPage = () => {
         }
       }
     }
-  }
-
-  // Add product to cart
-  const addToCart = (product: Product, showNotification = true): boolean => {
-    if (product.stock <= 0) {
-      toast({
-        title: getPOSTranslation("outOfStock", language),
-        description: `${product.name} ${getPOSTranslation("outOfStock", language).toLowerCase()}.`,
-        variant: "destructive",
-      })
-      return false
-    }
-
-    let wasAdded = false
-    const now = Date.now()
-
-    // Check if we should show a notification (debounce)
-    const shouldShowNotification =
-      showNotification &&
-      (lastNotificationRef.current.productId !== product.id || now - lastNotificationRef.current.timestamp > 500)
-
-    // Find if the product already exists in the cart before updating state
-    const existingItem = cart.find((item) => item.product.id === product.id)
-
-    if (existingItem) {
-      // Check if we have enough stock
-      if (existingItem.quantity >= product.stock) {
-        toast({
-          title: getPOSTranslation("stockLimitReached", language),
-          description: `${getPOSTranslation("stockLimitReached", language)}: ${product.stock} ${product.name}`,
-          variant: "destructive",
-        })
-        return false
-      }
-
-      // Show notification for adding another unit
-      if (shouldShowNotification) {
-        toast({
-          title: getPOSTranslation("productUpdated", language),
-          description: `${getPOSTranslation("productUpdated", language)}: ${product.name} (${existingItem.quantity + 1})`,
-        })
-
-        // Update the last notification reference
-        lastNotificationRef.current = {
-          productId: product.id,
-          timestamp: now,
-        }
-      }
-
-      // Update cart with increased quantity
-      setCart((prevCart) =>
-        prevCart.map((item) => (item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item)),
-      )
-
-      wasAdded = true
-    } else {
-      // Show notification for adding new product
-      if (shouldShowNotification) {
-        toast({
-          title: getPOSTranslation("productAdded", language),
-          description: `${product.name} ${getPOSTranslation("productAdded", language).toLowerCase()}`,
-        })
-
-        // Update the last notification reference
-        lastNotificationRef.current = {
-          productId: product.id,
-          timestamp: now,
-        }
-      }
-
-      // Add new product to cart
-      setCart((prevCart) => [
-        ...prevCart,
-        {
-          id: product.id,
-          product,
-          quantity: 1,
-          price: product.price,
-        },
-      ])
-
-      wasAdded = true
-    }
-
-    return wasAdded
   }
 
   // Remove item from cart
@@ -1539,8 +1563,9 @@ const POSPage = () => {
                 value={searchTerm}
                 onChange={handleSearch}
                 onKeyDown={handleSearchKeyDown}
-                className={`barcode-input ${rtlEnabled ? "pr-10" : "pl-10"}`}
+                className="barcode-scanner-input barcode-input"
                 autoComplete="off"
+                data-barcode-input="true"
               />
             </div>
             <div className="flex items-center justify-between mt-2">
