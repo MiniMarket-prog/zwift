@@ -23,10 +23,13 @@ export const getRecentInventoryActivity = cache(async (limit = 5) => {
 
     console.log("Fetching recent inventory activity...")
 
-    // Try to query inventory_activity table with a simple select first
+    // Improved query: Join with products table directly to get product names
     const { data: activityData, error: activityError } = await supabase
       .from("inventory_activity")
-      .select("*")
+      .select(`
+        *,
+        products:product_id(id, name)
+      `)
       .order("created_at", { ascending: false })
       .limit(limit)
 
@@ -135,29 +138,23 @@ export const getRecentInventoryActivity = cache(async (limit = 5) => {
         .slice(0, limit)
     }
 
-    // If we have activity data, we need to get the product names
-    // Get all product IDs from the activity data
-    const productIds = [...new Set(activityData.map((item) => item.inventory_id || item.product_id).filter(Boolean))]
-
-    // Get product details
-    const { data: products, error: productsError } = await supabase
-      .from("products")
-      .select("id, name")
-      .in("id", productIds)
-
-    if (productsError) {
-      console.error("Error fetching products for activity:", productsError)
-    }
-
-    // Format the data for display
+    // Format the data for display with improved product name handling
     const formattedData = activityData.map((item) => {
-      const productId = item.inventory_id || item.product_id
-      const product = products?.find((p) => p.id === productId)
+      // Check if we have products data from the join
+      const productName = item.products?.name || "Unknown Item"
+
+      // Determine the product ID consistently
+      const productId = item.product_id || item.inventory_id
+
+      // Log for debugging
+      if (!productName || productName === "Unknown Item") {
+        console.log(`Missing product name for activity ${item.id}, product ID: ${productId}`)
+      }
 
       return {
         id: item.id,
         product_id: productId,
-        product_name: product?.name || "Unknown Item",
+        product_name: productName,
         quantity_change: item.quantity_change,
         previous_quantity: item.previous_quantity || 0,
         new_quantity: item.new_quantity || (item.previous_quantity || 0) + item.quantity_change,

@@ -2,24 +2,27 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
+// Update the type to match our actual data structure
 type InventoryItem = {
   id: string
   name: string
-  quantity: number
-  threshold?: number
+  stock: number // Changed from quantity to stock
   min_stock?: number
   [key: string]: any
 }
 
 export function LowStockCard({ items }: { items: InventoryItem[] }) {
-  // Get the threshold value, checking both possible column names
-  const getThreshold = (item: InventoryItem) => item.threshold || item.min_stock || 5
+  // Get the threshold value
+  const getThreshold = (item: InventoryItem) => item.min_stock || 5
 
   // Filter for low stock items
   const lowStockItems = items
-    .filter((item) => item.quantity > 0 && item.quantity < getThreshold(item))
-    .sort((a, b) => a.quantity - b.quantity)
+    .filter((item) => item.stock > 0 && item.stock < getThreshold(item))
+    .sort((a, b) => a.stock - b.stock)
     .slice(0, 5)
+
+  console.log("Low stock items:", lowStockItems)
+  console.log("Total items received:", items.length)
 
   return (
     <Card>
@@ -41,7 +44,7 @@ export function LowStockCard({ items }: { items: InventoryItem[] }) {
                   <div>
                     <p className="text-sm font-medium">{item.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      {item.quantity} of {getThreshold(item)} units
+                      {item.stock} of {getThreshold(item)} units
                     </p>
                   </div>
                 </div>
@@ -49,7 +52,7 @@ export function LowStockCard({ items }: { items: InventoryItem[] }) {
                   <div
                     className="h-full bg-amber-500"
                     style={{
-                      width: `${Math.min(100, (item.quantity / getThreshold(item)) * 100)}%`,
+                      width: `${Math.min(100, (item.stock / getThreshold(item)) * 100)}%`,
                     }}
                   />
                 </div>
