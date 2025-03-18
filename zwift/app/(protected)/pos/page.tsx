@@ -1,15 +1,14 @@
 "use client"
 
-import { DialogTrigger } from "@/components/ui/dialog"
-
 import type React from "react"
 
+import { DialogTrigger } from "@/components/ui/dialog"
 import { useState, useEffect, useCallback, useRef } from "react"
 import { createClient } from "@/lib/supabase-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
-import { useToast } from "@/components/ui/use-toast" // Changed from @/hooks/use-toast to @/components/ui/use-toast
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { useToast } from "@/hooks/use-toast"
 import { Switch } from "@/components/ui/switch"
 import {
   Loader2,
@@ -24,9 +23,18 @@ import {
   AlertTriangle,
   Save,
   Barcode,
+  Printer,
+  X,
 } from "lucide-react"
 import { createSale, getLowStockProducts } from "@/lib/supabase"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
 import { useLanguage, isRTL } from "@/hooks/use-language"
@@ -60,6 +68,16 @@ type Settings = {
   currency: string
 }
 
+type CompletedSaleData = {
+  id: string
+  items: CartItem[]
+  total: number
+  tax: number
+  subtotal: number
+  payment_method: string
+  date: string
+}
+
 const POSPage = () => {
   const { language, getTranslation } = useLanguage()
   const rtlEnabled = isRTL(language)
@@ -83,7 +101,10 @@ const POSPage = () => {
     currency: "USD",
   })
   const [lastAddedProduct, setLastAddedProduct] = useState<Product | null>(null)
+  const [showConfirmationDialog, setShowConfirmationDialog] = useState(false)
+  const [completedSaleData, setCompletedSaleData] = useState<CompletedSaleData | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null) // Ref for search input to focus after adding
+  const receiptRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast() // Using the correct import
   const supabase = createClient()
   const searchTimeout = useRef<NodeJS.Timeout | null>(null)
@@ -93,6 +114,7 @@ const POSPage = () => {
 
   // Add a new state for recently sold products after the other state declarations
   const [recentSales, setRecentSales] = useState<Product[]>([])
+  const [viewingSaleDetails, setViewingSaleDetails] = useState<CompletedSaleData | null>(null)
 
   // Play beep sound when a product is added via barcode
   useEffect(() => {
@@ -416,6 +438,19 @@ const POSPage = () => {
     }
   }, [refreshSettings])
 
+  // Auto-focus the search input when the page loads
+  useEffect(() => {
+    // Short timeout to ensure the DOM is fully loaded
+    const timer = setTimeout(() => {
+      if (searchInputRef.current) {
+        searchInputRef.current.focus()
+        console.log("Search input auto-focused")
+      }
+    }, 100)
+
+    return () => clearTimeout(timer)
+  }, [])
+
   // Filter products based on search term
   useEffect(() => {
     // We're now doing server-side filtering in fetchData, so this is only a backup
@@ -430,26 +465,43 @@ const POSPage = () => {
     const value = e.target.value
     setSearchTerm(value)
 
+    // Debug log to help troubleshoot
+    console.log("Search value:", value, "Auto-add enabled:", autoAddOnBarcode)
+
     // If auto-add is enabled, check for exact barcode match
     if (autoAddOnBarcode && value.trim() !== "") {
+      // Log the current products array length to debug
+      console.log("Checking barcode match among", products.length, "products")
+
       const exactBarcodeMatch = products.find(
         (product) => product.barcode && product.barcode.toLowerCase() === value.toLowerCase(),
       )
 
       if (exactBarcodeMatch) {
+        console.log("Found exact barcode match:", exactBarcodeMatch.name)
+
         // Add product to cart with notification
-        addToCart(exactBarcodeMatch, true)
+        const wasAdded = addToCart(exactBarcodeMatch, true)
 
-        // Set last added product for beep sound
-        setLastAddedProduct(exactBarcodeMatch)
+        if (wasAdded) {
+          console.log("Product added to cart successfully")
 
-        // Clear search field
-        setSearchTerm("")
-        // Focus the search input again for the next scan
-        if (searchInputRef.current) {
-          searchInputRef.current.focus()
+          // Set last added product for beep sound
+          setLastAddedProduct(exactBarcodeMatch)
+
+          // Clear search field
+          setSearchTerm("")
+
+          // Focus the search input again for the next scan
+          if (searchInputRef.current) {
+            searchInputRef.current.focus()
+          }
         }
+
+        // Return early to prevent the debounced search
         return
+      } else {
+        console.log("No exact barcode match found")
       }
     }
 
@@ -470,21 +522,28 @@ const POSPage = () => {
   // Handle search input keydown for Enter key
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && autoAddOnBarcode && searchTerm.trim() !== "") {
+      console.log("Enter key pressed, checking for barcode match")
+
       const exactBarcodeMatch = products.find(
         (product) => product.barcode && product.barcode.toLowerCase() === searchTerm.toLowerCase(),
       )
 
       if (exactBarcodeMatch) {
+        console.log("Found exact barcode match on Enter:", exactBarcodeMatch.name)
+
         // Add product to cart with notification
-        addToCart(exactBarcodeMatch, true)
+        const wasAdded = addToCart(exactBarcodeMatch, true)
 
-        // Set last added product for beep sound
-        setLastAddedProduct(exactBarcodeMatch)
+        if (wasAdded) {
+          // Set last added product for beep sound
+          setLastAddedProduct(exactBarcodeMatch)
 
-        // Clear search field
-        setSearchTerm("")
-        // Prevent form submission
-        e.preventDefault()
+          // Clear search field
+          setSearchTerm("")
+
+          // Prevent form submission
+          e.preventDefault()
+        }
       }
     }
   }
@@ -705,6 +764,12 @@ const POSPage = () => {
       return
     }
 
+    // Open the confirmation dialog instead of processing immediately
+    setShowConfirmationDialog(true)
+  }
+
+  // Process the payment after confirmation
+  const processPayment = async () => {
     setIsProcessing(true)
 
     try {
@@ -723,11 +788,22 @@ const POSPage = () => {
       }))
 
       // Call createSale function to save the sale to the database
-      const { error } = await createSale(sale, saleItems)
+      const { data, error } = await createSale(sale, saleItems)
 
       if (error) {
         throw error
       }
+
+      // Store the sale ID for receipt printing
+      setCompletedSaleData({
+        id: data?.id || "unknown",
+        items: cart,
+        total: calculateTotal(),
+        tax: calculateTax(),
+        subtotal: calculateSubtotal(),
+        payment_method: paymentMethod,
+        date: new Date().toISOString(),
+      })
 
       // Fixed toast notification - explicitly set variant to default
       toast({
@@ -753,7 +829,87 @@ const POSPage = () => {
       })
     } finally {
       setIsProcessing(false)
+      setShowConfirmationDialog(false)
     }
+  }
+
+  // Add a function to print the receipt
+  const printReceipt = useCallback(() => {
+    if (!receiptRef.current || !completedSaleData) return
+
+    const printWindow = window.open("", "_blank")
+    if (!printWindow) {
+      toast({
+        title: "Error",
+        description: "Could not open print window. Please check your popup settings.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const receiptContent = receiptRef.current.innerHTML
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Receipt</title>
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              margin: 0;
+              padding: 20px;
+              max-width: 300px;
+            }
+            .receipt-header {
+              text-align: center;
+              margin-bottom: 20px;
+            }
+            .receipt-item {
+              display: flex;
+              justify-content: space-between;
+              margin-bottom: 8px;
+            }
+            .receipt-total {
+              margin-top: 12px;
+              border-top: 1px dashed #000;
+              padding-top: 8px;
+              font-weight: bold;
+            }
+            .receipt-footer {
+              margin-top: 30px;
+              text-align: center;
+              font-size: 12px;
+            }
+            @media print {
+              body {
+                width: 80mm;
+                margin: 0;
+                padding: 0;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          ${receiptContent}
+          <script>
+            window.onload = function() {
+              window.print();
+              setTimeout(function() {
+                window.close();
+              }, 500);
+            };
+          </script>
+        </body>
+      </html>
+    `)
+
+    printWindow.document.close()
+  }, [completedSaleData, toast])
+
+  // Function to view sale details
+  const viewSaleDetails = (sale: CompletedSaleData) => {
+    setViewingSaleDetails(sale)
   }
 
   // Now modify the return statement to swap the order of cart and products sections
@@ -837,6 +993,269 @@ const POSPage = () => {
                 )}
               </Button>
             </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Sale Confirmation Dialog */}
+      <Dialog open={showConfirmationDialog} onOpenChange={setShowConfirmationDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm Sale</DialogTitle>
+            <DialogDescription>Please review your order before completing the sale.</DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="space-y-4">
+              <div className="border rounded-md p-4 max-h-[300px] overflow-y-auto">
+                {cart.map((item) => (
+                  <div key={item.id} className="flex justify-between items-center py-2 border-b last:border-0">
+                    <div>
+                      <p className="font-medium">{item.product.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {formatCurrency(item.price, settings.currency, language)} × {item.quantity}
+                      </p>
+                    </div>
+                    <p className="font-medium">
+                      {formatCurrency(item.price * item.quantity, settings.currency, language)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">{getPOSTranslation("subtotal", language)}</span>
+                  <span>{formatCurrency(calculateSubtotal(), settings.currency, language)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">
+                    {getPOSTranslation("tax", language)} ({settings.tax_rate}%)
+                  </span>
+                  <span>{formatCurrency(calculateTax(), settings.currency, language)}</span>
+                </div>
+                <div className="flex justify-between font-bold">
+                  <span>{getPOSTranslation("total", language)}</span>
+                  <span>{formatCurrency(calculateTotal(), settings.currency, language)}</span>
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <span className="font-medium">Payment Method:</span>
+                <Badge variant="outline" className="capitalize">
+                  {paymentMethod}
+                </Badge>
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="flex flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setShowConfirmationDialog(false)}>
+              <X className="mr-2 h-4 w-4" />
+              {"Cancel"}
+            </Button>
+            <Button onClick={processPayment} disabled={isProcessing}>
+              {isProcessing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {isProcessing ? getPOSTranslation("processing", language) : "Confirm Sale"}
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  {"Confirm Sale"}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Receipt Template (hidden) */}
+      {completedSaleData && (
+        <div className="hidden">
+          <div ref={receiptRef}>
+            <div className="receipt-header">
+              <h2>{settings.store_name}</h2>
+              <p>{new Date(completedSaleData.date).toLocaleString()}</p>
+              <p>Receipt #{completedSaleData.id}</p>
+            </div>
+
+            <div className="receipt-items">
+              {completedSaleData.items.map((item) => (
+                <div key={item.id} className="receipt-item">
+                  <div>
+                    <p>
+                      {item.product.name} × {item.quantity}
+                    </p>
+                    <p>{formatCurrency(item.price, settings.currency, language)} each</p>
+                  </div>
+                  <p>{formatCurrency(item.price * item.quantity, settings.currency, language)}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="receipt-summary">
+              <div className="receipt-item">
+                <span>{getPOSTranslation("subtotal", language)}</span>
+                <span>{formatCurrency(completedSaleData.subtotal, settings.currency, language)}</span>
+              </div>
+              <div className="receipt-item">
+                <span>
+                  {getPOSTranslation("tax", language)} ({settings.tax_rate}%)
+                </span>
+                <span>{formatCurrency(completedSaleData.tax, settings.currency, language)}</span>
+              </div>
+              <div className="receipt-total">
+                <span>{getPOSTranslation("total", language)}</span>
+                <span>{formatCurrency(completedSaleData.total, settings.currency, language)}</span>
+              </div>
+              <div className="receipt-item">
+                <span>Payment Method</span>
+                <span className="capitalize">{completedSaleData.payment_method}</span>
+              </div>
+            </div>
+
+            <div className="receipt-footer">
+              <p>Thank you for your purchase!</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Print Receipt Dialog */}
+      {completedSaleData && (
+        <Dialog open={!!completedSaleData} onOpenChange={(open) => !open && setCompletedSaleData(null)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>{getPOSTranslation("saleCompleted", language)}</DialogTitle>
+              <DialogDescription>Your sale has been completed successfully.</DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              <div className="flex justify-between items-center">
+                <span className="font-medium">Receipt #{completedSaleData.id}</span>
+                <span>{formatCurrency(completedSaleData.total, settings.currency, language)}</span>
+              </div>
+            </div>
+            <DialogFooter className="flex flex-col sm:flex-row gap-2">
+              <Button variant="outline" onClick={() => setCompletedSaleData(null)}>
+                {"Close"}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  viewSaleDetails(completedSaleData)
+                  setCompletedSaleData(null)
+                }}
+              >
+                {"View Details"}
+              </Button>
+              <Button onClick={printReceipt}>
+                <Printer className="mr-2 h-4 w-4" />
+                {"Print Receipt"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Detailed Sale View Dialog */}
+      {viewingSaleDetails && (
+        <Dialog open={!!viewingSaleDetails} onOpenChange={(open) => !open && setViewingSaleDetails(null)}>
+          <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-auto">
+            <DialogHeader>
+              <DialogTitle className="text-xl flex justify-between items-center">
+                <span>Sale Details</span>
+                <span className="text-muted-foreground text-sm">
+                  {new Date(viewingSaleDetails.date).toLocaleString()}
+                </span>
+              </DialogTitle>
+              <DialogDescription>Receipt #{viewingSaleDetails.id}</DialogDescription>
+            </DialogHeader>
+
+            <div className="py-4 space-y-6">
+              {/* Customer Information (if available) */}
+              <div className="bg-muted/30 p-4 rounded-lg">
+                <h3 className="font-medium mb-2">Payment Information</h3>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Payment Method</p>
+                    <p className="font-medium capitalize">{viewingSaleDetails.payment_method}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Date</p>
+                    <p className="font-medium">{new Date(viewingSaleDetails.date).toLocaleString()}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Items Table */}
+              <div>
+                <h3 className="font-medium mb-2">Items</h3>
+                <div className="border rounded-md overflow-hidden">
+                  <table className="w-full">
+                    <thead className="bg-muted text-muted-foreground text-sm">
+                      <tr>
+                        <th className="p-2 text-left">Product</th>
+                        <th className="p-2 text-right">Price</th>
+                        <th className="p-2 text-right">Quantity</th>
+                        <th className="p-2 text-right">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {viewingSaleDetails.items.map((item) => (
+                        <tr key={item.id} className="hover:bg-muted/30">
+                          <td className="p-2">
+                            <div className="font-medium">{item.product.name}</div>
+                            <div className="text-xs text-muted-foreground">{item.product.barcode}</div>
+                          </td>
+                          <td className="p-2 text-right">{formatCurrency(item.price, settings.currency, language)}</td>
+                          <td className="p-2 text-right">{item.quantity}</td>
+                          <td className="p-2 text-right font-medium">
+                            {formatCurrency(item.price * item.quantity, settings.currency, language)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Summary */}
+              <div className="space-y-2 border-t pt-4">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">{getPOSTranslation("subtotal", language)}</span>
+                  <span>{formatCurrency(viewingSaleDetails.subtotal, settings.currency, language)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">
+                    {getPOSTranslation("tax", language)} ({settings.tax_rate}%)
+                  </span>
+                  <span>{formatCurrency(viewingSaleDetails.tax, settings.currency, language)}</span>
+                </div>
+                <div className="flex justify-between font-bold text-lg">
+                  <span>{getPOSTranslation("total", language)}</span>
+                  <span>{formatCurrency(viewingSaleDetails.total, settings.currency, language)}</span>
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="flex justify-between items-center">
+              <Button variant="outline" onClick={() => setViewingSaleDetails(null)}>
+                Close
+              </Button>
+              <Button
+                onClick={() => {
+                  // Store the current sale data in completedSaleData for printing
+                  setCompletedSaleData(viewingSaleDetails)
+                  // Use setTimeout to ensure the data is set before printing
+                  setTimeout(() => {
+                    printReceipt()
+                  }, 100)
+                }}
+              >
+                <Printer className="mr-2 h-4 w-4" />
+                Print Receipt
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       )}
@@ -1029,8 +1448,8 @@ const POSPage = () => {
                     className="cursor-pointer hover:shadow-md transition-shadow"
                     onClick={() => addToCart(product)}
                   >
-                    <CardContent className="p-1">
-                      <div className="h-16 w-16 relative mb-2 bg-muted rounded-md overflow-hidden">
+                    <CardContent className="p-4">
+                      <div className="h-24 w-24 relative mb-2 bg-muted rounded-md overflow-hidden mx-auto">
                         {product.image ? (
                           <img
                             src={product.image || "/placeholder.svg"}
@@ -1043,7 +1462,7 @@ const POSPage = () => {
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center bg-muted">
-                            <ShoppingCart className="h-14 w-14 text-muted-foreground" />
+                            <ShoppingCart className="h-10 w-10 text-muted-foreground" />
                           </div>
                         )}
                         {product.stock <= 0 && (
