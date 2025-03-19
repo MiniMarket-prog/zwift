@@ -252,28 +252,8 @@ export async function createSale(sale: any, saleItems: any[]) {
 
       if (stockError) throw stockError
 
-      // Try to manually record inventory activity, but continue if it fails
-      try {
-        // Check if the inventory table exists and has a matching ID
-        const { data: inventoryItem } = await supabase.from("inventory").select("id").eq("id", item.product_id).single()
-
-        // Only try to record activity if we found a matching inventory item
-        if (inventoryItem) {
-          await supabase.from("inventory_activity").insert({
-            inventory_id: item.product_id,
-            quantity_change: -item.quantity,
-            previous_quantity: previousStock,
-            new_quantity: newStock,
-            activity_type: "sale",
-            reference_id: saleData.id,
-            notes: "Sale transaction",
-            created_at: new Date().toISOString(),
-          })
-        }
-      } catch (activityError) {
-        // Just log the error but don't fail the sale
-        console.error("Failed to record inventory activity:", activityError)
-      }
+      // Log the stock update
+      console.log(`Updated product ${item.product_id} stock: ${previousStock} → ${newStock}`)
     }
 
     return { data: saleData, error: null }

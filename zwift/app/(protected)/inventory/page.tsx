@@ -1400,7 +1400,7 @@ export default function InventoryPage() {
                       {"Expiry Date"}
                     </Label>
                     <div className="col-span-3">
-                      // Fix the date selection in the Popover component for adding a product
+                     
                       <Popover>
                         <PopoverTrigger asChild>
                           <Button

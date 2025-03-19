@@ -1,12 +1,38 @@
-/* stylelint-disable */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-/* stylelint-enable */
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+}
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+  .animate-collapsible-down {
+    animation: collapsibleDown 0.2s ease-out;
+  }
+  .animate-collapsible-up {
+    animation: collapsibleUp 0.2s ease-out;
+  }
+}
+
+@keyframes collapsibleDown {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+  }
+}
+
+@keyframes collapsibleUp {
+  from {
+    height: var(--radix-collapsible-content-height);
+  }
+  to {
+    height: 0;
   }
 }
 
@@ -37,8 +63,6 @@
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
     --radius: 0.5rem;
-
-    /* Sidebar specific colors */
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
     --sidebar-primary: 240 5.9% 10%;
@@ -48,7 +72,6 @@
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
-
   .dark {
     --background: 0 0% 3.9%;
     --foreground: 0 0% 98%;
@@ -74,8 +97,6 @@
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
-
-    /* Sidebar specific colors */
     --sidebar-background: 240 5.9% 10%;
     --sidebar-foreground: 240 4.8% 95.9%;
     --sidebar-primary: 224.3 76.3% 48%;
@@ -91,128 +112,8 @@
   * {
     @apply border-border;
   }
-
   body {
     @apply bg-background text-foreground;
-    font-family: Arial, Helvetica, sans-serif;
   }
-}
-
-/* Add smooth scrolling and transitions */
-html {
-  scroll-behavior: smooth;
-}
-
-/* Add modern focus styles */
-*:focus-visible {
-  @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
-}
-
-/* Add modern scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  @apply bg-muted/50;
-}
-
-::-webkit-scrollbar-thumb {
-  @apply bg-muted-foreground/30 rounded-full;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  @apply bg-muted-foreground/50;
-}
-
-/* Add modern selection styles */
-::selection {
-  @apply bg-primary/20 text-foreground;
-}
-
-/* Add animations */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes slideInUp {
-  from {
-    transform: translateY(10px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-.animate-fade-in {
-  animation: fadeIn 0.3s ease-in-out;
-}
-
-.animate-slide-in {
-  animation: slideInUp 0.3s ease-out;
-}
-
-/* Add responsive utilities */
-.responsive-container {
-  @apply w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
-}
-
-/* RTL Support */
-html[dir="rtl"] .rtl-mirror {
-  transform: scaleX(-1);
-}
-
-html[dir="rtl"] input,
-html[dir="rtl"] textarea {
-  text-align: right;
-}
-
-html[dir="rtl"] .text-left {
-  text-align: right;
-}
-
-html[dir="rtl"] .text-right {
-  text-align: left;
-}
-
-html[dir="rtl"] .mr-2 {
-  margin-right: 0;
-  margin-left: 0.5rem;
-}
-
-html[dir="rtl"] .ml-2 {
-  margin-left: 0;
-  margin-right: 0.5rem;
-}
-
-html[dir="rtl"] .mr-4 {
-  margin-right: 0;
-  margin-left: 1rem;
-}
-
-html[dir="rtl"] .ml-4 {
-  margin-left: 0;
-  margin-right: 1rem;
-}
-
-/* Additional RTL support for flex direction */
-html[dir="rtl"] .flex-row {
-  flex-direction: row-reverse;
-}
-
-html[dir="rtl"] .space-x-2 > :not([hidden]) ~ :not([hidden]) {
-  --tw-space-x-reverse: 1;
-}
-
-html[dir="rtl"] .space-x-4 > :not([hidden]) ~ :not([hidden]) {
-  --tw-space-x-reverse: 1;
 }
 

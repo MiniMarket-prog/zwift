@@ -41,6 +41,7 @@
     "@supabase/auth-helpers-nextjs": "^0.8.7",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.49.1",
+    "@tanstack/react-table": "^8.21.2",
     "@zxing/library": "^0.21.3",
     "autoprefixer": "^10.4.20",
     "class-variance-authority": "^0.7.1",
