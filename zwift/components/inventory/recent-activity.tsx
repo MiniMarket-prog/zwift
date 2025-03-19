@@ -4,6 +4,9 @@ import { ArrowDown, ArrowUp, Package } from "lucide-react"
 import type { InventoryActivity } from "@/app/actions/inventory-activity"
 
 export function RecentActivityCard({ activities }: { activities: InventoryActivity[] }) {
+  // Debug: Log the activities being passed to the component
+  console.log("Activities in RecentActivityCard:", activities)
+
   return (
     <Card>
       <CardHeader>
@@ -28,7 +31,10 @@ export function RecentActivityCard({ activities }: { activities: InventoryActivi
                     )}
                   </div>
                   <div>
-                    <p className="text-sm font-medium">{activity.product_name}</p>
+                    <p className="text-sm font-medium">
+                      {/* Debug: Show both product_name and ID */}
+                      {activity.product_name || `Unknown (ID: ${activity.product_id})`}
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       {activity.action_type}: {Math.abs(activity.quantity_change)} units
                     </p>
