@@ -22,6 +22,8 @@ import {
   AlertTriangle,
   Activity,
   LineChart,
+  TrendingUp,
+  ClipboardList,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useTheme } from "next-themes"
@@ -206,6 +208,16 @@ export function AppSidebar() {
     { href: "/dashboard", label: "dashboard" as AppTranslationKey, icon: <LayoutDashboard className="h-5 w-5" /> },
     { href: "/pos", label: "pointOfSale" as AppTranslationKey, icon: <ShoppingCart className="h-5 w-5" /> },
     { href: "/inventory", label: "inventory" as AppTranslationKey, icon: <Package className="h-5 w-5" /> },
+    {
+      href: "/forecasting",
+      label: "forecasting" as AppTranslationKey,
+      icon: <TrendingUp className="h-5 w-5" />,
+    },
+    {
+      href: "/purchase-orders",
+      label: "purchaseOrders" as AppTranslationKey,
+      icon: <ClipboardList className="h-5 w-5" />,
+    },
     { href: "/expenses", label: "expenses" as AppTranslationKey, icon: <CircleDollarSign className="h-5 w-5" /> },
     {
       href: "/reports",
