@@ -7,6 +7,7 @@ import { getAllProducts } from "@/lib/products-service"
 import { ProductList } from "./product-list"
 import { AddProductButton } from "./add-product-button"
 import { GenerateBarcodesButton } from "./generate-barcodes-button"
+import { CategoryManagement } from "./category-management"
 import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
@@ -41,20 +42,33 @@ export default async function ProductsPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="list" className="w-full">
+      <Tabs defaultValue="products" className="w-full">
         <TabsList className="mb-4">
-          <TabsTrigger value="list">List View</TabsTrigger>
-          <TabsTrigger value="grid">Grid View</TabsTrigger>
+          <TabsTrigger value="products">Products</TabsTrigger>
+          <TabsTrigger value="categories">Categories</TabsTrigger>
         </TabsList>
-        <TabsContent value="list" className="w-full">
-          <Card>
-            <CardContent className="p-0">
-              <ProductList initialProducts={products} categories={categories} viewType="list" />
-            </CardContent>
-          </Card>
+
+        <TabsContent value="products" className="w-full">
+          <Tabs defaultValue="list" className="w-full">
+            <TabsList className="mb-4">
+              <TabsTrigger value="list">List View</TabsTrigger>
+              <TabsTrigger value="grid">Grid View</TabsTrigger>
+            </TabsList>
+            <TabsContent value="list" className="w-full">
+              <Card>
+                <CardContent className="p-0">
+                  <ProductList initialProducts={products} categories={categories} viewType="list" />
+                </CardContent>
+              </Card>
+            </TabsContent>
+            <TabsContent value="grid" className="w-full">
+              <ProductList initialProducts={products} categories={categories} viewType="grid" />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
-        <TabsContent value="grid" className="w-full">
-          <ProductList initialProducts={products} categories={categories} viewType="grid" />
+
+        <TabsContent value="categories" className="w-full">
+          <CategoryManagement />
         </TabsContent>
       </Tabs>
     </div>

@@ -208,6 +208,7 @@ export function AppSidebar() {
     { href: "/dashboard", label: "dashboard" as AppTranslationKey, icon: <LayoutDashboard className="h-5 w-5" /> },
     { href: "/pos", label: "pointOfSale" as AppTranslationKey, icon: <ShoppingCart className="h-5 w-5" /> },
     { href: "/products", label: "inventory" as AppTranslationKey, icon: <Package className="h-5 w-5" /> },
+    { href: "/reports", label: "reports" as AppTranslationKey, icon: <BarChart3 className="h-5 w-5" /> },
     {
       href: "/forecasting",
       label: "forecasting" as AppTranslationKey,
@@ -219,9 +220,10 @@ export function AppSidebar() {
       icon: <ClipboardList className="h-5 w-5" />,
     },
     { href: "/expenses", label: "expenses" as AppTranslationKey, icon: <CircleDollarSign className="h-5 w-5" /> },
+    
     {
       href: "/reports",
-      label: "reports" as AppTranslationKey,
+      label: "Analyses" as AppTranslationKey,
       icon: <BarChart3 className="h-5 w-5" />,
       hasSubmenu: true,
       key: "reports",
