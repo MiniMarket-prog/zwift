@@ -116,6 +116,93 @@ const SalesPage = () => {
   const supabase = createClient()
   const { toast } = useToast()
 
+  // Fetch sale items for a specific sale
+  const fetchSaleItems = useCallback(
+    async (saleId: string) => {
+      try {
+        setIsLoadingSaleDetails(true)
+
+        // First, fetch the sale items
+        const { data: itemsData, error: itemsError } = await supabase
+          .from("sale_items")
+          .select("id, product_id, sale_id, quantity, price")
+          .eq("sale_id", saleId)
+
+        if (itemsError) throw itemsError
+
+        if (!itemsData || itemsData.length === 0) {
+          return []
+        }
+
+        // Create a map of product IDs to fetch them efficiently
+        const productIds = itemsData.map((item) => item.product_id)
+
+        // Fetch all products in a single query, explicitly requesting purchase_price
+        const { data: productsData, error: productsError } = await supabase
+          .from("products")
+          .select("id, name, price, image, stock, min_stock, purchase_price")
+          .in("id", productIds)
+
+        if (productsError) throw productsError
+
+        // Create a map for quick product lookup
+        const productsMap: Record<string, Product> = {}
+        productsData?.forEach((product) => {
+          // Ensure numeric values are properly typed
+          productsMap[product.id] = {
+            ...product,
+            price: typeof product.price === "number" ? product.price : Number.parseFloat(String(product.price)) || 0,
+            stock: typeof product.stock === "number" ? product.stock : Number.parseInt(String(product.stock), 10) || 0,
+            min_stock:
+              typeof product.min_stock === "number"
+                ? product.min_stock
+                : Number.parseInt(String(product.min_stock), 10) || 0,
+            purchase_price: product.purchase_price
+              ? typeof product.purchase_price === "number"
+                ? product.purchase_price
+                : Number.parseFloat(String(product.purchase_price)) || null
+              : null,
+          }
+        })
+
+        // Combine sale items with their products
+        const itemsWithProducts = itemsData.map((item) => ({
+          ...item,
+          product: productsMap[item.product_id],
+        }))
+
+        return itemsWithProducts
+      } catch (error) {
+        console.error("Error fetching sale items:", error)
+        toast({
+          title: getAppTranslation("error", language),
+          description: "Failed to load sale details",
+          variant: "destructive",
+        })
+        return []
+      } finally {
+        setIsLoadingSaleDetails(false)
+      }
+    },
+    [supabase, toast, getAppTranslation, language],
+  )
+
+  // Calculate profit for a sale
+  const calculateProfit = (sale: Sale): number => {
+    // If we have already loaded the items, calculate profit from them
+    if (sale.items && sale.items.length > 0) {
+      return sale.items.reduce((totalProfit, item) => {
+        // Calculate profit for this item
+        const purchasePrice = item.product?.purchase_price || 0
+        const itemProfit = (item.price - purchasePrice) * item.quantity
+        return totalProfit + itemProfit
+      }, 0)
+    }
+
+    // If items haven't been loaded yet, return 0
+    return 0
+  }
+
   // Fetch currency setting
   const fetchCurrency = useCallback(async () => {
     try {
@@ -188,33 +275,21 @@ const SalesPage = () => {
         setTotalPages(Math.max(1, Math.ceil(count / pageSize)))
       }
 
-      // Fetch item counts for each sale
-      const salesWithItemCounts = await Promise.all(
+      // Fetch items and product data for each sale to calculate profit
+      const salesWithItems = await Promise.all(
         salesData?.map(async (sale) => {
-          // Get count of items for this sale
-          const { count: itemCount, error: countError } = await supabase
-            .from("sale_items")
-            .select("id", { count: "exact" })
-            .eq("sale_id", sale.id)
-
-          if (countError) {
-            console.error("Error fetching item count:", countError)
-            return {
-              ...sale,
-              itemCount: 0,
-              items: [],
-            }
-          }
+          // Fetch sale items with product data
+          const items = await fetchSaleItems(sale.id)
 
           return {
             ...sale,
-            itemCount: itemCount || 0,
-            items: [],
+            items,
+            itemCount: items.length,
           }
         }) || [],
       )
 
-      setPaginatedSales(salesWithItemCounts)
+      setPaginatedSales(salesWithItems)
     } catch (error) {
       console.error("Error fetching sales:", error)
       toast({
@@ -225,78 +300,7 @@ const SalesPage = () => {
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, currentPage, pageSize, date, searchTerm, toast, getAppTranslation, language])
-
-  // Fetch sale items for a specific sale
-  const fetchSaleItems = useCallback(
-    async (saleId: string) => {
-      try {
-        setIsLoadingSaleDetails(true)
-
-        // First, fetch the sale items
-        const { data: itemsData, error: itemsError } = await supabase
-          .from("sale_items")
-          .select("id, product_id, sale_id, quantity, price")
-          .eq("sale_id", saleId)
-
-        if (itemsError) throw itemsError
-
-        if (!itemsData || itemsData.length === 0) {
-          return []
-        }
-
-        // Create a map of product IDs to fetch them efficiently
-        const productIds = itemsData.map((item) => item.product_id)
-
-        // Fetch all products in a single query
-        const { data: productsData, error: productsError } = await supabase
-          .from("products")
-          .select("*")
-          .in("id", productIds)
-
-        if (productsError) throw productsError
-
-        // Create a map for quick product lookup
-        const productsMap: Record<string, Product> = {}
-        productsData?.forEach((product) => {
-          // Ensure numeric values are properly typed
-          productsMap[product.id] = {
-            ...product,
-            price: typeof product.price === "number" ? product.price : Number.parseFloat(String(product.price)) || 0,
-            stock: typeof product.stock === "number" ? product.stock : Number.parseInt(String(product.stock), 10) || 0,
-            min_stock:
-              typeof product.min_stock === "number"
-                ? product.min_stock
-                : Number.parseInt(String(product.min_stock), 10) || 0,
-            purchase_price: product.purchase_price
-              ? typeof product.purchase_price === "number"
-                ? product.purchase_price
-                : Number.parseFloat(String(product.purchase_price)) || null
-              : null,
-          }
-        })
-
-        // Combine sale items with their products
-        const itemsWithProducts = itemsData.map((item) => ({
-          ...item,
-          product: productsMap[item.product_id],
-        }))
-
-        return itemsWithProducts
-      } catch (error) {
-        console.error("Error fetching sale items:", error)
-        toast({
-          title: getAppTranslation("error", language),
-          description: "Failed to load sale details",
-          variant: "destructive",
-        })
-        return []
-      } finally {
-        setIsLoadingSaleDetails(false)
-      }
-    },
-    [supabase, toast, getAppTranslation, language],
-  )
+  }, [supabase, currentPage, pageSize, date, searchTerm, toast, getAppTranslation, language, fetchSaleItems])
 
   // Fetch available products for adding to sales
   const fetchAvailableProducts = useCallback(async () => {
@@ -731,14 +735,26 @@ const SalesPage = () => {
 
       if (error) throw error
 
+      // For each sale, fetch its items to calculate profit
+      const salesWithItems = await Promise.all(
+        allSales?.map(async (sale) => {
+          const items = await fetchSaleItems(sale.id)
+          return {
+            ...sale,
+            items,
+          }
+        }) || [],
+      )
+
       // Create CSV content
-      const headers = ["Sale ID", "Date", "Total", "Payment Method"]
+      const headers = ["Profit", "Date", "Total", "Payment Method"]
 
       const csvRows = [headers]
 
-      allSales?.forEach((sale) => {
+      salesWithItems.forEach((sale) => {
+        const profit = calculateProfit(sale)
         const row = [
-          sale.id,
+          formatCurrency(profit, currentCurrency, language),
           format(new Date(sale.created_at), "yyyy-MM-dd HH:mm:ss"),
           formatCurrency(sale.total, currentCurrency, language),
           sale.payment_method,
@@ -872,7 +888,7 @@ const SalesPage = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Sale ID</TableHead>
+                  <TableHead>Profit</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Payment Method</TableHead>
                   <TableHead className="text-right">Items</TableHead>
@@ -883,7 +899,9 @@ const SalesPage = () => {
               <TableBody>
                 {paginatedSales.map((sale) => (
                   <TableRow key={sale.id}>
-                    <TableCell className="font-medium">#{sale.id}</TableCell>
+                    <TableCell className="font-medium text-green-600 dark:text-green-500">
+                      {sale.items ? formatCurrency(calculateProfit(sale), currentCurrency, language) : "-"}
+                    </TableCell>
                     <TableCell>{format(new Date(sale.created_at), "MMM d, yyyy h:mm a")}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className="capitalize">

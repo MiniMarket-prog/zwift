@@ -86,6 +86,8 @@ const POSPage = () => {
   const [lowStockProducts, setLowStockProducts] = useState<Product[]>([])
   const [editedStockLevels, setEditedStockLevels] = useState<Record<string, number>>({})
   const [searchTerm, setSearchTerm] = useState("")
+  const [barcodeSearchTerm, setBarcodeSearchTerm] = useState("")
+  const barcodeSearchInputRef = useRef<HTMLInputElement>(null) // Ref for barcode search input
   const [cart, setCart] = useState<CartItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -269,7 +271,7 @@ const POSPage = () => {
 
   // Fetch products and settings
   const fetchData = useCallback(
-    async (searchQuery = "") => {
+    async (searchQuery = "", searchType = "both") => {
       setIsLoading(true)
       try {
         // Build the query for products
@@ -277,8 +279,15 @@ const POSPage = () => {
 
         // If there's a search query, filter on the server side
         if (searchQuery.trim() !== "") {
-          // Use ilike for case-insensitive search
-          query = query.or(`name.ilike.%${searchQuery}%,barcode.ilike.%${searchQuery}%`)
+          // Use different filters based on search type
+          if (searchType === "name") {
+            query = query.ilike("name", `%${searchQuery}%`)
+          } else if (searchType === "barcode") {
+            query = query.ilike("barcode", `%${searchQuery}%`)
+          } else {
+            // Default "both" behavior
+            query = query.or(`name.ilike.%${searchQuery}%,barcode.ilike.%${searchQuery}%`)
+          }
         } else {
           // If no search, just get all products for better barcode matching
           query = query.limit(1000)
@@ -644,11 +653,112 @@ const POSPage = () => {
 
     searchTimeout.current = setTimeout(() => {
       if (value.trim() !== "") {
-        fetchData(value)
+        fetchData(value, "name")
       } else {
         setFilteredProducts([])
       }
     }, 300)
+  }
+
+  // Add a new function to handle barcode search
+  const handleBarcodeSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    setBarcodeSearchTerm(value)
+
+    // If auto-add is enabled, check for exact barcode match
+    if (autoAddOnBarcode && value.trim() !== "") {
+      // Clear any pending search timeout
+      if (searchTimeout.current) {
+        clearTimeout(searchTimeout.current)
+        searchTimeout.current = null
+      }
+
+      // Check if this might be a barcode (typically barcodes are numeric or alphanumeric)
+      const mightBeBarcode = /^[A-Za-z0-9]+$/.test(value.trim())
+
+      if (mightBeBarcode) {
+        // Log the current products array length to debug
+        console.log("Checking barcode match among", products.length, "products")
+
+        const exactBarcodeMatch = products.find(
+          (product) => product.barcode && product.barcode.toLowerCase() === value.toLowerCase(),
+        )
+
+        if (exactBarcodeMatch) {
+          console.log("Found exact barcode match in search:", exactBarcodeMatch.name)
+
+          // Add product to cart with notification
+          const wasAdded = addToCart(exactBarcodeMatch, true)
+
+          if (wasAdded) {
+            console.log("Product added to cart successfully from search")
+
+            // Set last added product for beep sound
+            setLastAddedProduct(exactBarcodeMatch)
+
+            // Clear search field
+            setBarcodeSearchTerm("")
+
+            // Focus the barcode search input again for the next scan
+            if (barcodeSearchInputRef.current) {
+              barcodeSearchInputRef.current.focus()
+            }
+
+            // Return early to prevent the debounced search
+            return
+          }
+        } else {
+          console.log("No exact barcode match found in search")
+        }
+      }
+    }
+
+    // Debounce search to avoid too many requests
+    if (searchTimeout.current) {
+      clearTimeout(searchTimeout.current)
+    }
+
+    searchTimeout.current = setTimeout(() => {
+      if (value.trim() !== "") {
+        fetchData(value, "barcode")
+      } else {
+        setFilteredProducts([])
+      }
+    }, 300)
+  }
+
+  // Add a function to handle barcode search keydown
+  const handleBarcodeSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && autoAddOnBarcode && barcodeSearchTerm.trim() !== "") {
+      console.log("Enter key pressed in barcode field, checking for barcode match")
+
+      const exactBarcodeMatch = products.find(
+        (product) => product.barcode && product.barcode.toLowerCase() === barcodeSearchTerm.toLowerCase(),
+      )
+
+      if (exactBarcodeMatch) {
+        console.log("Found exact barcode match on Enter:", exactBarcodeMatch.name)
+
+        // Add product to cart with notification
+        const wasAdded = addToCart(exactBarcodeMatch, true)
+
+        if (wasAdded) {
+          // Set last added product for beep sound
+          setLastAddedProduct(exactBarcodeMatch)
+
+          // Clear search field
+          setBarcodeSearchTerm("")
+
+          // Prevent form submission
+          e.preventDefault()
+
+          // Focus the barcode search input again for the next scan
+          if (barcodeSearchInputRef.current) {
+            barcodeSearchInputRef.current.focus()
+          }
+        }
+      }
+    }
   }
 
   // Handle search input keydown for Enter key
@@ -1516,19 +1626,35 @@ const POSPage = () => {
         {/* Products section - now on the right */}
         <div className="lg:w-2/3 overflow-auto">
           <div className="mb-4 sticky top-0 z-10 bg-background pt-2 pb-4">
-            <div className="relative">
-              <Search
-                className={`absolute ${rtlEnabled ? "right-3" : "left-3"} top-1/2 transform -translate-y-1/2 text-muted-foreground`}
-              />
-              <Input
-                ref={searchInputRef}
-                placeholder={getPOSTranslation("searchProducts", language)}
-                value={searchTerm}
-                onChange={handleSearch}
-                onKeyDown={handleSearchKeyDown}
-                className={`barcode-input ${rtlEnabled ? "pr-10" : "pl-10"}`}
-                autoComplete="off"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div className="relative">
+                <Search
+                  className={`absolute ${rtlEnabled ? "right-3" : "left-3"} top-1/2 transform -translate-y-1/2 text-muted-foreground`}
+                />
+                <Input
+                  ref={searchInputRef}
+                  placeholder={getPOSTranslation("searchProducts", language)}
+                  value={searchTerm}
+                  onChange={handleSearch}
+                  onKeyDown={handleSearchKeyDown}
+                  className={`${rtlEnabled ? "pr-10" : "pl-10"}`}
+                  autoComplete="off"
+                />
+              </div>
+              <div className="relative">
+                <Barcode
+                  className={`absolute ${rtlEnabled ? "right-3" : "left-3"} top-1/2 transform -translate-y-1/2 text-muted-foreground`}
+                />
+                <Input
+                  ref={barcodeSearchInputRef}
+                  placeholder={getPOSTranslation("barcode", language)}
+                  value={barcodeSearchTerm}
+                  onChange={handleBarcodeSearch}
+                  onKeyDown={handleBarcodeSearchKeyDown}
+                  className={`barcode-input ${rtlEnabled ? "pr-10" : "pl-10"}`}
+                  autoComplete="off"
+                />
+              </div>
             </div>
             <div className="flex items-center justify-between mt-2">
               <div className="flex items-center space-x-2">
@@ -1550,7 +1676,12 @@ const POSPage = () => {
                   <Card
                     key={`recent-${product.id}`}
                     className="cursor-pointer hover:shadow-md transition-shadow"
-                    onClick={() => addToCart(product)}
+                    onClick={() => {
+                      const wasAdded = addToCart(product)
+                      if (wasAdded) {
+                        setSearchTerm("")
+                      }
+                    }}
                   >
                     <CardContent className="p-4">
                       <div className="h-24 w-24 relative mb-2 bg-muted rounded-md overflow-hidden mx-auto">
@@ -1613,7 +1744,12 @@ const POSPage = () => {
                       <Card
                         key={product.id}
                         className="cursor-pointer hover:shadow-md transition-shadow"
-                        onClick={() => addToCart(product)}
+                        onClick={() => {
+                          const wasAdded = addToCart(product)
+                          if (wasAdded) {
+                            setSearchTerm("")
+                          }
+                        }}
                       >
                         <CardContent className="p-4">
                           <div className="aspect-square relative mb-2 bg-muted rounded-md overflow-hidden">
