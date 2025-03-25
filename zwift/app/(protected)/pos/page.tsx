@@ -572,9 +572,9 @@ const POSPage = () => {
   useEffect(() => {
     // Short timeout to ensure the DOM is fully loaded
     const timer = setTimeout(() => {
-      if (searchInputRef.current) {
-        searchInputRef.current.focus()
-        console.log("Search input auto-focused")
+      if (barcodeSearchInputRef.current) {
+        barcodeSearchInputRef.current.focus()
+        console.log("Barcode search input auto-focused")
       }
     }, 100)
 
