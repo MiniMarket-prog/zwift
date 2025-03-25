@@ -24,7 +24,6 @@ import {
   Save,
   Barcode,
   Printer,
-  X,
 } from "lucide-react"
 import { createSale, getLowStockProducts } from "@/lib/supabase"
 import {
@@ -101,7 +100,6 @@ const POSPage = () => {
     currency: "USD",
   })
   const [lastAddedProduct, setLastAddedProduct] = useState<Product | null>(null)
-  const [showConfirmationDialog, setShowConfirmationDialog] = useState(false)
   const [completedSaleData, setCompletedSaleData] = useState<CompletedSaleData | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null) // Ref for search input to focus after adding
   const receiptRef = useRef<HTMLDivElement>(null)
@@ -153,7 +151,8 @@ const POSPage = () => {
   useEffect(() => {
     if (!autoAddOnBarcode) return
 
-    const BARCODE_SCAN_TIMEOUT = 50 // Typical barcode scanners send characters very quickly
+    const BARCODE_SCAN_TIMEOUT = 100 // Increased timeout for more reliable scanning
+    const MIN_BARCODE_LENGTH = 3 // Minimum barcode length to process
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Only process if we're not in an input field (except our search input)
@@ -177,7 +176,7 @@ const POSPage = () => {
       lastKeyTime.current = currentTime
 
       // Handle Enter key as the end of barcode input
-      if (e.key === "Enter" && barcodeBuffer.current.length > 3) {
+      if (e.key === "Enter" && barcodeBuffer.current.length >= MIN_BARCODE_LENGTH) {
         e.preventDefault()
 
         if (processingBarcode.current) {
@@ -189,10 +188,14 @@ const POSPage = () => {
         console.log("Processing barcode from global listener:", barcodeBuffer.current)
 
         // Process the barcode
-        processBarcode(barcodeBuffer.current)
+        const barcodeToProcess = barcodeBuffer.current
+        barcodeBuffer.current = "" // Reset buffer immediately
 
-        // Reset the buffer
-        barcodeBuffer.current = ""
+        // Use setTimeout to ensure the UI is updated before processing
+        setTimeout(() => {
+          processBarcode(barcodeToProcess)
+        }, 10)
+
         return
       }
 
@@ -215,47 +218,53 @@ const POSPage = () => {
   const processBarcode = (barcode: string) => {
     console.log("Processing barcode:", barcode)
 
-    if (!barcode || barcode.trim() === "") {
-      processingBarcode.current = false
-      return
-    }
-
-    // Find the product with this barcode
-    const exactBarcodeMatch = products.find(
-      (product) => product.barcode && product.barcode.toLowerCase() === barcode.toLowerCase(),
-    )
-
-    if (exactBarcodeMatch) {
-      console.log("Found exact barcode match:", exactBarcodeMatch.name)
-
-      // Add product to cart with notification
-      const wasAdded = addToCart(exactBarcodeMatch, true)
-
-      if (wasAdded) {
-        console.log("Product added to cart successfully")
-
-        // Set last added product for beep sound
-        setLastAddedProduct(exactBarcodeMatch)
-
-        // Clear search field and focus it for the next scan
-        setSearchTerm("")
-        if (searchInputRef.current) {
-          searchInputRef.current.focus()
-        }
+    try {
+      if (!barcode || barcode.trim() === "") {
+        console.log("Empty barcode, ignoring")
+        return
       }
-    } else {
-      console.log("No product found with barcode:", barcode)
-      toast({
-        title: "Product Not Found",
-        description: `No product found with barcode: ${barcode}`,
-        variant: "destructive",
-      })
-    }
 
-    // Reset processing flag after a short delay to prevent double processing
-    setTimeout(() => {
-      processingBarcode.current = false
-    }, 300)
+      const trimmedBarcode = barcode.trim()
+
+      // Find the product with this barcode
+      const exactBarcodeMatch = products.find(
+        (product) => product.barcode && product.barcode.toLowerCase() === trimmedBarcode.toLowerCase(),
+      )
+
+      if (exactBarcodeMatch) {
+        console.log("Found exact barcode match:", exactBarcodeMatch.name)
+
+        // Add product to cart with notification
+        const wasAdded = addToCart(exactBarcodeMatch, true)
+
+        if (wasAdded) {
+          console.log("Product added to cart successfully")
+
+          // Set last added product for beep sound
+          setLastAddedProduct(exactBarcodeMatch)
+
+          // Clear search field and focus it for the next scan
+          setSearchTerm("")
+          if (searchInputRef.current) {
+            searchInputRef.current.focus()
+          }
+        }
+      } else {
+        console.log("No product found with barcode:", trimmedBarcode)
+        toast({
+          title: "Product Not Found",
+          description: `No product found with barcode: ${trimmedBarcode}`,
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Error processing barcode:", error)
+    } finally {
+      // Always reset the processing flag
+      setTimeout(() => {
+        processingBarcode.current = false
+      }, 300)
+    }
   }
 
   // Fetch products and settings
@@ -582,38 +591,49 @@ const POSPage = () => {
 
     // If auto-add is enabled, check for exact barcode match
     if (autoAddOnBarcode && value.trim() !== "") {
-      // Log the current products array length to debug
-      console.log("Checking barcode match among", products.length, "products")
+      // Clear any pending search timeout
+      if (searchTimeout.current) {
+        clearTimeout(searchTimeout.current)
+        searchTimeout.current = null
+      }
 
-      const exactBarcodeMatch = products.find(
-        (product) => product.barcode && product.barcode.toLowerCase() === value.toLowerCase(),
-      )
+      // Check if this might be a barcode (typically barcodes are numeric or alphanumeric)
+      const mightBeBarcode = /^[A-Za-z0-9]+$/.test(value.trim())
 
-      if (exactBarcodeMatch) {
-        console.log("Found exact barcode match:", exactBarcodeMatch.name)
+      if (mightBeBarcode) {
+        // Log the current products array length to debug
+        console.log("Checking barcode match among", products.length, "products")
 
-        // Add product to cart with notification
-        const wasAdded = addToCart(exactBarcodeMatch, true)
+        const exactBarcodeMatch = products.find(
+          (product) => product.barcode && product.barcode.toLowerCase() === value.toLowerCase(),
+        )
 
-        if (wasAdded) {
-          console.log("Product added to cart successfully")
+        if (exactBarcodeMatch) {
+          console.log("Found exact barcode match in search:", exactBarcodeMatch.name)
 
-          // Set last added product for beep sound
-          setLastAddedProduct(exactBarcodeMatch)
+          // Add product to cart with notification
+          const wasAdded = addToCart(exactBarcodeMatch, true)
 
-          // Clear search field
-          setSearchTerm("")
+          if (wasAdded) {
+            console.log("Product added to cart successfully from search")
 
-          // Focus the search input again for the next scan
-          if (searchInputRef.current) {
-            searchInputRef.current.focus()
+            // Set last added product for beep sound
+            setLastAddedProduct(exactBarcodeMatch)
+
+            // Clear search field
+            setSearchTerm("")
+
+            // Focus the search input again for the next scan
+            if (searchInputRef.current) {
+              searchInputRef.current.focus()
+            }
+
+            // Return early to prevent the debounced search
+            return
           }
+        } else {
+          console.log("No exact barcode match found in search")
         }
-
-        // Return early to prevent the debounced search
-        return
-      } else {
-        console.log("No exact barcode match found")
       }
     }
 
@@ -881,12 +901,7 @@ const POSPage = () => {
       return
     }
 
-    // Open the confirmation dialog instead of processing immediately
-    setShowConfirmationDialog(true)
-  }
-
-  // Process the payment after confirmation
-  const processPayment = async () => {
+    // Process payment directly
     setIsProcessing(true)
 
     try {
@@ -946,7 +961,6 @@ const POSPage = () => {
       })
     } finally {
       setIsProcessing(false)
-      setShowConfirmationDialog(false)
     }
   }
 
@@ -1028,6 +1042,51 @@ const POSPage = () => {
   const viewSaleDetails = (sale: CompletedSaleData) => {
     setViewingSaleDetails(sale)
   }
+
+  // Add this useEffect after the fetchData function
+  useEffect(() => {
+    // Preload all products for better barcode matching
+    const preloadAllProducts = async () => {
+      try {
+        console.log("Preloading all products for barcode scanning...")
+        const { data, error } = await supabase
+          .from("products")
+          .select("id, name, barcode, price, stock, min_stock, image")
+          .order("name")
+          .limit(2000) // Increase limit to get more products
+
+        if (error) throw error
+
+        if (data) {
+          console.log("Preloaded", data.length, "products for barcode scanning")
+          setProducts(data as Product[])
+        }
+      } catch (error) {
+        console.error("Error preloading products:", error)
+      }
+    }
+
+    preloadAllProducts()
+  }, [supabase])
+
+  // Add this useEffect after the other useEffects
+  useEffect(() => {
+    // Periodically check if search input should be focused
+    const focusInterval = setInterval(() => {
+      // Only focus if no other input is active
+      if (
+        document.activeElement &&
+        document.activeElement.tagName !== "INPUT" &&
+        document.activeElement.tagName !== "TEXTAREA" &&
+        searchInputRef.current
+      ) {
+        searchInputRef.current.focus()
+        console.log("Search input re-focused")
+      }
+    }, 5000) // Check every 5 seconds
+
+    return () => clearInterval(focusInterval)
+  }, [])
 
   // Now modify the return statement to swap the order of cart and products sections
   // and add a recent products section
@@ -1113,78 +1172,6 @@ const POSPage = () => {
           </DialogContent>
         </Dialog>
       )}
-
-      {/* Sale Confirmation Dialog */}
-      <Dialog open={showConfirmationDialog} onOpenChange={setShowConfirmationDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Confirm Sale</DialogTitle>
-            <DialogDescription>Please review your order before completing the sale.</DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <div className="space-y-4">
-              <div className="border rounded-md p-4 max-h-[300px] overflow-y-auto">
-                {cart.map((item) => (
-                  <div key={item.id} className="flex justify-between items-center py-2 border-b last:border-0">
-                    <div>
-                      <p className="font-medium">{item.product.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {formatCurrency(item.price, settings.currency, language)} × {item.quantity}
-                      </p>
-                    </div>
-                    <p className="font-medium">
-                      {formatCurrency(item.price * item.quantity, settings.currency, language)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">{getPOSTranslation("subtotal", language)}</span>
-                  <span>{formatCurrency(calculateSubtotal(), settings.currency, language)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">
-                    {getPOSTranslation("tax", language)} ({settings.tax_rate}%)
-                  </span>
-                  <span>{formatCurrency(calculateTax(), settings.currency, language)}</span>
-                </div>
-                <div className="flex justify-between font-bold">
-                  <span>{getPOSTranslation("total", language)}</span>
-                  <span>{formatCurrency(calculateTotal(), settings.currency, language)}</span>
-                </div>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="font-medium">Payment Method:</span>
-                <Badge variant="outline" className="capitalize">
-                  {paymentMethod}
-                </Badge>
-              </div>
-            </div>
-          </div>
-          <DialogFooter className="flex flex-col sm:flex-row gap-2">
-            <Button variant="outline" onClick={() => setShowConfirmationDialog(false)}>
-              <X className="mr-2 h-4 w-4" />
-              {"Cancel"}
-            </Button>
-            <Button onClick={processPayment} disabled={isProcessing}>
-              {isProcessing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {isProcessing ? getPOSTranslation("processing", language) : "Confirm Sale"}
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
-                  {"Confirm Sale"}
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Receipt Template (hidden) */}
       {completedSaleData && (
