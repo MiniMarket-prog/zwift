@@ -207,7 +207,7 @@ export function AppSidebar() {
   const navItems = [
     { href: "/dashboard", label: "dashboard" as AppTranslationKey, icon: <LayoutDashboard className="h-5 w-5" /> },
     { href: "/pos", label: "pointOfSale" as AppTranslationKey, icon: <ShoppingCart className="h-5 w-5" /> },
-    { href: "/inventory", label: "inventory" as AppTranslationKey, icon: <Package className="h-5 w-5" /> },
+    { href: "/products", label: "inventory" as AppTranslationKey, icon: <Package className="h-5 w-5" /> },
     {
       href: "/forecasting",
       label: "forecasting" as AppTranslationKey,
