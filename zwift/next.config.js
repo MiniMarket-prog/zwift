@@ -17,9 +17,18 @@ const nextConfig = {
   // Disable strict mode which can cause additional warnings
   reactStrictMode: false,
 
-  // Add the images configuration to allow i.postimg.cc domain
+  // Use remotePatterns instead of domains to allow all domains
   images: {
-    domains: ["i.postimg.cc"],
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "**",
+      },
+      {
+        protocol: "http",
+        hostname: "**",
+      },
+    ],
   },
 }
 
