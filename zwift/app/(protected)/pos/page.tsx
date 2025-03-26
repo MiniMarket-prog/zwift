@@ -1987,7 +1987,97 @@ const POSPage = () => {
             </div>
           </div>
 
-          {/* Favorite Products Section */}
+          {/* 1. Search Results Section */}
+          {searchTerm.trim() !== "" && (
+            <div className="mb-6">
+              <h3 className="text-lg font-medium mb-3">{getPOSTranslation("searchResults", language)}</h3>
+              {isLoading ? (
+                <div className="flex justify-center items-center h-64">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+              ) : filteredProducts.length === 0 ? (
+                <div className="text-center py-10">
+                  <p className="text-muted-foreground">
+                    {getPOSTranslation("noProductsFound", language)} &quot;{searchTerm}&quot;
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {filteredProducts.map((product) => (
+                    <Card
+                      key={product.id}
+                      className="cursor-pointer hover:shadow-md transition-shadow relative"
+                      onClick={() => {
+                        const wasAdded = addToCart(product)
+                        if (wasAdded) {
+                          setSearchTerm("")
+                        }
+                      }}
+                    >
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="absolute top-2 right-2 z-10 h-6 w-6 bg-background/80 hover:bg-background"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (isProductFavorite(product.id)) {
+                            removeFromFavorites(product.id)
+                          } else {
+                            addToFavorites(product)
+                          }
+                        }}
+                      >
+                        {isProductFavorite(product.id) ? (
+                          <Trash2 className="h-3 w-3 text-destructive" />
+                        ) : (
+                          <Plus className="h-3 w-3" />
+                        )}
+                      </Button>
+                      <CardContent className="p-4">
+                        <div className="aspect-square relative mb-2 bg-muted rounded-md overflow-hidden">
+                          {product.image ? (
+                            <img
+                              src={product.image || "/placeholder.svg"}
+                              alt={product.name}
+                              className="w-full h-full object-contain"
+                              onError={(e) => {
+                                console.error("Image failed to load:", product.image)
+                                e.currentTarget.src = "/placeholder.svg"
+                              }}
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-muted">
+                              <ShoppingCart className="h-12 w-12 text-muted-foreground" />
+                            </div>
+                          )}
+                          {product.stock <= 0 && (
+                            <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
+                              <p className="text-destructive font-semibold">
+                                {getPOSTranslation("outOfStock", language)}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                        <h3 className="font-medium line-clamp-1">{product.name}</h3>
+                        <div className="flex justify-between items-center mt-1">
+                          <p className="font-bold">{formatCurrency(product.price, settings.currency, language)}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {getPOSTranslation("stock", language)}: {product.stock}
+                          </p>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1 truncate">
+                          {getPOSTranslation("barcode", language)}: {product.barcode}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+              <div className="border-b mb-6"></div>
+            </div>
+          )}
+
+          {/* 2. Favorite Products Section */}
           {favoriteProducts.length > 0 && (
             <div className="mb-6">
               <h3 className="text-lg font-medium mb-3">{"Favorite Products"}</h3>
@@ -2078,7 +2168,7 @@ const POSPage = () => {
             </div>
           )}
 
-          {/* Keep the original Recent Sales section if you want both */}
+          {/* 3. Recently Sold Products Section */}
           {recentSales.length > 0 && (
             <div className="mb-6">
               <h3 className="text-lg font-medium mb-3">{getPOSTranslation("recentlySold", language)}</h3>
@@ -2108,7 +2198,6 @@ const POSPage = () => {
                       </Button>
                     )}
                     <CardContent className="p-4">
-                      {/* Rest of the card content remains the same */}
                       <div className="h-24 w-24 relative mb-2 bg-muted rounded-md overflow-hidden mx-auto">
                         {product.image ? (
                           <img
@@ -2144,100 +2233,8 @@ const POSPage = () => {
                   </Card>
                 ))}
               </div>
-              <div className="border-b mb-6"></div>
             </div>
           )}
-
-          {/* Search Results Section */}
-          <div>
-            {searchTerm.trim() !== "" && (
-              <>
-                <h3 className="text-lg font-medium mb-3">{getPOSTranslation("searchResults", language)}</h3>
-                {isLoading ? (
-                  <div className="flex justify-center items-center h-64">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                  </div>
-                ) : filteredProducts.length === 0 ? (
-                  <div className="text-center py-10">
-                    <p className="text-muted-foreground">
-                      {getPOSTranslation("noProductsFound", language)} &quot;{searchTerm}&quot;
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {filteredProducts.map((product) => (
-                      <Card
-                        key={product.id}
-                        className="cursor-pointer hover:shadow-md transition-shadow relative"
-                        onClick={() => {
-                          const wasAdded = addToCart(product)
-                          if (wasAdded) {
-                            setSearchTerm("")
-                          }
-                        }}
-                      >
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="absolute top-2 right-2 z-10 h-6 w-6 bg-background/80 hover:bg-background"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            if (isProductFavorite(product.id)) {
-                              removeFromFavorites(product.id)
-                            } else {
-                              addToFavorites(product)
-                            }
-                          }}
-                        >
-                          {isProductFavorite(product.id) ? (
-                            <Trash2 className="h-3 w-3 text-destructive" />
-                          ) : (
-                            <Plus className="h-3 w-3" />
-                          )}
-                        </Button>
-                        <CardContent className="p-4">
-                          <div className="aspect-square relative mb-2 bg-muted rounded-md overflow-hidden">
-                            {product.image ? (
-                              <img
-                                src={product.image || "/placeholder.svg"}
-                                alt={product.name}
-                                className="w-full h-full object-contain"
-                                onError={(e) => {
-                                  console.error("Image failed to load:", product.image)
-                                  e.currentTarget.src = "/placeholder.svg"
-                                }}
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center bg-muted">
-                                <ShoppingCart className="h-12 w-12 text-muted-foreground" />
-                              </div>
-                            )}
-                            {product.stock <= 0 && (
-                              <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
-                                <p className="text-destructive font-semibold">
-                                  {getPOSTranslation("outOfStock", language)}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                          <h3 className="font-medium line-clamp-1">{product.name}</h3>
-                          <div className="flex justify-between items-center mt-1">
-                            <p className="font-bold">{formatCurrency(product.price, settings.currency, language)}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {getPOSTranslation("stock", language)}: {product.stock}
-                            </p>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-1 truncate">
-                            {getPOSTranslation("barcode", language)}: {product.barcode}
-                          </p>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
         </div>
       </div>
     </div>
