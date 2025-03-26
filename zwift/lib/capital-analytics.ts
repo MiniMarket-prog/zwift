@@ -158,7 +158,7 @@ export async function getCapitalAnalytics() {
     if (recentSales) {
       recentSales.forEach((sale) => {
         if (sale.sale_items) {
-          sale.sale_items.forEach((item) => {
+          sale.sale_items.forEach((item: { product_id: string; quantity: number }) => {
             productSalesCount[item.product_id] = (productSalesCount[item.product_id] || 0) + item.quantity
           })
         }
@@ -357,13 +357,15 @@ export async function getCapitalTrends(period = "month") {
       salesWithItems.forEach((sale) => {
         if (sale.sale_items && sale.sale_items.length > 0) {
           let saleProfit = 0
-          sale.sale_items.forEach((item) => {
-            if (item.products?.purchase_price !== null && item.products?.purchase_price !== undefined) {
-              const itemCost = item.products.purchase_price * item.quantity
-              const itemRevenue = item.price * item.quantity
-              saleProfit += itemRevenue - itemCost
-            }
-          })
+          sale.sale_items.forEach(
+            (item: { products?: { purchase_price?: number | null }; quantity: number; price: number }) => {
+              if (item.products?.purchase_price !== null && item.products?.purchase_price !== undefined) {
+                const itemCost = item.products.purchase_price * item.quantity
+                const itemRevenue = item.price * item.quantity
+                saleProfit += itemRevenue - itemCost
+              }
+            },
+          )
           totalProfit += saleProfit
         }
       })

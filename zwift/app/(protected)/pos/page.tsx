@@ -53,6 +53,19 @@ type Product = {
   purchase_price?: number | null
 }
 
+// After the other type definitions
+type FavoriteProduct = {
+  id: string
+  name?: string
+  price?: number
+  barcode?: string
+  stock?: number
+  min_stock?: number
+  category_id?: string | null
+  image?: string | null
+  purchase_price?: number | null
+}
+
 type CartItem = {
   id: string
   product: Product
@@ -118,6 +131,8 @@ const POSPage = () => {
   // Add a new state for recently sold products after the other state declarations
   const [recentSales, setRecentSales] = useState<Product[]>([])
   const [viewingSaleDetails, setViewingSaleDetails] = useState<CompletedSaleData | null>(null)
+  // Add this after the other state declarations
+  const [favoriteProducts, setFavoriteProducts] = useState<FavoriteProduct[]>([])
 
   // Play beep sound when a product is added via barcode
   useEffect(() => {
@@ -795,12 +810,239 @@ const POSPage = () => {
     }
   }
 
+  // First, add a new function to save favorites to the database after the other utility functions
+  // Function to save favorites to the database
+  const saveFavoritesToDatabase = async (favorites: FavoriteProduct[]) => {
+    try {
+      // Get the current user ID
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user) {
+        console.error("No user found, cannot save favorites")
+        return
+      }
+
+      // Store favorites in localStorage as a backup
+      localStorage.setItem("favoriteProducts", JSON.stringify(favorites))
+
+      // First, delete existing favorites for this user
+      const { error: deleteError } = await supabase
+        .from("user_favorites" as any)
+        .delete()
+        .eq("user_id", user.id)
+
+      if (deleteError) {
+        console.error("Error deleting existing favorites:", deleteError)
+        return
+      }
+
+      // Then insert the new favorites
+      if (favorites.length > 0) {
+        const favoritesToInsert = favorites.map((favorite) => ({
+          user_id: user.id,
+          product_id: favorite.id,
+          created_at: new Date().toISOString(),
+        }))
+
+        const { error: insertError } = await supabase.from("user_favorites" as any).insert(favoritesToInsert as any)
+
+        if (insertError) {
+          console.error("Error saving favorites to database:", insertError)
+        } else {
+          console.log("Favorites saved to database successfully")
+        }
+      }
+    } catch (error) {
+      console.error("Error saving favorites:", error)
+      // Make sure we at least save to localStorage
+      localStorage.setItem("favoriteProducts", JSON.stringify(favorites))
+    }
+  }
+
+  // Add a function to load favorites from the database
+  // Function to load favorites from the database
+  const loadFavoritesFromDatabase = async () => {
+    try {
+      // Get the current user ID
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user) {
+        console.error("No user found, cannot load favorites")
+        return
+      }
+
+      // Get user favorites from the database
+      const { data: userFavorites, error: favoritesError } = await supabase
+        .from("user_favorites" as any)
+        .select("product_id")
+        .eq("user_id", user.id)
+
+      if (favoritesError) {
+        console.error("Error loading favorites from database:", favoritesError)
+        return
+      }
+
+      if (userFavorites && userFavorites.length > 0) {
+        // Get the product IDs from the favorites
+        const productIds = userFavorites.map((fav) => (fav as any).product_id)
+
+        // Fetch the full product data for these IDs
+        const { data: favoriteProducts, error: productsError } = await supabase
+          .from("products")
+          .select("*")
+          .in("id", productIds)
+
+        if (productsError) {
+          console.error("Error loading favorite products:", productsError)
+          return
+        }
+
+        if (favoriteProducts && favoriteProducts.length > 0) {
+          // Convert to FavoriteProduct type
+          const fullFavorites: FavoriteProduct[] = favoriteProducts.map((product) => ({
+            id: product.id,
+            name: product.name,
+            price: product.price,
+            barcode: product.barcode || "",
+            stock: product.stock,
+            min_stock: product.min_stock || 0,
+            image: product.image,
+            purchase_price: product.purchase_price,
+            category_id: product.category_id,
+          }))
+
+          // Update state and localStorage
+          setFavoriteProducts(fullFavorites)
+          localStorage.setItem("favoriteProducts", JSON.stringify(fullFavorites))
+          console.log("Favorites loaded from database:", fullFavorites.length)
+        }
+      }
+    } catch (error) {
+      console.error("Error loading favorites:", error)
+
+      // Fall back to localStorage if database loading fails
+      const savedFavorites = localStorage.getItem("favoriteProducts")
+      if (savedFavorites) {
+        try {
+          const parsedFavorites = JSON.parse(savedFavorites) as FavoriteProduct[]
+          setFavoriteProducts(parsedFavorites)
+          console.log("Favorites loaded from localStorage fallback:", parsedFavorites.length)
+        } catch (e) {
+          console.error("Error parsing favorites from localStorage:", e)
+        }
+      }
+    }
+  }
+
+  // Now modify the addToFavorites function to also save to the database
+  const addToFavorites = (product: Product) => {
+    // Check if product is already in favorites
+    if (!favoriteProducts.some((p) => p.id === product.id)) {
+      // Ensure we have a complete product with all required fields
+      if (!product.name || product.price === undefined || product.stock === undefined) {
+        console.error("Cannot add incomplete product to favorites:", product)
+        toast({
+          title: "Error",
+          description: "Cannot add incomplete product to favorites",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Store the full product as a FavoriteProduct with all required fields
+      const favoriteProduct: FavoriteProduct = {
+        id: product.id,
+        name: product.name,
+        price: product.price,
+        barcode: product.barcode || "",
+        stock: product.stock,
+        min_stock: product.min_stock || 0,
+        image: product.image,
+        purchase_price: product.purchase_price,
+        category_id: product.category_id,
+      }
+
+      // Create a new array with all existing favorites plus the new one
+      const updatedFavorites = [...favoriteProducts, favoriteProduct]
+      setFavoriteProducts(updatedFavorites)
+
+      // Store complete product data in localStorage
+      localStorage.setItem("favoriteProducts", JSON.stringify(updatedFavorites))
+
+      // Also save to the database
+      saveFavoritesToDatabase(updatedFavorites)
+
+      toast({
+        title: "Product Added to Favorites",
+        description: `${product.name} will now appear in your favorites list`,
+      })
+    }
+  }
+
+  // Modify the removeFromFavorites function to also update the database
+  const removeFromFavorites = (productId: string) => {
+    const updatedFavorites = favoriteProducts.filter((p) => p.id !== productId)
+    setFavoriteProducts(updatedFavorites)
+
+    // Update localStorage
+    localStorage.setItem("favoriteProducts", JSON.stringify(updatedFavorites))
+
+    // Also update the database
+    saveFavoritesToDatabase(updatedFavorites)
+
+    toast({
+      title: "Product Removed from Favorites",
+      description: "Product removed from your favorites list",
+    })
+  }
+
+  const isProductFavorite = (productId: string) => {
+    return favoriteProducts.some((p) => p.id === productId)
+  }
+
+  // Add this function after the other utility functions
+  const ensureFullProduct = (product: FavoriteProduct | Product): Product => {
+    // If any required field is missing, find the product in the products array
+    if (
+      product.name === undefined ||
+      product.price === undefined ||
+      product.stock === undefined ||
+      product.min_stock === undefined ||
+      product.barcode === undefined
+    ) {
+      const fullProduct = products.find((p) => p.id === product.id)
+      if (fullProduct) {
+        return fullProduct
+      }
+      // If not found, create a default product with the ID
+      return {
+        id: product.id,
+        name: product.name ?? "Unknown Product",
+        price: product.price ?? 0,
+        barcode: product.barcode ?? "",
+        stock: product.stock ?? 0,
+        min_stock: product.min_stock ?? 0,
+        image: product.image,
+        purchase_price: product.purchase_price,
+      }
+    }
+    // If all required fields are present, it's already a valid Product
+    return product as Product
+  }
+
   // Add product to cart
-  const addToCart = (product: Product, showNotification = true): boolean => {
-    if (product.stock <= 0) {
+  const addToCart = (product: Product | FavoriteProduct, showNotification = true): boolean => {
+    // Ensure we have all required fields for a Product
+    const fullProduct = ensureFullProduct(product)
+
+    if (fullProduct.stock <= 0) {
       toast({
         title: getPOSTranslation("outOfStock", language),
-        description: `${product.name} ${getPOSTranslation("outOfStock", language).toLowerCase()}.`,
+        description: `${fullProduct.name} ${getPOSTranslation("outOfStock", language).toLowerCase()}.`,
         variant: "destructive",
       })
       return false
@@ -812,17 +1054,17 @@ const POSPage = () => {
     // Check if we should show a notification (debounce)
     const shouldShowNotification =
       showNotification &&
-      (lastNotificationRef.current.productId !== product.id || now - lastNotificationRef.current.timestamp > 500)
+      (lastNotificationRef.current.productId !== fullProduct.id || now - lastNotificationRef.current.timestamp > 500)
 
     // Find if the product already exists in the cart before updating state
-    const existingItem = cart.find((item) => item.product.id === product.id)
+    const existingItem = cart.find((item) => item.product.id === fullProduct.id)
 
     if (existingItem) {
       // Check if we have enough stock
-      if (existingItem.quantity >= product.stock) {
+      if (existingItem.quantity >= fullProduct.stock) {
         toast({
           title: getPOSTranslation("stockLimitReached", language),
-          description: `${getPOSTranslation("stockLimitReached", language)}: ${product.stock} ${product.name}`,
+          description: `${getPOSTranslation("stockLimitReached", language)}: ${fullProduct.stock} ${fullProduct.name}`,
           variant: "destructive",
         })
         return false
@@ -832,19 +1074,19 @@ const POSPage = () => {
       if (shouldShowNotification) {
         toast({
           title: getPOSTranslation("productUpdated", language),
-          description: `${getPOSTranslation("productUpdated", language)}: ${product.name} (${existingItem.quantity + 1})`,
+          description: `${getPOSTranslation("productUpdated", language)}: ${fullProduct.name} (${existingItem.quantity + 1})`,
         })
 
         // Update the last notification reference
         lastNotificationRef.current = {
-          productId: product.id,
+          productId: fullProduct.id,
           timestamp: now,
         }
       }
 
       // Update cart with increased quantity
       setCart((prevCart) =>
-        prevCart.map((item) => (item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item)),
+        prevCart.map((item) => (item.product.id === fullProduct.id ? { ...item, quantity: item.quantity + 1 } : item)),
       )
 
       wasAdded = true
@@ -853,12 +1095,12 @@ const POSPage = () => {
       if (shouldShowNotification) {
         toast({
           title: getPOSTranslation("productAdded", language),
-          description: `${product.name} ${getPOSTranslation("productAdded", language).toLowerCase()}`,
+          description: `${fullProduct.name} ${getPOSTranslation("productAdded", language).toLowerCase()}`,
         })
 
         // Update the last notification reference
         lastNotificationRef.current = {
-          productId: product.id,
+          productId: fullProduct.id,
           timestamp: now,
         }
       }
@@ -867,10 +1109,10 @@ const POSPage = () => {
       setCart((prevCart) => [
         ...prevCart,
         {
-          id: product.id,
-          product,
+          id: fullProduct.id,
+          product: fullProduct,
           quantity: 1,
-          price: product.price,
+          price: fullProduct.price,
         },
       ])
 
@@ -1196,6 +1438,84 @@ const POSPage = () => {
     }, 5000) // Check every 5 seconds
 
     return () => clearInterval(focusInterval)
+  }, [])
+
+  // Now modify the useEffect that loads favorites to also try loading from the database
+  useEffect(() => {
+    // First try to load from localStorage for immediate display
+    try {
+      const savedFavorites = localStorage.getItem("favoriteProducts")
+      if (savedFavorites) {
+        // Parse the saved favorites
+        const parsedFavorites = JSON.parse(savedFavorites) as FavoriteProduct[]
+
+        // If we have products loaded, enhance the favorites with current product data
+        if (products.length > 0) {
+          // Create a map of products by ID for faster lookup
+          const productsMap: Record<string, Product> = {}
+          products.forEach((product) => {
+            productsMap[product.id] = product
+          })
+
+          // Update favorites with current product data where available
+          const enhancedFavorites = parsedFavorites.map((fav) => {
+            const currentProduct = productsMap[fav.id]
+
+            // If current product data is available, use it to update the favorite
+            if (currentProduct) {
+              return {
+                ...fav, // Keep existing favorite data
+                // Update with current product data
+                name: currentProduct.name,
+                price: currentProduct.price,
+                barcode: currentProduct.barcode,
+                stock: currentProduct.stock,
+                min_stock: currentProduct.min_stock,
+                image: currentProduct.image,
+                purchase_price: currentProduct.purchase_price,
+                category_id: currentProduct.category_id,
+              }
+            }
+            // Otherwise keep the existing favorite data
+            return fav
+          })
+
+          // Only set favorites if we haven't already (to avoid clearing during searches)
+          if (favoriteProducts.length === 0 || JSON.stringify(enhancedFavorites) !== JSON.stringify(favoriteProducts)) {
+            setFavoriteProducts(enhancedFavorites)
+          }
+        } else {
+          // If no products are loaded yet, just use the parsed favorites
+          setFavoriteProducts(parsedFavorites)
+        }
+      }
+    } catch (error) {
+      console.error("Error loading favorite products from localStorage:", error)
+    }
+
+    // Then try to load from the database (this will update the state if successful)
+    loadFavoritesFromDatabase()
+  }, [products])
+
+  // Add an effect to load favorites from the database when the user logs in
+  useEffect(() => {
+    // Listen for auth state changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" && session) {
+        // User signed in, load their favorites
+        loadFavoritesFromDatabase()
+      }
+    })
+
+    // Initial load attempt
+    loadFavoritesFromDatabase()
+
+    // Cleanup subscription
+    return () => {
+      subscription.unsubscribe()
+    }
   }, [])
 
   // Now modify the return statement to swap the order of cart and products sections
@@ -1667,7 +1987,98 @@ const POSPage = () => {
             </div>
           </div>
 
-          {/* Recent Sales Section */}
+          {/* Favorite Products Section */}
+          {favoriteProducts.length > 0 && (
+            <div className="mb-6">
+              <h3 className="text-lg font-medium mb-3">{"Favorite Products"}</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-6">
+                {favoriteProducts
+                  .filter((product) => product.name && product.price !== undefined) // Only show products with name and price
+                  .map((favoriteProduct) => {
+                    // Find the latest product data with updated stock
+                    const currentProduct = products.find((p) => p.id === favoriteProduct.id)
+
+                    // Use current data from products array if available, otherwise use stored favorite data
+                    const displayProduct = currentProduct || favoriteProduct
+
+                    // Ensure we have valid data for display
+                    const productName = displayProduct.name || "Unknown Product"
+                    const productPrice = displayProduct.price ?? 0
+                    const productStock = displayProduct.stock ?? 0
+
+                    return (
+                      <Card
+                        key={`favorite-${displayProduct.id}`}
+                        className="cursor-pointer hover:shadow-md transition-shadow relative"
+                        onClick={() => {
+                          if (currentProduct) {
+                            // If we have current product data, use that
+                            const wasAdded = addToCart(currentProduct)
+                            if (wasAdded) {
+                              setSearchTerm("")
+                            }
+                          } else if (favoriteProduct.name && favoriteProduct.price !== undefined) {
+                            // Otherwise use the stored favorite data if it's complete
+                            const wasAdded = addToCart(favoriteProduct)
+                            if (wasAdded) {
+                              setSearchTerm("")
+                            }
+                          }
+                        }}
+                      >
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="absolute top-2 right-2 z-10 h-6 w-6 bg-background/80 hover:bg-background"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            removeFromFavorites(displayProduct.id)
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3 text-destructive" />
+                        </Button>
+                        <CardContent className="p-4">
+                          <div className="h-24 w-24 relative mb-2 bg-muted rounded-md overflow-hidden mx-auto">
+                            {displayProduct.image ? (
+                              <img
+                                src={displayProduct.image || "/placeholder.svg"}
+                                alt={productName}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  console.error("Image failed to load:", displayProduct.image)
+                                  e.currentTarget.src = "/placeholder.svg"
+                                }}
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <ShoppingCart className="h-10 w-10 text-muted-foreground" />
+                              </div>
+                            )}
+                            {productStock <= 0 && (
+                              <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
+                                <p className="text-destructive font-semibold">
+                                  {getPOSTranslation("outOfStock", language)}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                          <h3 className="font-medium line-clamp-1">{productName}</h3>
+                          <div className="flex justify-between items-center mt-1">
+                            <p className="font-bold">{formatCurrency(productPrice, settings.currency, language)}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {getPOSTranslation("stock", language)}: {productStock}
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )
+                  })}
+              </div>
+              <div className="border-b mb-6"></div>
+            </div>
+          )}
+
+          {/* Keep the original Recent Sales section if you want both */}
           {recentSales.length > 0 && (
             <div className="mb-6">
               <h3 className="text-lg font-medium mb-3">{getPOSTranslation("recentlySold", language)}</h3>
@@ -1675,7 +2086,7 @@ const POSPage = () => {
                 {recentSales.map((product) => (
                   <Card
                     key={`recent-${product.id}`}
-                    className="cursor-pointer hover:shadow-md transition-shadow"
+                    className="cursor-pointer hover:shadow-md transition-shadow relative"
                     onClick={() => {
                       const wasAdded = addToCart(product)
                       if (wasAdded) {
@@ -1683,7 +2094,21 @@ const POSPage = () => {
                       }
                     }}
                   >
+                    {!isProductFavorite(product.id) && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="absolute top-2 right-2 z-10 h-6 w-6 bg-background/80 hover:bg-background"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          addToFavorites(product)
+                        }}
+                      >
+                        <Plus className="h-3 w-3" />
+                      </Button>
+                    )}
                     <CardContent className="p-4">
+                      {/* Rest of the card content remains the same */}
                       <div className="h-24 w-24 relative mb-2 bg-muted rounded-md overflow-hidden mx-auto">
                         {product.image ? (
                           <img
@@ -1743,7 +2168,7 @@ const POSPage = () => {
                     {filteredProducts.map((product) => (
                       <Card
                         key={product.id}
-                        className="cursor-pointer hover:shadow-md transition-shadow"
+                        className="cursor-pointer hover:shadow-md transition-shadow relative"
                         onClick={() => {
                           const wasAdded = addToCart(product)
                           if (wasAdded) {
@@ -1751,6 +2176,25 @@ const POSPage = () => {
                           }
                         }}
                       >
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="absolute top-2 right-2 z-10 h-6 w-6 bg-background/80 hover:bg-background"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (isProductFavorite(product.id)) {
+                              removeFromFavorites(product.id)
+                            } else {
+                              addToFavorites(product)
+                            }
+                          }}
+                        >
+                          {isProductFavorite(product.id) ? (
+                            <Trash2 className="h-3 w-3 text-destructive" />
+                          ) : (
+                            <Plus className="h-3 w-3" />
+                          )}
+                        </Button>
                         <CardContent className="p-4">
                           <div className="aspect-square relative mb-2 bg-muted rounded-md overflow-hidden">
                             {product.image ? (
