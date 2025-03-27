@@ -208,14 +208,29 @@ export function AppSidebar() {
   const navItems = [
     { href: "/dashboard", label: "dashboard" as AppTranslationKey, icon: <LayoutDashboard className="h-5 w-5" /> },
     { href: "/pos", label: "pointOfSale" as AppTranslationKey, icon: <ShoppingCart className="h-5 w-5" /> },
-    { href: "/alerts", label: "alerts" as AppTranslationKey, icon: <AlertTriangle className="h-5 w-5" />, badge: unreadAlerts > 0 ? unreadAlerts : null, },
+    {
+      href: "/alerts",
+      label: "alerts" as AppTranslationKey,
+      icon: <AlertTriangle className="h-5 w-5" />,
+      badge: unreadAlerts > 0 ? unreadAlerts : null,
+    },
     { href: "/sales", label: "sales" as AppTranslationKey, icon: <DollarSign className="h-5 w-5" /> },
     { href: "/products", label: "inventory" as AppTranslationKey, icon: <Package className="h-5 w-5" /> },
-    { href: "/reports", label: "reports" as AppTranslationKey, icon: <BarChart3 className="h-5 w-5" /> },
-    { href: "/forecasting", label: "forecasting" as AppTranslationKey, icon: <TrendingUp className="h-5 w-5" />, },
-    { href: "/purchase-orders", label: "purchaseOrders" as AppTranslationKey, icon: <ClipboardList className="h-5 w-5" />, },
-    { href: "/expenses", label: "expenses" as AppTranslationKey, icon: <CircleDollarSign className="h-5 w-5" /> },    
-    { href: "/reports", label: "Analyses" as AppTranslationKey, icon: <BarChart3 className="h-5 w-5" />, hasSubmenu: true, key: "reports",
+    // Removed the simple reports item to avoid duplicate keys
+    { href: "/forecasting", label: "forecasting" as AppTranslationKey, icon: <TrendingUp className="h-5 w-5" /> },
+    {
+      href: "/purchase-orders",
+      label: "purchaseOrders" as AppTranslationKey,
+      icon: <ClipboardList className="h-5 w-5" />,
+    },
+    { href: "/expenses", label: "expenses" as AppTranslationKey, icon: <CircleDollarSign className="h-5 w-5" /> },
+    { href: "/sammury", label: "sammury" as AppTranslationKey, icon: <TrendingUp className="h-5 w-5" /> },
+    {
+      href: "/reports",
+      label: "Analyses" as AppTranslationKey,
+      icon: <BarChart3 className="h-5 w-5" />,
+      hasSubmenu: true,
+      key: "reports",
       submenu: [
         {
           href: "/reports/activity",
@@ -228,9 +243,13 @@ export function AppSidebar() {
           icon: <LineChart className="h-4 w-4" />,
         },
       ],
-    }, 
-    { href: "/capital-analytics", label: "capital-analytics" as AppTranslationKey, icon: <Calculator className="h-5 w-5" /> },   
-    { href: "/users", label: "customers" as AppTranslationKey, icon: <User className="h-5 w-5" /> },    
+    },
+    {
+      href: "/capital-analytics",
+      label: "capital-analytics" as AppTranslationKey,
+      icon: <Calculator className="h-5 w-5" />,
+    },
+    { href: "/users", label: "customers" as AppTranslationKey, icon: <User className="h-5 w-5" /> },
     { href: "/settings", label: "settings" as AppTranslationKey, icon: <Settings className="h-5 w-5" /> },
   ]
 
@@ -258,8 +277,8 @@ export function AppSidebar() {
 
       <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
         <TooltipProvider>
-          {navItems.map((item) => (
-            <div key={item.href}>
+          {navItems.map((item, index) => (
+            <div key={item.key || `${item.href}-${index}`}>
               {item.hasSubmenu ? (
                 <Collapsible
                   open={openSubmenu === item.key && !isCollapsed}

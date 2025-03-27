@@ -19,7 +19,11 @@ export async function addCategory(category: { name: string; description?: string
 
   try {
     console.log("Adding category:", category)
-    const { data, error } = await supabase.from("categories").insert(category).select().single()
+
+    // Remove description if it exists to avoid the schema error
+    const { description, ...categoryData } = category
+
+    const { data, error } = await supabase.from("categories").insert(categoryData).select().single()
 
     if (error) {
       console.error("Error adding category:", error)
@@ -38,7 +42,11 @@ export async function updateCategory(id: string, category: { name: string; descr
 
   try {
     console.log("Updating category with id:", id, "and data:", category)
-    const { data, error } = await supabase.from("categories").update(category).eq("id", id).select().single()
+
+    // Remove description if it exists to avoid the schema error
+    const { description, ...categoryData } = category
+
+    const { data, error } = await supabase.from("categories").update(categoryData).eq("id", id).select().single()
 
     if (error) {
       console.error("Error updating category:", error)

@@ -85,6 +85,7 @@ export function CategoryManagement() {
     try {
       await addCategory({
         name: formData.name.trim(),
+        // We'll still pass description but our service will handle it
         description: formData.description.trim() || undefined,
       })
 
@@ -123,6 +124,7 @@ export function CategoryManagement() {
     try {
       await updateCategory(selectedCategory.id, {
         name: formData.name.trim(),
+        // We'll still pass description but our service will handle it
         description: formData.description.trim() || undefined,
       })
 
