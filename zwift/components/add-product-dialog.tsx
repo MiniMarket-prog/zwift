@@ -45,7 +45,7 @@ export function AddProductDialog({
     // New pack-related fields
     has_pack: false,
     pack_quantity: "6",
-    pack_discount_percentage: "5",
+    pack_discount_percentage: "0",
     pack_barcode: "",
     pack_name: "",
   })

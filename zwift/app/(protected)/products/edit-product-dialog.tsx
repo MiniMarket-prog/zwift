@@ -68,7 +68,7 @@ export function EditProductDialog({
     // Pack-related fields
     has_pack: product.has_pack || false,
     pack_quantity: product.pack_quantity?.toString() || "6",
-    pack_discount_percentage: product.pack_discount_percentage?.toString() || "5",
+    pack_discount_percentage: product.pack_discount_percentage?.toString() || "0",
     pack_barcode: product.pack_barcode || "",
     pack_name: product.pack_name || "",
     pack_id: product.pack_id || "",
