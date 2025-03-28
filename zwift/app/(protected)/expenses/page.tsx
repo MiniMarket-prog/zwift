@@ -109,6 +109,11 @@ export default function ExpensesPage() {
   const [isDeleteCategoryDialogOpen, setIsDeleteCategoryDialogOpen] = useState(false)
   const [selectedCategoryForDeletion, setSelectedCategoryForDeletion] = useState<Category | null>(null)
 
+  // Add a state for editing categories
+  const [isEditCategoryDialogOpen, setIsEditCategoryDialogOpen] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null)
+  const [editCategoryName, setEditCategoryName] = useState("")
+
   const { toast } = useToast()
   const { user } = useUser()
   const { getAppTranslation, language, isRTL } = useLanguage()
@@ -325,6 +330,54 @@ export default function ExpensesPage() {
         variant: "destructive",
       })
     }
+  }
+
+  // Add a function to handle editing a category
+  const handleEditCategory = async () => {
+    if (!selectedCategory || !editCategoryName.trim()) {
+      toast({
+        title: getAppTranslation("validation_error", language),
+        description: getAppTranslation("please_enter_category_name", language),
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      const supabase = createClient()
+      const { error } = await supabase
+        .from("expense_categories")
+        .update({ name: editCategoryName.trim() })
+        .eq("id", selectedCategory.id)
+
+      if (error) throw error
+
+      toast({
+        title: getAppTranslation("success", language),
+        description: getAppTranslation("category_updated_successfully", language),
+      })
+
+      setIsEditCategoryDialogOpen(false)
+      setSelectedCategory(null)
+      setEditCategoryName("")
+
+      // Refresh categories
+      fetchData()
+    } catch (error) {
+      console.error("Error updating category:", error)
+      toast({
+        title: getAppTranslation("error", language),
+        description: getAppTranslation("failed_to_update_category", language),
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Add a function to open the edit category dialog
+  const openEditCategoryDialog = (category: Category) => {
+    setSelectedCategory(category)
+    setEditCategoryName(category.name)
+    setIsEditCategoryDialogOpen(true)
   }
 
   // Add new expense
@@ -932,17 +985,23 @@ export default function ExpensesPage() {
                   {categories.map((category) => (
                     <div key={category.id} className="flex items-center justify-between p-2 border rounded-md">
                       <span className="text-sm">{category.name}</span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          setSelectedCategoryForDeletion(category)
-                          setIsDeleteCategoryDialogOpen(true)
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                        <span className="sr-only">{getAppTranslation("delete", language)}</span>
-                      </Button>
+                      <div className="flex space-x-2">
+                        <Button variant="ghost" size="icon" onClick={() => openEditCategoryDialog(category)}>
+                          <Pencil className="h-4 w-4" />
+                          <span className="sr-only">{getAppTranslation("edit", language)}</span>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setSelectedCategoryForDeletion(category)
+                            setIsDeleteCategoryDialogOpen(true)
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                          <span className="sr-only">{getAppTranslation("delete", language)}</span>
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1077,6 +1136,36 @@ export default function ExpensesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <Dialog open={isEditCategoryDialogOpen} onOpenChange={setIsEditCategoryDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>{getAppTranslation("edit_category", language)}</DialogTitle>
+            <DialogDescription>{getAppTranslation("edit_category_description", language)}</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-category-name" className="text-right">
+                {getAppTranslation("name", language)}
+              </Label>
+              <Input
+                id="edit-category-name"
+                value={editCategoryName}
+                onChange={(e) => setEditCategoryName(e.target.value)}
+                className="col-span-3"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditCategoryDialogOpen(false)}>
+              {getAppTranslation("cancel", language)}
+            </Button>
+            <Button onClick={handleEditCategory}>
+              <Save className={`h-4 w-4 ${rtlEnabled ? "ml-2" : "mr-2"}`} />
+              {getAppTranslation("update_category", language)}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

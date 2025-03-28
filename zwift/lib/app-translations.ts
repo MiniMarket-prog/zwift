@@ -180,6 +180,17 @@ export type AppTranslationKey =
   | "select_date"
   | "no_expenses_found"
   | "save_category"
+  // Category management keys - Adding the missing keys
+  | "category_deleted_successfully"
+  | "failed_to_delete_category"
+  | "category_updated_successfully"
+  | "failed_to_update_category"
+  | "existing_categories"
+  | "delete_category_warning"
+  | "this_action_cannot_be_undone"
+  | "edit_category"
+  | "edit_category_description"
+  | "update_category"
   // Dashboard page keys
   | "out_of_stock"
   | "low_stock"
@@ -462,6 +473,16 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     filtered: "Filtered",
     
     // Expense page translations
+    category_deleted_successfully: "The category has been deleted successfully.",
+    failed_to_delete_category: "Failed to delete category. Please try again.",
+    category_updated_successfully: "The category has been updated successfully.",
+    failed_to_update_category: "Failed to update category. Please try again.",
+    existing_categories: "Existing Categories",
+    delete_category_warning: "This will permanently delete the category.",
+    this_action_cannot_be_undone: "This action cannot be undone.",
+    edit_category: "Edit Category",
+    edit_category_description: "Update the name of this category.",
+    update_category: "Update Category",
     expenses: "Expenses",
     add_expense: "Add Expense",
     add_new_expense: "Add New Expense",
@@ -760,6 +781,16 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     filtered: "Filtrado",
     
     // Expense page translations
+    category_deleted_successfully: "La categoría ha sido eliminada exitosamente.",
+    failed_to_delete_category: "Error al eliminar la categoría. Por favor, inténtalo de nuevo.",
+    category_updated_successfully: "La categoría ha sido actualizada exitosamente.",
+    failed_to_update_category: "Error al actualizar la categoría. Por favor, inténtalo de nuevo.",
+    existing_categories: "Categorías Existentes",
+    delete_category_warning: "Esto eliminará permanentemente la categoría.",
+    this_action_cannot_be_undone: "Esta acción no se puede deshacer.",
+    edit_category: "Editar Categoría",
+    edit_category_description: "Actualiza el nombre de esta categoría.",
+    update_category: "Actualizar Categoría",
     expenses: "Gastos",
     add_expense: "Añadir Gasto",
     add_new_expense: "Añadir Nuevo Gasto",
@@ -1059,6 +1090,16 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     filtered: "Filtré",
     
     // Expense page translations
+    category_deleted_successfully: "La catégorie a été supprimée avec succès.",
+    failed_to_delete_category: "Échec de la suppression de la catégorie. Veuillez réessayer.",
+    category_updated_successfully: "La catégorie a été mise à jour avec succès.",
+    failed_to_update_category: "Échec de la mise à jour de la catégorie. Veuillez réessayer.",
+    existing_categories: "Catégories Existantes",
+    delete_category_warning: "Cela supprimera définitivement la catégorie.",
+    this_action_cannot_be_undone: "Cette action ne peut pas être annulée.",
+    edit_category: "Modifier la Catégorie",
+    edit_category_description: "Mettre à jour le nom de cette catégorie.",
+    update_category: "Mettre à Jour la Catégorie",
     expenses: "Dépenses",
     add_expense: "Ajouter une Dépense",
     add_new_expense: "Ajouter une Nouvelle Dépense",
@@ -1195,6 +1236,16 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     
   },
   ar: {
+    category_deleted_successfully: "تم حذف الفئة بنجاح.",
+    failed_to_delete_category: "فشل في حذف الفئة. حاول مرة أخرى.",
+    category_updated_successfully: "تم تحديث الفئة بنجاح.",
+    failed_to_update_category: "فشل في تحديث الفئة. حاول مرة أخرى.",
+    existing_categories: "الفئات الموجودة",
+    delete_category_warning: "سيتم حذف الفئة نهائيًا.",
+    this_action_cannot_be_undone: "لا يمكن التراجع عن هذا الإجراء.",
+    edit_category: "تعديل الفئة",
+    edit_category_description: "قم بتحديث اسم هذه الفئة.",
+    update_category: "تحديث الفئة",
     alerts: "التنبيهات",
     dashboard: "لوحة التحكم",
     products: "المنتجات",
