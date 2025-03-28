@@ -105,6 +105,10 @@ export default function ExpensesPage() {
   // Add state for currency
   const [currentCurrency, setCurrentCurrency] = useState<string>("USD")
 
+  // Add state for delete category dialog and selected category for deletion
+  const [isDeleteCategoryDialogOpen, setIsDeleteCategoryDialogOpen] = useState(false)
+  const [selectedCategoryForDeletion, setSelectedCategoryForDeletion] = useState<Category | null>(null)
+
   const { toast } = useToast()
   const { user } = useUser()
   const { getAppTranslation, language, isRTL } = useLanguage()
@@ -290,6 +294,36 @@ export default function ExpensesPage() {
       })
     } finally {
       setIsSavingCategory(false)
+    }
+  }
+
+  // Handle delete category
+  const handleDeleteCategory = async () => {
+    if (!selectedCategoryForDeletion) return
+
+    try {
+      const supabase = createClient()
+      const { error } = await supabase.from("expense_categories").delete().eq("id", selectedCategoryForDeletion.id)
+
+      if (error) throw error
+
+      toast({
+        title: getAppTranslation("success", language),
+        description: getAppTranslation("category_deleted_successfully", language),
+      })
+
+      setIsDeleteCategoryDialogOpen(false)
+      setSelectedCategoryForDeletion(null)
+
+      // Refresh categories
+      fetchData()
+    } catch (error) {
+      console.error("Error deleting category:", error)
+      toast({
+        title: getAppTranslation("error", language),
+        description: getAppTranslation("failed_to_delete_category", language),
+        variant: "destructive",
+      })
     }
   }
 
@@ -888,6 +922,33 @@ export default function ExpensesPage() {
               )}
             </Button>
           </DialogFooter>
+
+          {/* Display existing categories with delete option */}
+          {categories.length > 0 && (
+            <div className="mt-4 border-t pt-4">
+              <h3 className="text-sm font-medium mb-2">{getAppTranslation("existing_categories", language)}</h3>
+              <div className="max-h-[200px] overflow-y-auto">
+                <div className="space-y-2">
+                  {categories.map((category) => (
+                    <div key={category.id} className="flex items-center justify-between p-2 border rounded-md">
+                      <span className="text-sm">{category.name}</span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setSelectedCategoryForDeletion(category)
+                          setIsDeleteCategoryDialogOpen(true)
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                        <span className="sr-only">{getAppTranslation("delete", language)}</span>
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
@@ -991,6 +1052,25 @@ export default function ExpensesPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>{getAppTranslation("cancel", language)}</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteExpense} className="bg-destructive text-destructive-foreground">
+              <Trash2 className={`h-4 w-4 ${rtlEnabled ? "ml-2" : "mr-2"}`} />
+              {getAppTranslation("delete", language)}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={isDeleteCategoryDialogOpen} onOpenChange={setIsDeleteCategoryDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{getAppTranslation("are_you_sure", language)}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {getAppTranslation("delete_category_warning", language)}
+              {selectedCategoryForDeletion && ` "${selectedCategoryForDeletion.name}"`}.
+              {getAppTranslation("this_action_cannot_be_undone", language)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{getAppTranslation("cancel", language)}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteCategory} className="bg-destructive text-destructive-foreground">
               <Trash2 className={`h-4 w-4 ${rtlEnabled ? "ml-2" : "mr-2"}`} />
               {getAppTranslation("delete", language)}
             </AlertDialogAction>
