@@ -112,7 +112,7 @@ export async function generateTestBarcodes() {
   console.log("Barcode generation complete")
 }
 
-// Update the existing addProduct function to include expiry_date and expiry_notification_days
+// Update the existing addProduct function to include pack-related fields
 export async function addProduct(productData: {
   name: string
   price: string
@@ -124,6 +124,14 @@ export async function addProduct(productData: {
   purchase_price?: string
   expiry_date?: string
   expiry_notification_days?: string
+  // New pack-related fields
+  has_pack?: boolean
+  pack_quantity?: string
+  pack_discount_percentage?: string
+  pack_barcode?: string
+  pack_name?: string
+  is_pack?: boolean
+  parent_product_id?: string
 }) {
   const supabase = createClient()
 
@@ -143,6 +151,13 @@ export async function addProduct(productData: {
       expiry_notification_days: productData.expiry_notification_days
         ? Number.parseInt(productData.expiry_notification_days)
         : 30,
+      // Pack-related fields
+      is_pack: productData.is_pack || false,
+      parent_product_id: productData.parent_product_id || null,
+      pack_quantity: productData.pack_quantity ? Number.parseInt(productData.pack_quantity) : null,
+      pack_discount_percentage: productData.pack_discount_percentage
+        ? Number.parseFloat(productData.pack_discount_percentage)
+        : null,
     }
 
     console.log("Adding product with data:", formattedData)
@@ -154,6 +169,48 @@ export async function addProduct(productData: {
       throw error
     }
 
+    // If this is a unit product with pack option, create the pack product
+    if (productData.has_pack && !productData.is_pack) {
+      const unitPrice = Number.parseFloat(productData.price) || 0
+      const quantity = Number.parseInt(productData.pack_quantity || "1")
+      const discount = Number.parseFloat(productData.pack_discount_percentage || "0")
+      const packPrice = unitPrice * quantity * (1 - discount / 100)
+
+      const packProductData = {
+        name: productData.pack_name || `${productData.name} Pack`,
+        price: packPrice,
+        barcode: productData.pack_barcode || "",
+        stock: Math.floor((Number.parseInt(productData.stock) || 0) / quantity),
+        min_stock: Math.floor((Number.parseInt(productData.min_stock) || 0) / quantity),
+        image: productData.image || null,
+        category_id: productData.category_id === "none" ? null : productData.category_id || null,
+        purchase_price: productData.purchase_price
+          ? Number.parseFloat(productData.purchase_price) * quantity * (1 - discount / 100)
+          : null,
+        expiry_date: productData.expiry_date && productData.expiry_date.trim() !== "" ? productData.expiry_date : null,
+        expiry_notification_days: productData.expiry_notification_days
+          ? Number.parseInt(productData.expiry_notification_days)
+          : 30,
+        is_pack: true,
+        parent_product_id: data.id,
+        pack_quantity: quantity,
+        pack_discount_percentage: discount,
+      }
+
+      const { data: packData, error: packError } = await supabase
+        .from("products")
+        .insert(packProductData)
+        .select()
+        .single()
+
+      if (packError) {
+        console.error("Error creating pack product:", packError)
+        // Don't throw error here, we still created the main product successfully
+      } else {
+        console.log("Created pack product:", packData)
+      }
+    }
+
     return data
   } catch (error) {
     console.error("Error adding product:", error)
@@ -161,7 +218,7 @@ export async function addProduct(productData: {
   }
 }
 
-// Find the updateProduct function and replace it with this version that includes more detailed logging
+// Update the existing updateProduct function to handle pack-related fields
 export async function updateProduct(
   id: string,
   productData: {
@@ -175,6 +232,13 @@ export async function updateProduct(
     purchase_price?: string
     expiry_date?: string
     expiry_notification_days?: string
+    // Pack-related fields
+    has_pack?: boolean
+    pack_quantity?: string
+    pack_discount_percentage?: string
+    pack_barcode?: string
+    pack_name?: string
+    pack_id?: string
   },
 ) {
   const supabase = createClient()
@@ -225,6 +289,109 @@ export async function updateProduct(
     console.log("Updated product data returned from database:", data)
     console.log("Returned expiry_date from database:", data.expiry_date)
 
+    // Handle pack product if needed
+    if (productData.has_pack) {
+      // Check if a pack product already exists
+      let packProductId = productData.pack_id
+      let packExists = false
+
+      if (!packProductId) {
+        // Try to find an existing pack product
+        const { data: existingPack } = await supabase
+          .from("products")
+          .select("id")
+          .eq("parent_product_id", id)
+          .eq("is_pack", true)
+          .maybeSingle()
+
+        if (existingPack) {
+          packProductId = existingPack.id
+          packExists = true
+        }
+      } else {
+        packExists = true
+      }
+
+      // Calculate pack price
+      const unitPrice = Number.parseFloat(productData.price) || 0
+      const quantity = Number.parseInt(productData.pack_quantity || "1")
+      const discount = Number.parseFloat(productData.pack_discount_percentage || "0")
+      const packPrice = unitPrice * quantity * (1 - discount / 100)
+
+      const packProductData = {
+        name: productData.pack_name || `${productData.name} Pack`,
+        price: packPrice,
+        barcode: productData.pack_barcode || "",
+        stock: Math.floor((Number.parseInt(productData.stock) || 0) / quantity),
+        min_stock: Math.floor((Number.parseInt(productData.min_stock) || 0) / quantity),
+        image: productData.image || null,
+        category_id: productData.category_id === "none" ? null : productData.category_id || null,
+        purchase_price: productData.purchase_price
+          ? Number.parseFloat(productData.purchase_price) * quantity * (1 - discount / 100)
+          : null,
+        expiry_date: productData.expiry_date && productData.expiry_date.trim() !== "" ? productData.expiry_date : null,
+        expiry_notification_days: productData.expiry_notification_days
+          ? Number.parseInt(productData.expiry_notification_days)
+          : 30,
+        is_pack: true,
+        parent_product_id: id,
+        pack_quantity: quantity,
+        pack_discount_percentage: discount,
+      }
+
+      if (packExists && packProductId) {
+        // Update existing pack product
+        const { data: packData, error: packError } = await supabase
+          .from("products")
+          .update(packProductData)
+          .eq("id", packProductId)
+          .select()
+          .single()
+
+        if (packError) {
+          console.error("Error updating pack product:", packError)
+        } else {
+          console.log("Updated pack product:", packData)
+        }
+      } else {
+        // Create new pack product
+        const { data: packData, error: packError } = await supabase
+          .from("products")
+          .insert(packProductData)
+          .select()
+          .single()
+
+        if (packError) {
+          console.error("Error creating pack product:", packError)
+        } else {
+          console.log("Created pack product:", packData)
+        }
+      }
+    } else {
+      // If pack option is disabled, check if we need to handle existing pack products
+      const { data: existingPack } = await supabase
+        .from("products")
+        .select("id")
+        .eq("parent_product_id", id)
+        .eq("is_pack", true)
+        .maybeSingle()
+
+      if (existingPack) {
+        // Option 1: Delete the pack product
+        // const { error: deleteError } = await supabase
+        //   .from("products")
+        //   .delete()
+        //   .eq("id", existingPack.id)
+
+        // Option 2: Mark the pack as discontinued (by setting stock to 0)
+        const { error: updateError } = await supabase.from("products").update({ stock: 0 }).eq("id", existingPack.id)
+
+        if (updateError) {
+          console.error("Error updating pack product status:", updateError)
+        }
+      }
+    }
+
     return data
   } catch (error) {
     console.error("Error updating product:", error)
@@ -232,7 +399,69 @@ export async function updateProduct(
   }
 }
 
-// Updated function to create a sale with direct stock management
+// Function to get a product's pack version
+export async function getProductPack(productId: string) {
+  const supabase = createClient()
+
+  try {
+    const { data, error } = await supabase
+      .from("products")
+      .select("*")
+      .eq("parent_product_id", productId)
+      .eq("is_pack", true)
+      .maybeSingle()
+
+    if (error) {
+      console.error("Error fetching product pack:", error)
+      throw error
+    }
+
+    return data
+  } catch (error) {
+    console.error("Error in getProductPack:", error)
+    throw error
+  }
+}
+
+// Function to get a product's unit version (if this is a pack)
+export async function getProductUnit(packId: string) {
+  const supabase = createClient()
+
+  try {
+    const { data: pack, error: packError } = await supabase
+      .from("products")
+      .select("parent_product_id")
+      .eq("id", packId)
+      .single()
+
+    if (packError) {
+      console.error("Error fetching pack product:", packError)
+      throw packError
+    }
+
+    if (!pack.parent_product_id) {
+      return null
+    }
+
+    const { data: unit, error: unitError } = await supabase
+      .from("products")
+      .select("*")
+      .eq("id", pack.parent_product_id)
+      .single()
+
+    if (unitError) {
+      console.error("Error fetching unit product:", unitError)
+      throw unitError
+    }
+
+    return unit
+  } catch (error) {
+    console.error("Error in getProductUnit:", error)
+    throw error
+  }
+}
+
+// Updated createSale function to handle pack products
 export async function createSale(sale: any, saleItems: any[]) {
   const supabase = createClient()
 
@@ -255,16 +484,16 @@ export async function createSale(sale: any, saleItems: any[]) {
 
     // Update product stock levels directly
     for (const item of saleItems) {
-      // First get the current product to get its stock
+      // First get the current product to get its stock and check if it's a pack
       const { data: product, error: productError } = await supabase
         .from("products")
-        .select("stock")
+        .select("stock, is_pack, parent_product_id, pack_quantity")
         .eq("id", item.product_id)
         .single()
 
       if (productError) throw productError
 
-      // Calculate new stock level
+      // Calculate new stock level for this product
       const previousStock = product?.stock || 0
       const newStock = Math.max(0, previousStock - item.quantity)
 
@@ -278,6 +507,29 @@ export async function createSale(sale: any, saleItems: any[]) {
 
       // Log the stock update
       console.log(`Updated product ${item.product_id} stock: ${previousStock} → ${newStock}`)
+
+      // If this is a pack product, also update the unit product's stock
+      if (product?.is_pack && product?.parent_product_id && product?.pack_quantity) {
+        // Get the unit product
+        const { data: unitProduct, error: unitError } = await supabase
+          .from("products")
+          .select("stock")
+          .eq("id", product.parent_product_id)
+          .single()
+
+        if (!unitError && unitProduct) {
+          // Calculate units to remove (pack quantity × number of packs sold)
+          const unitsToRemove = product.pack_quantity * item.quantity
+          const newUnitStock = Math.max(0, unitProduct.stock - unitsToRemove)
+
+          // Update the unit product stock
+          await supabase.from("products").update({ stock: newUnitStock }).eq("id", product.parent_product_id)
+
+          console.log(
+            `Updated unit product ${product.parent_product_id} stock: ${unitProduct.stock} → ${newUnitStock} (pack sale)`,
+          )
+        }
+      }
     }
 
     return { data: saleData, error: null }
@@ -364,10 +616,10 @@ export async function updateSale(saleId: string, saleData: any, saleItems: any[]
     // Apply stock adjustments
     for (const [productId, adjustment] of stockAdjustments.entries()) {
       if (adjustment !== 0) {
-        // Get current product stock
+        // Get current product stock and check if it's a pack
         const { data: productData, error: productError } = await supabase
           .from("products")
-          .select("stock")
+          .select("stock, is_pack, parent_product_id, pack_quantity")
           .eq("id", productId)
           .single()
 
@@ -384,6 +636,29 @@ export async function updateSale(saleId: string, saleData: any, saleItems: any[]
         console.log(
           `Updated product ${productId} stock: ${productData?.stock} → ${newStock} (adjustment: ${adjustment})`,
         )
+
+        // If this is a pack product, also update the unit product's stock
+        if (productData?.is_pack && productData?.parent_product_id && productData?.pack_quantity) {
+          // Get the unit product
+          const { data: unitProduct, error: unitError } = await supabase
+            .from("products")
+            .select("stock")
+            .eq("id", productData.parent_product_id)
+            .single()
+
+          if (!unitError && unitProduct) {
+            // Calculate units to adjust (pack quantity × number of packs)
+            const unitsToAdjust = productData.pack_quantity * adjustment
+            const newUnitStock = Math.max(0, unitProduct.stock + unitsToAdjust)
+
+            // Update the unit product stock
+            await supabase.from("products").update({ stock: newUnitStock }).eq("id", productData.parent_product_id)
+
+            console.log(
+              `Updated unit product ${productData.parent_product_id} stock: ${unitProduct.stock} → ${newUnitStock} (pack adjustment)`,
+            )
+          }
+        }
       }
     }
 
@@ -553,6 +828,22 @@ export async function deleteProduct(id: string) {
   const supabase = createClient()
 
   try {
+    // Check if this is a unit product with pack products
+    const { data: packProducts } = await supabase
+      .from("products")
+      .select("id")
+      .eq("parent_product_id", id)
+      .eq("is_pack", true)
+
+    // Delete any associated pack products first
+    if (packProducts && packProducts.length > 0) {
+      for (const pack of packProducts) {
+        await supabase.from("products").delete().eq("id", pack.id)
+        console.log(`Deleted pack product ${pack.id} associated with unit product ${id}`)
+      }
+    }
+
+    // Now delete the main product
     const { error } = await supabase.from("products").delete().eq("id", id)
 
     if (error) throw error
@@ -918,7 +1209,7 @@ async function updateStockFromPurchaseOrder(purchaseOrderId: string) {
       // Get current product stock
       const { data: product, error: productError } = await supabase
         .from("products")
-        .select("stock")
+        .select("stock, is_pack, parent_product_id, pack_quantity")
         .eq("id", item.product_id)
         .single()
 
@@ -942,6 +1233,29 @@ async function updateStockFromPurchaseOrder(purchaseOrderId: string) {
       }
 
       console.log(`Updated product ${item.product_id} stock: ${product?.stock} → ${newStock}`)
+
+      // If this is a pack product, also update the unit product's stock
+      if (product?.is_pack && product?.parent_product_id && product?.pack_quantity) {
+        // Get the unit product
+        const { data: unitProduct, error: unitError } = await supabase
+          .from("products")
+          .select("stock")
+          .eq("id", product.parent_product_id)
+          .single()
+
+        if (!unitError && unitProduct) {
+          // Calculate units to add (pack quantity × number of packs)
+          const unitsToAdd = product.pack_quantity * item.quantity
+          const newUnitStock = unitProduct.stock + unitsToAdd
+
+          // Update the unit product stock
+          await supabase.from("products").update({ stock: newUnitStock }).eq("id", product.parent_product_id)
+
+          console.log(
+            `Updated unit product ${product.parent_product_id} stock: ${unitProduct.stock} → ${newUnitStock} (pack received)`,
+          )
+        }
+      }
     }
 
     return { success: true, error: null }

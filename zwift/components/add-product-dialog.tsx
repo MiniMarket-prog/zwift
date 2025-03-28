@@ -11,67 +11,43 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
-import { updateProduct } from "@/lib/supabase"
-import { toast } from "@/hooks/use-toast"
-import { BarcodeIcon, RefreshCwIcon, PackageIcon } from 'lucide-react'
-
-interface Product {
-  id: string
-  name: string
-  price: number
-  barcode: string
-  stock: number
-  min_stock: number
-  image?: string
-  category_id?: string
-  purchase_price?: number
-  expiry_date?: string
-  expiry_notification_days?: number
-  has_pack?: boolean
-  pack_quantity?: number
-  pack_discount_percentage?: number
-  pack_barcode?: string
-  pack_name?: string
-  pack_id?: string
-}
+import { addProduct } from "@/lib/supabase"
+import { useToast } from "@/hooks/use-toast"
+import { BarcodeIcon, RefreshCwIcon, PackageIcon } from "lucide-react"
 
 interface Category {
   id: string
   name: string
 }
 
-export function EditProductDialog({
-  product,
+export function AddProductDialog({
   categories,
   onClose,
-  onSave,
 }: {
-  product: Product
   categories: Category[]
   onClose: () => void
-  onSave: () => void
 }) {
   const router = useRouter()
+  const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(false)
   const [activeTab, setActiveTab] = useState("basic")
   const [formData, setFormData] = useState({
-    name: product.name,
-    price: product.price.toString(),
-    barcode: product.barcode,
-    stock: product.stock.toString(),
-    min_stock: product.min_stock.toString(),
-    image: product.image || "",
-    category_id: product.category_id || "",
-    purchase_price: product.purchase_price?.toString() || "",
-    expiry_date: product.expiry_date || "",
-    expiry_notification_days: product.expiry_notification_days?.toString() || "30",
-    // Pack-related fields
-    has_pack: product.has_pack || false,
-    pack_quantity: product.pack_quantity?.toString() || "6",
-    pack_discount_percentage: product.pack_discount_percentage?.toString() || "5",
-    pack_barcode: product.pack_barcode || "",
-    pack_name: product.pack_name || "",
-    pack_id: product.pack_id || "",
+    name: "",
+    price: "",
+    barcode: "",
+    stock: "0",
+    min_stock: "5",
+    image: "",
+    category_id: "",
+    purchase_price: "",
+    expiry_date: "",
+    expiry_notification_days: "30",
+    // New pack-related fields
+    has_pack: false,
+    pack_quantity: "6",
+    pack_discount_percentage: "5",
+    pack_barcode: "",
+    pack_name: "",
   })
 
   // Calculate pack price based on unit price, quantity and discount
@@ -126,19 +102,21 @@ export function EditProductDialog({
     setIsLoading(true)
 
     try {
-      await updateProduct(product.id, formData)
+      // First add the main product
+      const productData = { ...formData }
+      await addProduct(productData)
+
       toast({
-        title: "Product updated",
-        description: "The product has been updated successfully.",
+        title: "Product added",
+        description: "The product has been added successfully.",
       })
-      onSave()
       router.refresh()
       onClose()
     } catch (error) {
-      console.error("Error updating product:", error)
+      console.error("Error adding product:", error)
       toast({
         title: "Error",
-        description: "Failed to update product. Please try again.",
+        description: "Failed to add product. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -150,7 +128,7 @@ export function EditProductDialog({
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[600px]">
         <DialogHeader>
-          <DialogTitle>Edit Product</DialogTitle>
+          <DialogTitle>Add New Product</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 py-4">
@@ -208,7 +186,7 @@ export function EditProductDialog({
                     className="h-8 px-2 text-xs"
                   >
                     <RefreshCwIcon className="h-3 w-3 mr-1" />
-                    Generate New
+                    Generate
                   </Button>
                 </div>
                 <div className="flex space-x-2">
@@ -490,7 +468,7 @@ export function EditProductDialog({
                 Cancel
               </Button>
               <Button type="submit" disabled={isLoading}>
-                {isLoading ? "Saving..." : "Save Changes"}
+                {isLoading ? "Adding..." : "Add Product"}
               </Button>
             </div>
           </DialogFooter>
@@ -499,3 +477,4 @@ export function EditProductDialog({
     </Dialog>
   )
 }
+

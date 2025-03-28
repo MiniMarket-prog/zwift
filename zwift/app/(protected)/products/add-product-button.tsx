@@ -3,7 +3,8 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { PlusIcon } from "lucide-react"
-import { AddProductDialog } from "./add-product-dialog"
+// Change the import to use the global component
+import { AddProductDialog } from "@/components/add-product-dialog"
 
 interface Category {
   id: string
