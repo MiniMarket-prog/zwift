@@ -133,12 +133,12 @@ export default function ForecastingPage() {
 
       // Show success toast
       toast({
-        title: "Purchase Order Created",
+        title: getAppTranslation("purchase_order_created", language),
         description: (
           <div>
-            Order #{result.order_id} created successfully.{" "}
+            {getAppTranslation("order_created_successfully", language)} #{result.order_id}.{" "}
             <Link href="/purchase-orders" className="underline font-medium">
-              View all orders
+              {getAppTranslation("view_all_orders", language)}
             </Link>
           </div>
         ),
@@ -153,8 +153,8 @@ export default function ForecastingPage() {
     } catch (error) {
       console.error("Error creating purchase order:", error)
       toast({
-        title: "Error",
-        description: "Failed to create purchase order",
+        title: getAppTranslation("error", language),
+        description: getAppTranslation("failed_create_purchase_order", language),
         variant: "destructive",
       })
     } finally {
@@ -166,15 +166,15 @@ export default function ForecastingPage() {
   const columns = [
     {
       accessorKey: "name",
-      header: "Product Name",
+      header: getAppTranslation("product_name", language),
     },
     {
       accessorKey: "stock",
-      header: "Current Stock",
+      header: getAppTranslation("current_stock", language),
     },
     {
       accessorKey: "avg_daily_sales",
-      header: "Avg. Daily Sales",
+      header: getAppTranslation("avg_daily_sales", language),
       cell: ({ row }: { row: any }) => {
         const value = Number.parseFloat(row.getValue("avg_daily_sales"))
         return value.toFixed(2)
@@ -182,7 +182,7 @@ export default function ForecastingPage() {
     },
     {
       accessorKey: "days_until_stockout",
-      header: "Days Until Stockout",
+      header: getAppTranslation("days_until_stockout", language),
       cell: ({ row }: { row: any }) => {
         const value = Number.parseInt(row.getValue("days_until_stockout"))
         return (
@@ -201,7 +201,7 @@ export default function ForecastingPage() {
     },
     {
       accessorKey: "reorder_recommendation",
-      header: "Reorder Qty",
+      header: getAppTranslation("reorder_qty", language),
       cell: ({ row }: { row: any }) => {
         const value = Number.parseInt(row.getValue("reorder_recommendation"))
         return value > 0 ? (
@@ -215,7 +215,7 @@ export default function ForecastingPage() {
     },
     {
       accessorKey: "actions",
-      header: "Actions",
+      header: getAppTranslation("actions", language),
       cell: ({ row }: { row: any }) => {
         const product = row.original
         return (
@@ -233,11 +233,11 @@ export default function ForecastingPage() {
               disabled={product.reorder_recommendation <= 0}
             >
               <ShoppingCart className="h-3.5 w-3.5 mr-1" />
-              Order
+              {getAppTranslation("order", language)}
             </Button>
             <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => handleRowClick(product)}>
               <TrendingUp className="h-3.5 w-3.5 mr-1" />
-              Details
+              {getAppTranslation("details", language)}
             </Button>
           </div>
         )
@@ -301,8 +301,8 @@ export default function ForecastingPage() {
       } catch (error) {
         console.error("Error loading data:", error)
         toast({
-          title: "Error",
-          description: "Failed to load forecasting data",
+          title: getAppTranslation("error", language),
+          description: getAppTranslation("failed_load_forecasting_data", language),
           variant: "destructive",
         })
       } finally {
@@ -359,11 +359,11 @@ export default function ForecastingPage() {
   // Handle export to CSV
   const handleExport = () => {
     const headers = [
-      "Product Name",
-      "Current Stock",
-      "Avg. Daily Sales",
-      "Days Until Stockout",
-      "Reorder Recommendation",
+      getAppTranslation("product_name", language),
+      getAppTranslation("current_stock", language),
+      getAppTranslation("avg_daily_sales", language),
+      getAppTranslation("days_until_stockout", language),
+      getAppTranslation("reorder_qty", language),
     ]
 
     const csvData = filteredProducts.map((product) => [
@@ -391,24 +391,26 @@ export default function ForecastingPage() {
     <div className="container mx-auto py-6 space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Inventory Forecasting</h1>
-          <p className="text-muted-foreground">Plan your reorders and prevent stockouts</p>
+          <h1 className="text-3xl font-bold tracking-tight">{getAppTranslation("inventory_forecasting", language)}</h1>
+          <p className="text-muted-foreground">{getAppTranslation("plan_reorders_prevent_stockouts", language)}</p>
         </div>
         <Button onClick={handleExport} className="flex items-center gap-2">
           <Download className={`h-4 w-4 ${isRTL ? "ml-2" : "mr-2"}`} />
-          Export Report
+          {getAppTranslation("export_report", language)}
         </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Lead Time Settings</CardTitle>
-            <CardDescription>Configure supplier lead time</CardDescription>
+            <CardTitle className="text-lg">{getAppTranslation("lead_time_settings", language)}</CardTitle>
+            <CardDescription>{getAppTranslation("configure_supplier_lead_time", language)}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              <Label htmlFor="lead-time">Average Supplier Lead Time (days)</Label>
+              <Label htmlFor="lead-time">
+                {getAppTranslation("average_supplier_lead_time", language)} ({getAppTranslation("days", language)})
+              </Label>
               <Input
                 id="lead-time"
                 type="number"
@@ -418,7 +420,7 @@ export default function ForecastingPage() {
                 onChange={(e) => setLeadTime(Number.parseInt(e.target.value) || 7)}
               />
               <p className="text-xs text-muted-foreground">
-                The average time it takes for suppliers to deliver after placing an order
+                {getAppTranslation("supplier_lead_time_description", language)}
               </p>
             </div>
           </CardContent>
@@ -426,12 +428,12 @@ export default function ForecastingPage() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Safety Stock</CardTitle>
-            <CardDescription>Buffer inventory percentage</CardDescription>
+            <CardTitle className="text-lg">{getAppTranslation("safety_stock", language)}</CardTitle>
+            <CardDescription>{getAppTranslation("buffer_inventory_percentage", language)}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              <Label htmlFor="safety-stock">Safety Stock Percentage (%)</Label>
+              <Label htmlFor="safety-stock">{getAppTranslation("safety_stock_percentage", language)} (%)</Label>
               <Input
                 id="safety-stock"
                 type="number"
@@ -440,36 +442,36 @@ export default function ForecastingPage() {
                 value={safetyStock}
                 onChange={(e) => setSafetyStock(Number.parseInt(e.target.value) || 5)}
               />
-              <p className="text-xs text-muted-foreground">
-                Extra inventory to maintain as a buffer against uncertainty
-              </p>
+              <p className="text-xs text-muted-foreground">{getAppTranslation("safety_stock_description", language)}</p>
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Forecast Range</CardTitle>
-            <CardDescription>Days to project into the future</CardDescription>
+            <CardTitle className="text-lg">{getAppTranslation("forecast_range", language)}</CardTitle>
+            <CardDescription>{getAppTranslation("days_project_future", language)}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              <Label htmlFor="forecast-days">Forecast Days</Label>
+              <Label htmlFor="forecast-days">{getAppTranslation("forecast_days", language)}</Label>
               <Select
                 value={forecastDays.toString()}
                 onValueChange={(value) => setForecastDays(Number.parseInt(value))}
               >
                 <SelectTrigger id="forecast-days">
-                  <SelectValue placeholder="Select days" />
+                  <SelectValue placeholder={getAppTranslation("select_days", language)} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="14">14 days</SelectItem>
-                  <SelectItem value="30">30 days</SelectItem>
-                  <SelectItem value="60">60 days</SelectItem>
-                  <SelectItem value="90">90 days</SelectItem>
+                  <SelectItem value="14">14 {getAppTranslation("days", language)}</SelectItem>
+                  <SelectItem value="30">30 {getAppTranslation("days", language)}</SelectItem>
+                  <SelectItem value="60">60 {getAppTranslation("days", language)}</SelectItem>
+                  <SelectItem value="90">90 {getAppTranslation("days", language)}</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">How far into the future to project inventory levels</p>
+              <p className="text-xs text-muted-foreground">
+                {getAppTranslation("forecast_range_description", language)}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -481,26 +483,30 @@ export default function ForecastingPage() {
             <CardHeader>
               <div className="flex justify-between items-center">
                 <div>
-                  <CardTitle>Inventory Forecast</CardTitle>
-                  <CardDescription>Products that need attention</CardDescription>
+                  <CardTitle>{getAppTranslation("inventory_forecast", language)}</CardTitle>
+                  <CardDescription>{getAppTranslation("products_need_attention", language)}</CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
                   <Input
-                    placeholder="Search products..."
+                    placeholder={getAppTranslation("search_products", language)}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-[200px]"
                   />
                   <Select value={sortBy} onValueChange={setSortBy}>
                     <SelectTrigger className="w-[160px]">
-                      <SelectValue placeholder="Sort by" />
+                      <SelectValue placeholder={getAppTranslation("sort_by", language)} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="name">Name</SelectItem>
-                      <SelectItem value="stock">Current Stock</SelectItem>
-                      <SelectItem value="avg_daily_sales">Daily Sales</SelectItem>
-                      <SelectItem value="days_until_stockout">Days Until Stockout</SelectItem>
-                      <SelectItem value="reorder_recommendation">Reorder Quantity</SelectItem>
+                      <SelectItem value="name">{getAppTranslation("name", language)}</SelectItem>
+                      <SelectItem value="stock">{getAppTranslation("current_stock", language)}</SelectItem>
+                      <SelectItem value="avg_daily_sales">{getAppTranslation("daily_sales", language)}</SelectItem>
+                      <SelectItem value="days_until_stockout">
+                        {getAppTranslation("days_until_stockout", language)}
+                      </SelectItem>
+                      <SelectItem value="reorder_recommendation">
+                        {getAppTranslation("reorder_quantity", language)}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                   <Button
@@ -514,15 +520,15 @@ export default function ForecastingPage() {
               </div>
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <TabsList className="grid grid-cols-4 w-full">
-                  <TabsTrigger value="all">All Products</TabsTrigger>
+                  <TabsTrigger value="all">{getAppTranslation("all_products", language)}</TabsTrigger>
                   <TabsTrigger value="critical" className="text-red-600">
-                    Critical (&lt;7 days)
+                    {getAppTranslation("critical", language)} (&lt;7 {getAppTranslation("days", language)})
                   </TabsTrigger>
                   <TabsTrigger value="warning" className="text-amber-600">
-                    Warning (&lt;14 days)
+                    {getAppTranslation("warning", language)} (&lt;14 {getAppTranslation("days", language)})
                   </TabsTrigger>
                   <TabsTrigger value="reorder" className="text-blue-600">
-                    Reorder Now
+                    {getAppTranslation("reorder_now", language)}
                   </TabsTrigger>
                 </TabsList>
               </Tabs>
@@ -538,7 +544,9 @@ export default function ForecastingPage() {
                 <div className="overflow-hidden">
                   <DataTable columns={columns} data={filteredProducts} />
                   <div className="mt-4">
-                    <p className="text-sm text-muted-foreground">Click on a product to view detailed forecast</p>
+                    <p className="text-sm text-muted-foreground">
+                      {getAppTranslation("click_product_view_forecast", language)}
+                    </p>
                   </div>
                 </div>
               )}
@@ -546,7 +554,8 @@ export default function ForecastingPage() {
             <CardFooter className="border-t px-6 py-4">
               <div className="flex items-center justify-between w-full">
                 <p className="text-sm text-muted-foreground">
-                  Showing {filteredProducts.length} of {products.length} products
+                  {getAppTranslation("showing", language)} {filteredProducts.length} {getAppTranslation("of", language)}{" "}
+                  {products.length} {getAppTranslation("products", language)}
                 </p>
                 <Button
                   variant="outline"
@@ -560,7 +569,7 @@ export default function ForecastingPage() {
                   className="flex items-center gap-1"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
-                  Reset Filters
+                  {getAppTranslation("reset_filters", language)}
                 </Button>
               </div>
             </CardFooter>
@@ -570,11 +579,11 @@ export default function ForecastingPage() {
         <div className="w-full md:w-1/3">
           <Card className="h-full">
             <CardHeader>
-              <CardTitle>Forecast Details</CardTitle>
+              <CardTitle>{getAppTranslation("forecast_details", language)}</CardTitle>
               <CardDescription>
                 {selectedProduct
-                  ? `Projected inventory for ${selectedProduct.name}`
-                  : "Select a product to view detailed forecast"}
+                  ? `${getAppTranslation("projected_inventory_for", language)} ${selectedProduct.name}`
+                  : getAppTranslation("select_product_view_forecast", language)}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -584,15 +593,17 @@ export default function ForecastingPage() {
                 <div className="space-y-6">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
-                      <p className="text-sm text-muted-foreground">Current Stock</p>
+                      <p className="text-sm text-muted-foreground">{getAppTranslation("current_stock", language)}</p>
                       <p className="text-2xl font-bold">{selectedProduct.stock}</p>
                     </div>
                     <div className="space-y-1">
-                      <p className="text-sm text-muted-foreground">Daily Sales</p>
+                      <p className="text-sm text-muted-foreground">{getAppTranslation("daily_sales", language)}</p>
                       <p className="text-2xl font-bold">{selectedProduct.avg_daily_sales.toFixed(2)}</p>
                     </div>
                     <div className="space-y-1">
-                      <p className="text-sm text-muted-foreground">Days Until Stockout</p>
+                      <p className="text-sm text-muted-foreground">
+                        {getAppTranslation("days_until_stockout", language)}
+                      </p>
                       <p
                         className={`text-2xl font-bold ${
                           selectedProduct.days_until_stockout < 7
@@ -606,7 +617,7 @@ export default function ForecastingPage() {
                       </p>
                     </div>
                     <div className="space-y-1">
-                      <p className="text-sm text-muted-foreground">Reorder Quantity</p>
+                      <p className="text-sm text-muted-foreground">{getAppTranslation("reorder_quantity", language)}</p>
                       <p className="text-2xl font-bold">{selectedProduct.reorder_recommendation}</p>
                     </div>
                   </div>
@@ -622,7 +633,7 @@ export default function ForecastingPage() {
                         <Line
                           type="monotone"
                           dataKey="projected_stock"
-                          name="Projected Stock"
+                          name={getAppTranslation("projected_stock", language)}
                           stroke="#8884d8"
                           activeDot={{ r: 8 }}
                         />
@@ -630,7 +641,7 @@ export default function ForecastingPage() {
                         <Line
                           type="monotone"
                           dataKey={() => selectedProduct.min_stock}
-                          name="Min Stock"
+                          name={getAppTranslation("min_stock", language)}
                           stroke="#ff7300"
                           strokeDasharray="5 5"
                         />
@@ -639,24 +650,28 @@ export default function ForecastingPage() {
                   </div>
 
                   <div className="pt-4 border-t">
-                    <h4 className="font-medium mb-2">Reorder Recommendation</h4>
+                    <h4 className="font-medium mb-2">{getAppTranslation("reorder_recommendation", language)}</h4>
                     {selectedProduct.reorder_recommendation > 0 ? (
                       <div className="space-y-2">
                         <p className="text-sm">
-                          Based on your average daily sales of{" "}
-                          <span className="font-medium">{selectedProduct.avg_daily_sales.toFixed(2)}</span> units and a
-                          lead time of <span className="font-medium">{leadTime}</span> days, you should order{" "}
-                          <span className="font-medium">{selectedProduct.reorder_recommendation}</span> units now.
+                          {getAppTranslation("based_on_avg_sales", language)}{" "}
+                          <span className="font-medium">{selectedProduct.avg_daily_sales.toFixed(2)}</span>{" "}
+                          {getAppTranslation("units", language)} {getAppTranslation("and", language)}{" "}
+                          {getAppTranslation("lead_time_of", language)} <span className="font-medium">{leadTime}</span>{" "}
+                          {getAppTranslation("days", language)}, {getAppTranslation("you_should_order", language)}{" "}
+                          <span className="font-medium">{selectedProduct.reorder_recommendation}</span>{" "}
+                          {getAppTranslation("units_now", language)}.
                         </p>
                         <Button className="w-full" onClick={handleOpenOrderDialog}>
                           <ShoppingCart className="h-4 w-4 mr-2" />
-                          Create Purchase Order
+                          {getAppTranslation("create_purchase_order", language)}
                         </Button>
                       </div>
                     ) : (
                       <p className="text-sm text-muted-foreground">
-                        No immediate reorder needed. You have sufficient stock for the next{" "}
-                        {selectedProduct.days_until_stockout} days.
+                        {getAppTranslation("no_immediate_reorder", language)}.{" "}
+                        {getAppTranslation("sufficient_stock", language)} {selectedProduct.days_until_stockout}{" "}
+                        {getAppTranslation("days", language)}.
                       </p>
                     )}
                   </div>
@@ -664,7 +679,7 @@ export default function ForecastingPage() {
               ) : (
                 <div className="flex flex-col items-center justify-center h-[300px] text-center">
                   <TrendingUp className="h-12 w-12 text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">Select a product from the table to view detailed forecast</p>
+                  <p className="text-muted-foreground">{getAppTranslation("select_product_view_forecast", language)}</p>
                 </div>
               )}
             </CardContent>
@@ -674,8 +689,8 @@ export default function ForecastingPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Inventory Health Overview</CardTitle>
-          <CardDescription>Summary of your inventory status</CardDescription>
+          <CardTitle>{getAppTranslation("inventory_health_overview", language)}</CardTitle>
+          <CardDescription>{getAppTranslation("summary_inventory_status", language)}</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -686,22 +701,22 @@ export default function ForecastingPage() {
                 <BarChart
                   data={[
                     {
-                      name: "Critical",
+                      name: getAppTranslation("critical", language),
                       count: products.filter((p) => p.days_until_stockout < 7).length,
                       color: "#ef4444",
                     },
                     {
-                      name: "Warning",
+                      name: getAppTranslation("warning", language),
                       count: products.filter((p) => p.days_until_stockout >= 7 && p.days_until_stockout < 14).length,
                       color: "#f59e0b",
                     },
                     {
-                      name: "Healthy",
+                      name: getAppTranslation("healthy", language),
                       count: products.filter((p) => p.days_until_stockout >= 14).length,
                       color: "#10b981",
                     },
                     {
-                      name: "No Sales",
+                      name: getAppTranslation("no_sales", language),
                       count: products.filter((p) => p.avg_daily_sales === 0).length,
                       color: "#6b7280",
                     },
@@ -713,7 +728,7 @@ export default function ForecastingPage() {
                   <YAxis />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="count" name="Number of Products">
+                  <Bar dataKey="count" name={getAppTranslation("number_of_products", language)}>
                     {[
                       { dataKey: "count", fill: "#ef4444" },
                       { dataKey: "count", fill: "#f59e0b" },
@@ -731,7 +746,7 @@ export default function ForecastingPage() {
         <CardFooter className="border-t px-6 py-4">
           <div className="grid grid-cols-4 gap-4 w-full">
             <div className="text-center">
-              <p className="text-sm font-medium text-red-600">Critical</p>
+              <p className="text-sm font-medium text-red-600">{getAppTranslation("critical", language)}</p>
               <p className="text-2xl font-bold">
                 {isLoading ? (
                   <Skeleton className="h-8 w-16 mx-auto" />
@@ -739,10 +754,12 @@ export default function ForecastingPage() {
                   products.filter((p) => p.days_until_stockout < 7).length
                 )}
               </p>
-              <p className="text-xs text-muted-foreground">Less than 7 days of stock</p>
+              <p className="text-xs text-muted-foreground">
+                {getAppTranslation("less_than_days_stock", language).replace("{days}", "7")}
+              </p>
             </div>
             <div className="text-center">
-              <p className="text-sm font-medium text-amber-600">Warning</p>
+              <p className="text-sm font-medium text-amber-600">{getAppTranslation("warning", language)}</p>
               <p className="text-2xl font-bold">
                 {isLoading ? (
                   <Skeleton className="h-8 w-16 mx-auto" />
@@ -750,10 +767,10 @@ export default function ForecastingPage() {
                   products.filter((p) => p.days_until_stockout >= 7 && p.days_until_stockout < 14).length
                 )}
               </p>
-              <p className="text-xs text-muted-foreground">7-14 days of stock</p>
+              <p className="text-xs text-muted-foreground">7-14 {getAppTranslation("days_of_stock", language)}</p>
             </div>
             <div className="text-center">
-              <p className="text-sm font-medium text-green-600">Healthy</p>
+              <p className="text-sm font-medium text-green-600">{getAppTranslation("healthy", language)}</p>
               <p className="text-2xl font-bold">
                 {isLoading ? (
                   <Skeleton className="h-8 w-16 mx-auto" />
@@ -761,10 +778,12 @@ export default function ForecastingPage() {
                   products.filter((p) => p.days_until_stockout >= 14).length
                 )}
               </p>
-              <p className="text-xs text-muted-foreground">More than 14 days of stock</p>
+              <p className="text-xs text-muted-foreground">
+                {getAppTranslation("more_than_days_stock", language).replace("{days}", "14")}
+              </p>
             </div>
             <div className="text-center">
-              <p className="text-sm font-medium text-gray-600">No Sales</p>
+              <p className="text-sm font-medium text-gray-600">{getAppTranslation("no_sales", language)}</p>
               <p className="text-2xl font-bold">
                 {isLoading ? (
                   <Skeleton className="h-8 w-16 mx-auto" />
@@ -772,7 +791,7 @@ export default function ForecastingPage() {
                   products.filter((p) => p.avg_daily_sales === 0).length
                 )}
               </p>
-              <p className="text-xs text-muted-foreground">No recent sales activity</p>
+              <p className="text-xs text-muted-foreground">{getAppTranslation("no_recent_sales_activity", language)}</p>
             </div>
           </div>
         </CardFooter>
@@ -782,15 +801,17 @@ export default function ForecastingPage() {
       <Dialog open={isOrderDialogOpen} onOpenChange={setIsOrderDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Create Purchase Order</DialogTitle>
+            <DialogTitle>{getAppTranslation("create_purchase_order", language)}</DialogTitle>
             <DialogDescription>
-              {selectedProduct ? `Order ${selectedProduct.name} from supplier` : "Order product from supplier"}
+              {selectedProduct
+                ? `${getAppTranslation("order_from_supplier", language)} ${selectedProduct.name}`
+                : getAppTranslation("order_product_from_supplier", language)}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="quantity" className="text-right">
-                Quantity
+                {getAppTranslation("quantity", language)}
               </Label>
               <Input
                 id="quantity"
@@ -803,7 +824,7 @@ export default function ForecastingPage() {
             </div>
             {selectedProduct && (
               <div className="grid grid-cols-4 items-center gap-4">
-                <Label className="text-right">Cost</Label>
+                <Label className="text-right">{getAppTranslation("cost", language)}</Label>
                 <div className="col-span-3">
                   {currentCurrency}{" "}
                   {((selectedProduct.purchase_price || selectedProduct.price) * orderQuantity).toFixed(2)}
@@ -814,21 +835,25 @@ export default function ForecastingPage() {
               <div className="bg-green-50 p-3 rounded-md border border-green-200 flex items-center gap-2">
                 <Check className="h-5 w-5 text-green-600" />
                 <div className="text-green-800">
-                  <p className="font-medium">Order #{purchaseOrderResult.order_id} created!</p>
-                  <p className="text-sm">Total items: {purchaseOrderResult.total_items}</p>
+                  <p className="font-medium">
+                    {getAppTranslation("order_created", language)} #{purchaseOrderResult.order_id}!
+                  </p>
+                  <p className="text-sm">
+                    {getAppTranslation("total_items", language)}: {purchaseOrderResult.total_items}
+                  </p>
                 </div>
               </div>
             )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsOrderDialogOpen(false)}>
-              Cancel
+              {getAppTranslation("cancel", language)}
             </Button>
             <Button
               onClick={handleCreatePurchaseOrder}
               disabled={isCreatingOrder || orderQuantity <= 0 || !selectedProduct}
             >
-              {isCreatingOrder ? "Creating..." : "Create Order"}
+              {isCreatingOrder ? getAppTranslation("creating", language) : getAppTranslation("create_order", language)}
             </Button>
           </DialogFooter>
         </DialogContent>

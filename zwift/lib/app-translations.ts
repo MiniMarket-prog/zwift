@@ -1,4 +1,4 @@
-// Define types for our application-wide translations
+// Add the missing translation keys to the AppTranslationKey type
 export type AppTranslationKey =
   | "alerts" // Add this line
   | "dashboard"
@@ -81,6 +81,7 @@ export type AppTranslationKey =
   | "on"
   | "in"
   | "of"
+  
   // Settings page keys
   | "settings_saved_successfully"
   | "error_saving_settings"
@@ -100,6 +101,7 @@ export type AppTranslationKey =
   | "changes_take_effect"
   | "error_saving_settings_try_again"
   | "close"
+  
   // Inventory page keys
   | "add_product"
   | "add_new_product"
@@ -160,7 +162,7 @@ export type AppTranslationKey =
   | "page_total"
   | "grand_total"
   | "filtered"
-  | "all"
+  
   // Expense page keys
   | "expenses"
   | "add_expense"
@@ -180,6 +182,7 @@ export type AppTranslationKey =
   | "select_date"
   | "no_expenses_found"
   | "save_category"
+  
   // Category management keys - Adding the missing keys
   | "category_deleted_successfully"
   | "failed_to_delete_category"
@@ -267,7 +270,6 @@ export type AppTranslationKey =
   | "has_been_restocked"
   | "failed_to_restock_product"
   | "failed_to_update_stock"
-  | "uncategorized"
   | "filter_by_category"
   | "search_products"
   | "stock_below_min"
@@ -306,13 +308,399 @@ export type AppTranslationKey =
   | "role_cashier"
   | "role_manager"
   | "role_admin"
-  | "password"
+  // Capital Analytics page keys
+  | "capital_analytics"
+  | "loading_capital_analytics"
+  | "total_inventory_value"
+  | "estimated_profit"
+  | "profit_margin"
+  | "inventory_cost"
+  | "avg_cost_per_product"
+  | "inventory_turnover"
+  | "industry_avg"
+  | "profitability"
+  | "trends"
+  | "optimization"
+  | "capital_distribution_by_category"
+  | "capital_distribution_description"
+  | "top_categories_by_value"
+  | "categories_highest_inventory_value"
+  | "est_profit"
+  | "high_value_products"
+  | "products_highest_inventory_value"
+  | "unit_price"
+  | "total_value"
+  | "export_full_list"
+  | "slow_moving_inventory"
+  | "products_high_stock_low_sales"
+  | "sales_ratio"
+  | "capital_tied"
+  | "product_profitability_analysis"
+  | "profit_margin_vs_turnover"
+  | "profit_margin_percent"
+  | "turnover_rate"
+  | "most_profitable_products"
+  | "products_highest_profit_margins"
+  | "highest_turnover_products"
+  | "products_sell_most_frequently"
+  | "potential_profit"
+  | "lowest_turnover_products"
+  | "products_sell_least_frequently"
+  | "capital_trends_over_time"
+  | "sales_expenses_profit_trends"
+  | "for_the_period"
+  | "inventory_optimization_summary"
+  | "recommendations_optimize_inventory"
+  | "potential_capital_release"
+  | "by_reducing_overstock"
+  | "required_restock_investment"
+  | "to_maintain_optimal_stock"
+  | "net_capital_impact"
+  | "estimated_impact_working_capital"
+  | "optimization_impact"
+  | "potential_impact_inventory_metrics"
+  | "reduce_stock"
+  | "maintain"
+  | "restock_recommendations"
+  | "products_need_restocking"
+  | "optimal_stock"
+  | "restock_quantity"
+  | "investment_required"
+  | "reduce_stock_recommendations"
+  | "products_excess_inventory"
+  | "excess_quantity"
+  | "capital_release"
+  | "refresh_data"
+  | "last_3_months"
+  | "last_12_months"
+  | "failed_fetch_capital_analytics"
+  | "failed_fetch_capital_trends"
+  | "failed_fetch_product_profitability"
+  | "failed_fetch_inventory_optimization"
+  | "product"
+  | "inventory_activity"
+  | "inventory_activity_description"
+  | "filter_description"
+  | "search_placeholder"
+  | "action_type"
+  | "select_action"
+  | "all_actions"
+  | "purchase"
+  | "adjustment"
+  | "date_range"
+  | "table_view"
+  | "actions_chart"
+  | "products_chart"
+  | "timeline_chart"
+  | "actions_distribution"
+  | "actions_distribution_description"
+  | "product_activity"
+  | "product_activity_description"
+  | "activity_timeline"
+  | "activity_timeline_description"
+  | "no_data_available"
+  | "quantity_change"
+  | "previous_stock"
+  | "new_stock"
+  | "notes"
+  | "user"
+  // Additional keys for sales reports page
+| "refreshing"
+| "refresh"
+| "loading_data"
+| "filters"
+| "clear_filters"
+| "export"
+| "payment_methods"
+| "sales_trend"
+| "daily_sales_profit"
+| "no_sales_data"
+| "sales_transactions"
+| "transactions_for_period"
+| "revenue"
+| "cost"
+| "sales_by_payment_method"
+| "all_methods"
+| "cash"
+| "card"
+| "transfer"
+| "for_period"
+| "total_profit"
+| "margin"
+| "average"
+| "per_transaction"
+// Inventory Forecasting page keys
+| "inventory_forecasting"
+| "plan_reorders_prevent_stockouts"
+| "lead_time_settings"
+| "configure_supplier_lead_time"
+| "average_supplier_lead_time"
+| "supplier_lead_time_description"
+| "safety_stock"
+| "buffer_inventory_percentage"
+| "safety_stock_percentage"
+| "safety_stock_description"
+| "forecast_range"
+| "days_project_future"
+| "forecast_days"
+| "select_days"
+| "forecast_range_description"
+| "inventory_forecast"
+| "products_need_attention"
+| "search_products"
+| "sort_by"
+| "current_stock"
+| "daily_sales"
+| "days_until_stockout"
+| "reorder_quantity"
+| "all_products"
+| "critical"
+| "critical_days"
+| "warning"
+| "warning_days"
+| "reorder_now"
+| "reset_filters"
+| "showing_products"
+| "forecast_details"
+| "projected_inventory"
+| "select_product_view_forecast"
+| "reorder_recommendation"
+| "based_on_avg_sales"
+| "units"
+| "create_purchase_order"
+| "no_immediate_reorder"
+| "sufficient_stock"
+| "inventory_health_overview"
+| "summary_inventory_status"
+| "number_of_products"
+| "healthy"
+| "no_sales"
+| "days_of_stock"
+| "more_than_days_stock"
+| "no_recent_sales_activity"
+| "order_from_supplier"
+| "quantity"
+| "cost"
+| "order_created"
+| "total_items"
+| "cancel"
+| "creating"
+| "create_order"
+| "export_report"
+| "page_title.home"
+| "page_title.settings"
+| "page_title.products"
+| "page_title.customers"
+| "page_title.orders"
+| "page_title.login"
+| "page_title.logout"
+| "page_title.register"
+| "page_title.forgot_password"
+| "page_title.reset_password"
+| "page_title.verify_email"
+| "page_title.profile"
+| "page_title.edit_profile"
+| "page_title.change_password"
+| "page_title.users"
+| "page_title.roles"
+| "page_title.permissions"
+| "page_title.audit_logs"
+| "page_title.notifications"
+| "page_title.announcements"
+| "page_title.support"
+| "page_title.contact_us"
+| "page_title.terms_of_service"
+| "page_title.privacy_policy"
+| "page_title.faq"
+| "page_title.blog"
+| "page_title.pricing"
+| "page_title.features"
+| "page_title.integrations"
+| "page_title.api"
+| "page_title.documentation"
+| "page_title.status"
+| "page_title.maintenance"
+| "page_title.coming_soon"
+| "page_title.not_found"
+| "page_title.unauthorized"
+| "page_title.forbidden"
+| "page_title.server_error"
+| "page_title.bad_request"
+| "page_title.payment_required"
+| "page_title.conflict"
+| "page_title.gone"
+| "page_title.too_many_requests"
+| "page_title.internal_server_error"
+| "page_title.service_unavailable"
+| "page_title.gateway_timeout"
+| "page_title.network_authentication_required"
+| "common.ok"
+| "common.cancel"
+| "common.delete"
+| "common.edit"
+| "common.view"
+| "common.add"
+| "common.save"
+| "common.update"
+| "common.create"
+| "common.search"
+| "common.reset"
+| "common.back"
+| "common.next"
+| "common.previous"
+| "common.submit"
+| "common.confirm"
+| "common.close"
+| "common.loading"
+| "common.error"
+| "common.success"
+| "common.warning"
+| "common.info"
+| "common.home"
+| "common.settings"
+| "common.products"
+| "common.customers"
+| "common.orders"
+| "common.login"
+| "common.logout"
+| "common.register"
+| "common.forgot_password"
+| "common.reset_password"
+| "common.verify_email"
+| "common.profile"
+| "common.edit_profile"
+| "common.change_password"
+| "common.users"
+| "common.roles"
+| "common.permissions"
+| "common.audit_logs"
+| "common.notifications"
+| "common.announcements"
+| "common.support"
+| "common.contact_us"
+| "common.terms_of_service"
+| "common.privacy_policy"
+| "common.faq"
+| "common.blog"
+| "common.pricing"
+| "common.features"
+| "common.integrations"
+| "common.api"
+| "common.documentation"
+| "common.status"
+| "common.maintenance"
+| "common.coming_soon"
+| "common.not_found"
+| "common.unauthorized"
+| "common.forbidden"
+| "common.server_error"
+| "common.bad_request"
+| "common.payment_required"
+| "common.conflict"
+| "common.gone"
+| "common.too_many_requests"
+| "common.internal_server_error"
+| "common.service_unavailable"
+| "common.gateway_timeout"
+| "common.network_authentication_required"
+
+// Add these translation keys to the AppTranslationKey type:
+
+// Inventory Forecasting page keys
+| "inventory_forecasting"
+| "plan_reorders_prevent_stockouts"
+| "lead_time_settings"
+| "configure_supplier_lead_time"
+| "average_supplier_lead_time"
+| "supplier_lead_time_description"
+| "safety_stock"
+| "buffer_inventory_percentage"
+| "safety_stock_percentage"
+| "safety_stock_description"
+| "forecast_range"
+| "days_project_future"
+| "forecast_days"
+| "select_days"
+| "forecast_range_description"
+| "inventory_forecast"
+| "products_need_attention"
+| "search_products"
+| "sort_by"
+| "current_stock"
+| "daily_sales"
+| "days_until_stockout"
+| "reorder_quantity"
+| "all_products"
+| "critical"
+| "warning"
+| "reorder_now"
+| "reset_filters"
+| "showing_products"
+| "forecast_details"
+| "projected_inventory_for"
+| "select_product_view_forecast"
+| "click_product_view_forecast"
+| "reorder_recommendation"
+| "based_on_avg_sales"
+| "units"
+| "and"
+| "lead_time_of"
+| "you_should_order"
+| "units_now"
+| "create_purchase_order"
+| "no_immediate_reorder"
+| "sufficient_stock"
+| "inventory_health_overview"
+| "summary_inventory_status"
+| "number_of_products"
+| "healthy"
+| "no_sales"
+| "less_than_days_stock"
+| "days_of_stock"
+| "no_recent_sales_activity"
+| "order_from_supplier"
+| "order_product_from_supplier"
+| "quantity"
+| "cost"
+| "order_created"
+| "total_items"
+| "cancel"
+| "creating"
+| "create_order"
+| "export_report"
+| "purchase_order_created"
+| "order_created_successfully"
+| "view_all_orders"
+| "failed_create_purchase_order"
+| "failed_load_forecasting_data"
+| "order"
+| "details"
+| "days"
+| "product_name"
+| "avg_daily_sales"
+| "reorder_qty"
+| "projected_stock"
+| "min_stock"
+  "sammury"
+  "Analyses"
+  "ActivityReports"
+  "Sales_Reports"
+  "purchaseOrders"
+  "forecasting"
+  "capital_analytics"
+
 
 // Define translations for each supported language
 export const appTranslations: Record<string, Record<AppTranslationKey, string>> = {
   en: {
+    more_than_days_stock:"more than days stock",
+    less_than_days_stock:"less than days stock",
     alerts: "Alerts",
     dashboard: "Dashboard",
+    refreshing: "Refreshing",
+    loading_data: "Loading data",
+    inventory_forecasting: "Inventory forecasting",
+    plan_reorders_prevent_stockouts: "Plan reorders to prevent stockouts",
     products: "Products",
     categories: "Categories",
     customers: "Users",
@@ -471,7 +859,7 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     page_total: "Page Total",
     grand_total: "Grand Total",
     filtered: "Filtered",
-    
+
     // Expense page translations
     category_deleted_successfully: "The category has been deleted successfully.",
     failed_to_delete_category: "Failed to delete category. Please try again.",
@@ -577,7 +965,6 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     has_been_restocked: "has been restocked to",
     failed_to_restock_product: "Failed to restock product",
     failed_to_update_stock: "Failed to update stock level",
-    
     filter_by_category: "Filter by Category",
     search_products: "Search products...",
     stock_below_min: "New stock level is below minimum stock threshold.",
@@ -616,11 +1003,111 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     role_cashier: "Cashier",
     role_manager: "Manager",
     role_admin: "Administrator",
-    
+    product: "Product",
+    // Capital Analytics page translations
+    capital_analytics: "Capital Analytics",
+    loading_capital_analytics: "Loading capital analytics data...",
+    total_inventory_value: "Total Inventory Value",
+    estimated_profit: "Estimated Profit",
+    profit_margin: "Profit Margin",
+    inventory_cost: "Inventory Cost",
+    avg_cost_per_product: "Average Cost per Product",
+    inventory_turnover: "Inventory Turnover",
+    industry_avg: "Industry Average",
+    profitability: "Profitability",
+    trends: "Trends",
+    optimization: "Optimization",
+    capital_distribution_by_category: "Capital Distribution by Category",
+    capital_distribution_description: "How your inventory capital is distributed across categories",
+    top_categories_by_value: "Top Categories by Value",
+    categories_highest_inventory_value: "Categories with the highest inventory value",
+    est_profit: "Est. Profit",
+    high_value_products: "High Value Products",
+    products_highest_inventory_value: "Products with the highest inventory value",
+    unit_price: "Unit Price",
+    total_value: "Total Value",
+    export_full_list: "Export Full List",
+    slow_moving_inventory: "Slow Moving Inventory",
+    products_high_stock_low_sales: "Products with high stock but low sales",
+    sales_ratio: "Sales Ratio",
+    capital_tied: "Capital Tied",
+    product_profitability_analysis: "Product Profitability Analysis",
+    profit_margin_vs_turnover: "Profit Margin vs. Turnover Rate",
+    profit_margin_percent: "Profit Margin (%)",
+    turnover_rate: "Turnover Rate",
+    most_profitable_products: "Most Profitable Products",
+    products_highest_profit_margins: "Products with the highest profit margins",
+    highest_turnover_products: "Highest Turnover Products",
+    products_sell_most_frequently: "Products that sell most frequently",
+    potential_profit: "Potential Profit",
+    lowest_turnover_products: "Lowest Turnover Products",
+    products_sell_least_frequently: "Products that sell least frequently",
+    capital_trends_over_time: "Capital Trends Over Time",
+    sales_expenses_profit_trends: "Sales, Expenses, and Profit Trends",
+    for_the_period: "For the period",
+    inventory_optimization_summary: "Inventory Optimization Summary",
+    recommendations_optimize_inventory: "Recommendations to optimize your inventory",
+    potential_capital_release: "Potential Capital Release",
+    by_reducing_overstock: "By reducing overstock in",
+    required_restock_investment: "Required Restock Investment",
+    to_maintain_optimal_stock: "To maintain optimal stock levels for",
+    net_capital_impact: "Net Capital Impact",
+    estimated_impact_working_capital: "Estimated impact on working capital",
+    optimization_impact: "Optimization Impact",
+    potential_impact_inventory_metrics: "Potential impact on inventory metrics",
+    reduce_stock: "Reduce Stock",
+    maintain: "Maintain",
+    restock_recommendations: "Restock Recommendations",
+    products_need_restocking: "Products that need restocking",
+    optimal_stock: "Optimal Stock",
+    restock_quantity: "Restock Quantity",
+    investment_required: "Investment Required",
+    reduce_stock_recommendations: "Reduce Stock Recommendations",
+    products_excess_inventory: "Products with excess inventory",
+    excess_quantity: "Excess Quantity",
+    capital_release: "Capital Release",
+    refresh_data: "Refresh Data",
+    last_3_months: "Last 3 Months",
+    last_12_months: "Last 12 Months",
+    failed_fetch_capital_analytics: "Failed to fetch capital analytics data",
+    failed_fetch_capital_trends: "Failed to fetch capital trends data",
+    failed_fetch_product_profitability: "Failed to fetch product profitability data",
+    failed_fetch_inventory_optimization: "Failed to fetch inventory optimization data",
+    inventory_activity: "Inventory Activity",
+    inventory_activity_description: "Track changes to your inventory over time",
+    filter_description: "Filter activity records by various criteria",
+    search_placeholder: "Search by product name or notes...",
+    action_type: "Action Type",
+    select_action: "Select action",
+    all_actions: "All Actions",
+    purchase: "Purchase",
+    adjustment: "Adjustment",
+    date_range: "Date Range",
+    table_view: "Table",
+    actions_chart: "Actions",
+    products_chart: "Products",
+    timeline_chart: "Timeline",
+    actions_distribution: "Actions Distribution",
+    actions_distribution_description: "Distribution of different types of inventory actions",
+    product_activity: "Product Activity",
+    product_activity_description: "Activity volume by product",
+    activity_timeline: "Activity Timeline",
+    activity_timeline_description: "Inventory activity over time",
+    no_data_available: "No data available",
+    quantity_change: "Quantity Change",
+    previous_stock: "Previous Stock",
+    new_stock: "New Stock",
+    notes: "Notes",
+    user: "User",
   },
   es: {
+    more_than_days_stock: "más de días de stock",
     alerts: "Alertas",
-    dashboard: "Panel de Control",
+    dashboard: "Tablero",
+    refreshing: "Actualizando",
+    loading_data: "Cargando datos",
+    inventory_forecasting: "Pronóstico de inventario",
+    plan_reorders_prevent_stockouts: "Planificar pedidos para evitar desabastecimientos",
     products: "Productos",
     categories: "Categorías",
     customers: "Usuarios",
@@ -779,7 +1266,7 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     page_total: "Total de Página",
     grand_total: "Total General",
     filtered: "Filtrado",
-    
+
     // Expense page translations
     category_deleted_successfully: "La categoría ha sido eliminada exitosamente.",
     failed_to_delete_category: "Error al eliminar la categoría. Por favor, inténtalo de nuevo.",
@@ -885,7 +1372,6 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     has_been_restocked: "ha sido reabastecido a",
     failed_to_restock_product: "Error al reabastecer el producto",
     failed_to_update_stock: "Error al actualizar el nivel de stock",
-    
     filter_by_category: "Filtrar por Categoría",
     search_products: "Buscar productos...",
     stock_below_min: "El nuevo nivel de stock está por debajo del umbral mínimo.",
@@ -924,9 +1410,105 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     role_cashier: "Cajero",
     role_manager: "Gerente",
     role_admin: "Administrador",
-    
+    product: "Producto",
+    // Capital Analytics page translations
+    capital_analytics: "Análisis de Capital",
+    loading_capital_analytics: "Cargando datos de análisis de capital...",
+    total_inventory_value: "Valor Total del Inventario",
+    estimated_profit: "Beneficio Estimado",
+    profit_margin: "Margen de Beneficio",
+    inventory_cost: "Costo del Inventario",
+    avg_cost_per_product: "Costo Promedio por Producto",
+    inventory_turnover: "Rotación de Inventario",
+    industry_avg: "Promedio de la Industria",
+    profitability: "Rentabilidad",
+    trends: "Tendencias",
+    optimization: "Optimización",
+    capital_distribution_by_category: "Distribución de Capital por Categoría",
+    capital_distribution_description: "Cómo se distribuye el capital de inventario entre categorías",
+    top_categories_by_value: "Categorías Principales por Valor",
+    categories_highest_inventory_value: "Categorías con el valor de inventario más alto",
+    est_profit: "Beneficio Est.",
+    high_value_products: "Productos de Alto Valor",
+    products_highest_inventory_value: "Productos con el valor de inventario más alto",
+    unit_price: "Precio Unitario",
+    total_value: "Valor Total",
+    export_full_list: "Exportar Lista Completa",
+    slow_moving_inventory: "Inventario de Movimiento Lento",
+    products_high_stock_low_sales: "Productos con alto stock pero bajas ventas",
+    sales_ratio: "Ratio de Ventas",
+    capital_tied: "Capital Inmovilizado",
+    product_profitability_analysis: "Análisis de Rentabilidad de Productos",
+    profit_margin_vs_turnover: "Margen de Beneficio vs. Tasa de Rotación",
+    profit_margin_percent: "Margen de Beneficio (%)",
+    turnover_rate: "Tasa de Rotación",
+    most_profitable_products: "Productos Más Rentables",
+    products_highest_profit_margins: "Productos con los márgenes de beneficio más altos",
+    highest_turnover_products: "Productos con Mayor Rotación",
+    products_sell_most_frequently: "Productos que se venden con mayor frecuencia",
+    potential_profit: "Beneficio Potencial",
+    lowest_turnover_products: "Productos con Menor Rotación",
+    products_sell_least_frequently: "Productos que se venden con menor frecuencia",
+    capital_trends_over_time: "Tendencias de Capital a lo Largo del Tiempo",
+    sales_expenses_profit_trends: "Tendencias de Ventas, Gastos y Beneficios",
+    for_the_period: "Para el período",
+    inventory_optimization_summary: "Resumen de Optimización de Inventario",
+    recommendations_optimize_inventory: "Recomendaciones para optimizar tu inventario",
+    potential_capital_release: "Liberación Potencial de Capital",
+    by_reducing_overstock: "Reduciendo el exceso de stock en",
+    required_restock_investment: "Inversión Requerida para Reabastecimiento",
+    to_maintain_optimal_stock: "Para mantener niveles óptimos de stock para",
+    net_capital_impact: "Impacto Neto de Capital",
+    estimated_impact_working_capital: "Impacto estimado en el capital de trabajo",
+    optimization_impact: "Impacto de la Optimización",
+    potential_impact_inventory_metrics: "Impacto potencial en métricas de inventario",
+    reduce_stock: "Reducir Stock",
+    maintain: "Mantener",
+    restock_recommendations: "Recomendaciones de Reabastecimiento",
+    products_need_restocking: "Productos que necesitan reabastecimiento",
+    optimal_stock: "Stock Óptimo",
+    restock_quantity: "Cantidad de Reabastecimiento",
+    investment_required: "Inversión Requerida",
+    reduce_stock_recommendations: "Recomendaciones para Reducir Stock",
+    products_excess_inventory: "Productos con exceso de inventario",
+    excess_quantity: "Cantidad Excedente",
+    capital_release: "Liberación de Capital",
+    refresh_data: "Actualizar Datos",
+    last_3_months: "Últimos 3 Meses",
+    last_12_months: "Últimos 12 Meses",
+    failed_fetch_capital_analytics: "Error al obtener datos de análisis de capital",
+    failed_fetch_capital_trends: "Error al obtener datos de tendencias de capital",
+    failed_fetch_product_profitability: "Error al obtener datos de rentabilidad de productos",
+    failed_fetch_inventory_optimization: "Error al obtener datos de optimización de inventario",
+    inventory_activity: "Actividad de Inventario",
+    inventory_activity_description: "Seguimiento de cambios en tu inventario a lo largo del tiempo",
+    filter_description: "Filtrar registros de actividad por varios criterios",
+    search_placeholder: "Buscar por nombre de producto o notas...",
+    action_type: "Tipo de Acción",
+    select_action: "Seleccionar acción",
+    all_actions: "Todas las Acciones",
+    purchase: "Compra",
+    adjustment: "Ajuste",
+    date_range: "Rango de Fechas",
+    table_view: "Tabla",
+    actions_chart: "Acciones",
+    products_chart: "Productos",
+    timeline_chart: "Cronología",
+    actions_distribution: "Distribución de Acciones",
+    actions_distribution_description: "Distribución de diferentes tipos de acciones de inventario",
+    product_activity: "Actividad de Productos",
+    product_activity_description: "Volumen de actividad por producto",
+    activity_timeline: "Cronología de Actividad",
+    activity_timeline_description: "Actividad de inventario a lo largo del tiempo",
+    no_data_available: "No hay datos disponibles",
+    quantity_change: "Cambio de Cantidad",
+    previous_stock: "Stock Anterior",
+    new_stock: "Nuevo Stock",
+    notes: "Notas",
+    user: "Usuario",
   },
   fr: {
+    more_than_days_stock: "plus de jours de stock",
     alerts: "Alertes",
     dashboard: "Tableau de Bord",
     products: "Produits",
@@ -1088,7 +1670,7 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     page_total: "Total de la Page",
     grand_total: "Total Général",
     filtered: "Filtré",
-    
+
     // Expense page translations
     category_deleted_successfully: "La catégorie a été supprimée avec succès.",
     failed_to_delete_category: "Échec de la suppression de la catégorie. Veuillez réessayer.",
@@ -1194,7 +1776,7 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     has_been_restocked: "a été réapprovisionné à",
     failed_to_restock_product: "Échec du réapprovisionnement du produit",
     failed_to_update_stock: "Échec de la mise à jour du niveau de stock",
-    
+
     filter_by_category: "Filtrer par Catégorie",
     search_products: "Rechercher des produits...",
     stock_below_min: "Le nouveau niveau de stock est inférieur au seuil minimum.",
@@ -1233,7 +1815,102 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     role_cashier: "Caissier",
     role_manager: "Gérant",
     role_admin: "Administrateur",
-    
+    product: "Produit",
+    // Capital Analytics page translations
+    capital_analytics: "Analyse du Capital",
+    loading_capital_analytics: "Chargement des données d'analyse du capital...",
+    total_inventory_value: "Valeur Totale de l'Inventaire",
+    estimated_profit: "Profit Estimé",
+    profit_margin: "Marge Bénéficiaire",
+    inventory_cost: "Coût de l'Inventaire",
+    avg_cost_per_product: "Coût Moyen par Produit",
+    inventory_turnover: "Rotation des Stocks",
+    industry_avg: "Moyenne de l'Industrie",
+    profitability: "Rentabilité",
+    trends: "Tendances",
+    optimization: "Optimisation",
+    capital_distribution_by_category: "Distribution du Capital par Catégorie",
+    capital_distribution_description: "Comment votre capital d'inventaire est distribué entre les catégories",
+    top_categories_by_value: "Catégories Principales par Valeur",
+    categories_highest_inventory_value: "Catégories avec la plus haute valeur d'inventaire",
+    est_profit: "Profit Est.",
+    high_value_products: "Produits à Haute Valeur",
+    products_highest_inventory_value: "Produits avec la plus haute valeur d'inventaire",
+    unit_price: "Prix Unitaire",
+    total_value: "Valeur Totale",
+    export_full_list: "Exporter la Liste Complète",
+    slow_moving_inventory: "Inventaire à Rotation Lente",
+    products_high_stock_low_sales: "Produits avec stock élevé mais ventes faibles",
+    sales_ratio: "Ratio de Ventes",
+    capital_tied: "Capital Immobilisé",
+    product_profitability_analysis: "Analyse de Rentabilité des Produits",
+    profit_margin_vs_turnover: "Marge Bénéficiaire vs. Taux de Rotation",
+    profit_margin_percent: "Marge Bénéficiaire (%)",
+    turnover_rate: "Taux de Rotation",
+    most_profitable_products: "Produits les Plus Rentables",
+    products_highest_profit_margins: "Produits avec les marges bénéficiaires les plus élevées",
+    highest_turnover_products: "Produits à Rotation la Plus Élevée",
+    products_sell_most_frequently: "Produits qui se vendent le plus fréquemment",
+    potential_profit: "Profit Potentiel",
+    lowest_turnover_products: "Produits à Rotation la Plus Faible",
+    products_sell_least_frequently: "Produits qui se vendent le moins fréquemment",
+    capital_trends_over_time: "Tendances du Capital dans le Temps",
+    sales_expenses_profit_trends: "Tendances des Ventes, Dépenses et Profits",
+    for_the_period: "Pour la période",
+    inventory_optimization_summary: "Résumé d'Optimisation de l'Inventaire",
+    recommendations_optimize_inventory: "Recommandations pour optimiser votre inventaire",
+    potential_capital_release: "Libération Potentielle de Capital",
+    by_reducing_overstock: "En réduisant le surstock dans",
+    required_restock_investment: "Investissement Requis pour le Réapprovisionnement",
+    to_maintain_optimal_stock: "Pour maintenir des niveaux de stock optimaux pour",
+    net_capital_impact: "Impact Net sur le Capital",
+    estimated_impact_working_capital: "Impact estimé sur le fonds de roulement",
+    optimization_impact: "Impact de l'Optimisation",
+    potential_impact_inventory_metrics: "Impact potentiel sur les métriques d'inventaire",
+    reduce_stock: "Réduire le Stock",
+    maintain: "Maintenir",
+    restock_recommendations: "Recommandations de Réapprovisionnement",
+    products_need_restocking: "Produits nécessitant un réapprovisionnement",
+    optimal_stock: "Stock Optimal",
+    restock_quantity: "Quantité de Réapprovisionnement",
+    investment_required: "Investissement Requis",
+    reduce_stock_recommendations: "Recommandations de Réduction de Stock",
+    products_excess_inventory: "Produits avec excès d'inventaire",
+    excess_quantity: "Quantité Excédentaire",
+    capital_release: "Libération de Capital",
+    refresh_data: "Actualiser les Données",
+    last_3_months: "3 Derniers Mois",
+    last_12_months: "12 Derniers Mois",
+    failed_fetch_capital_analytics: "Échec de la récupération des données d'analyse du capital",
+    failed_fetch_capital_trends: "Échec de la récupération des données de tendances du capital",
+    failed_fetch_product_profitability: "Échec de la récupération des données de rentabilité des produits",
+    failed_fetch_inventory_optimization: "Échec de la récupération des données d'optimisation de l'inventaire",
+    inventory_activity: "Activité d'Inventaire",
+    inventory_activity_description: "Suivez les changements de votre inventaire au fil du temps",
+    filter_description: "Filtrer les enregistrements d'activité selon divers critères",
+    search_placeholder: "Rechercher par nom de produit ou notes...",
+    action_type: "Type d'Action",
+    select_action: "Sélectionner une action",
+    all_actions: "Toutes les Actions",
+    purchase: "Achat",
+    adjustment: "Ajustement",
+    date_range: "Plage de Dates",
+    table_view: "Tableau",
+    actions_chart: "Actions",
+    products_chart: "Produits",
+    timeline_chart: "Chronologie",
+    actions_distribution: "Distribution des Actions",
+    actions_distribution_description: "Distribution des différents types d'actions d'inventaire",
+    product_activity: "Activité des Produits",
+    product_activity_description: "Volume d'activité par produit",
+    activity_timeline: "Chronologie d'Activité",
+    activity_timeline_description: "Activité d'inventaire au fil du temps",
+    no_data_available: "Aucune donnée disponible",
+    quantity_change: "Changement de Quantité",
+    previous_stock: "Stock Précédent",
+    new_stock: "Nouveau Stock",
+    notes: "Notes",
+    user: "Utilisateur",
   },
   ar: {
     category_deleted_successfully: "تم حذف الفئة بنجاح.",
@@ -1406,7 +2083,7 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     page_total: "إجمالي الصفحة",
     grand_total: "المجموع الكلي",
     filtered: "تم التصفية",
-    
+
     // Expense page translations
     expenses: "المصروفات",
     add_expense: "إضافة مصروف",
@@ -1502,7 +2179,6 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     has_been_restocked: "تمت إعادة تخزينه إلى",
     failed_to_restock_product: "فشل في إعادة تخزين المنتج",
     failed_to_update_stock: "فشل في تحديث مستوى المخزون",
-    
     filter_by_category: "تصفية حسب الفئة",
     search_products: "البحث عن المنتجات...",
     stock_below_min: "مستوى المخزون الجديد أقل من الحد الأدنى للمخزون.",
@@ -1541,6 +2217,232 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     role_cashier: "أمين الصندوق",
     role_manager: "مدير",
     role_admin: "مسؤول",
+    product: "المنتج",
+    // Capital Analytics page translations
+    capital_analytics: "تحليلات رأس المال",
+    loading_capital_analytics: "جاري تحميل بيانات تحليلات رأس المال...",
+    total_inventory_value: "إجمالي قيمة المخزون",
+    estimated_profit: "الربح المقدر",
+    profit_margin: "هامش الربح",
+    inventory_cost: "تكلفة المخزون",
+    avg_cost_per_product: "متوسط تكلفة المنتج",
+    inventory_turnover: "معدل دوران المخزون",
+    industry_avg: "متوسط الصناعة",
+    profitability: "الربحية",
+    trends: "الاتجاهات",
+    optimization: "التحسين",
+    capital_distribution_by_category: "توزيع رأس المال حسب الفئة",
+    capital_distribution_description: "كيفية توزيع رأس مال المخزون عبر الفئات",
+    top_categories_by_value: "أعلى الفئات من حيث القيمة",
+    categories_highest_inventory_value: "الفئات ذات أعلى قيمة مخزون",
+    est_profit: "الربح المقدر",
+    high_value_products: "المنتجات ذات القيمة العالية",
+    products_highest_inventory_value: "المنتجات ذات أعلى قيمة مخزون",
+    unit_price: "سعر الوحدة",
+    total_value: "القيمة الإجمالية",
+    export_full_list: "تصدير القائمة الكاملة",
+    slow_moving_inventory: "المخزون بطيء الحركة",
+    products_high_stock_low_sales: "المنتجات ذات المخزون العالي والمبيعات المنخفضة",
+    sales_ratio: "نسبة المبيعات",
+    capital_tied: "رأس المال المقيد",
+    product_profitability_analysis: "تحليل ربحية المنتج",
+    profit_margin_vs_turnover: "هامش الربح مقابل معدل الدوران",
+    profit_margin_percent: "هامش الربح (%)",
+    turnover_rate: "معدل الدوران",
+    most_profitable_products: "المنتجات الأكثر ربحية",
+    products_highest_profit_margins: "المنتجات ذات أعلى هوامش ربح",
+    highest_turnover_products: "المنتجات ذات أعلى معدل دوران",
+    products_sell_most_frequently: "المنتجات التي تباع بشكل متكرر",
+    potential_profit: "الربح المحتمل",
+    lowest_turnover_products: "المنتجات ذات أدنى معدل دوران",
+    products_sell_least_frequently: "المنتجات التي تباع بشكل أقل تكرارًا",
+    capital_trends_over_time: "اتجاهات رأس المال عبر الزمن",
+    sales_expenses_profit_trends: "اتجاهات المبيعات والمصروفات والأرباح",
+    for_the_period: "للفترة",
+    inventory_optimization_summary: "ملخص تحسين المخزون",
+    recommendations_optimize_inventory: "توصيات لتحسين المخزون",
+    potential_capital_release: "إطلاق رأس المال المحتمل",
+    by_reducing_overstock: "عن طريق تقليل فائض المخزون في",
+    required_restock_investment: "الاستثمار المطلوب لإعادة التخزين",
+    to_maintain_optimal_stock: "للحفاظ على المستويات المثلى للمخزون لـ",
+    net_capital_impact: "تأثير صافي رأس المال",
+    estimated_impact_working_capital: "التأثير المقدر على رأس المال العامل",
+    optimization_impact: "تأثير التحسين",
+    potential_impact_inventory_metrics: "التأثير المحتمل على مقاييس المخزون",
+    reduce_stock: "تقليل المخزون",
+    maintain: "الحفاظ",
+    restock_recommendations: "توصيات إعادة التخزين",
+    products_need_restocking: "المنتجات التي تحتاج إلى إعادة تخزين",
+    optimal_stock: "المخزون الأمثل",
+    restock_quantity: "كمية إعادة التخزين",
+    investment_required: "الاستثمار المطلوب",
+    reduce_stock_recommendations: "توصيات تقليل المخزون",
+    products_excess_inventory: "المنتجات ذات المخزون الزائد",
+    excess_quantity: "الكمية الزائدة",
+    capital_release: "إطلاق رأس المال",
+    refresh_data: "تحديث البيانات",
+    last_3_months: "آخر 3 أشهر",
+    last_12_months: "آخر 12 شهرًا",
+    failed_fetch_capital_analytics: "فشل في جلب بيانات تحليلات رأس المال",
+    failed_fetch_capital_trends: "فشل في جلب بيانات اتجاهات رأس المال",
+    failed_fetch_product_profitability: "فشل في جلب بيانات ربحية المنتج",
+    failed_fetch_inventory_optimization: "فشل في جلب بيانات تحسين المخزون",
+    inventory_activity: "نشاط المخزون",
+    inventory_activity_description: "تتبع التغييرات في المخزون الخاص بك على مر الزمن",
+    filter_description: "تصفية سجلات النشاط حسب معايير مختلفة",
+    search_placeholder: "البحث حسب اسم المنتج أو الملاحظات...",
+    action_type: "نوع الإجراء",
+    select_action: "اختر الإجراء",
+    all_actions: "جميع الإجراءات",
+    purchase: "شراء",
+    adjustment: "تعديل",
+    date_range: "نطاق التاريخ",
+    table_view: "جدول",
+    actions_chart: "الإجراءات",
+    products_chart: "المنتجات",
+    timeline_chart: "الجدول الزمني",
+    actions_distribution: "توزيع الإجراءات",
+    actions_distribution_description: "توزيع أنواع مختلفة من إجراءات المخزون",
+    product_activity: "نشاط المنتج",
+    product_activity_description: "حجم النشاط حسب المنتج",
+    activity_timeline: "الجدول الزمني للنشاط",
+    activity_timeline_description: "نشاط المخزون على مر الزمن",
+    no_data_available: "لا توجد بيانات متاحة",
+    quantity_change: "تغيير الكمية",
+    previous_stock: "المخزون السابق",
+    new_stock: "المخزون الجديد",
+    notes: "ملاحظات",
+    user: "المستخدم",
+    more_than_days_stock: "المخزون لأكثر من أيام",
+    less_than_days_stock: "المخزون لأقل من أيام",
+    "page_title.home": "الرئيسية",
+    "page_title.settings": "الإعدادات",
+    "page_title.products": "المنتجات",
+    "page_title.customers": "العملاء",
+    "page_title.orders": "الطلبات",
+    "page_title.login": "تسجيل الدخول",
+    "page_title.logout": "تسجيل الخروج",
+    "page_title.register": "إنشاء حساب",
+    "page_title.forgot_password": "نسيت كلمة المرور",
+    "page_title.reset_password": "إعادة تعيين كلمة المرور",
+    "page_title.verify_email": "تأكيد البريد الإلكتروني",
+    "page_title.profile": "الملف الشخصي",
+    "page_title.edit_profile": "تعديل الملف الشخصي",
+    "page_title.change_password": "تغيير كلمة المرور",
+    "page_title.users": "المستخدمون",
+    "page_title.roles": "الأدوار",
+    "page_title.permissions": "الصلاحيات",
+    "page_title.audit_logs": "سجلات التدقيق",
+    "page_title.notifications": "الإشعارات",
+    "page_title.announcements": "الإعلانات",
+    "page_title.support": "الدعم",
+    "page_title.contact_us": "اتصل بنا",
+    "page_title.terms_of_service": "شروط الخدمة",
+    "page_title.privacy_policy": "سياسة الخصوصية",
+    "page_title.faq": "الأسئلة الشائعة",
+    "page_title.blog": "المدونة",
+    "page_title.pricing": "الأسعار",
+    "page_title.features": "المزايا",
+    "page_title.integrations": "التكاملات",
+    "page_title.api": "واجهة برمجة التطبيقات",
+    "page_title.documentation": "التوثيق",
+    "page_title.status": "الحالة",
+    "page_title.maintenance": "الصيانة",
+    "page_title.coming_soon": "قريبًا",
+    "page_title.not_found": "غير موجود",
+    "page_title.unauthorized": "غير مصرح به",
+    "page_title.forbidden": "ممنوع",
+    "page_title.server_error": "خطأ في الخادم",
+    "page_title.bad_request": "طلب غير صالح",
+    "page_title.payment_required": "يتطلب الدفع",
+    "page_title.conflict": "تعارض",
+    "page_title.gone": "غير متوفر",
+    "page_title.too_many_requests": "طلبات كثيرة جدًا",
+    "page_title.internal_server_error": "خطأ داخلي في الخادم",
+    "page_title.service_unavailable": "الخدمة غير متاحة",
+    "page_title.gateway_timeout": "انتهت مهلة البوابة",
+    "page_title.network_authentication_required": "مطلوب مصادقة الشبكة",
+
+    // Inventory Forecasting
+    inventory_forecasting: "توقعات المخزون",
+    plan_reorders_prevent_stockouts: "تخطيط إعادة الطلب لتجنب نفاد المخزون",
+    lead_time_settings: "إعدادات وقت التسليم",
+    configure_supplier_lead_time: "تكوين وقت التسليم للمورد",
+    average_supplier_lead_time: "متوسط وقت التسليم للمورد",
+    supplier_lead_time_description: "وصف وقت التسليم للمورد",
+    safety_stock: "المخزون الاحتياطي",
+    buffer_inventory_percentage: "نسبة المخزون الاحتياطي",
+    safety_stock_percentage: "نسبة المخزون الاحتياطي",
+    safety_stock_description: "وصف المخزون الاحتياطي",
+    forecast_range: "نطاق التوقع",
+    days_project_future: "عدد الأيام المتوقعة في المستقبل",
+    forecast_days: "أيام التوقع",
+    select_days: "حدد الأيام",
+    forecast_range_description: "وصف نطاق التوقع",
+    inventory_forecast: "توقع المخزون",
+    products_need_attention: "المنتجات التي تحتاج إلى انتباه",
+   
+    sort_by: "فرز حسب",
+   
+    daily_sales: "المبيعات اليومية",
+    days_until_stockout: "الأيام حتى نفاد المخزون",
+    reorder_quantity: "كمية إعادة الطلب",
+    all_products: "جميع المنتجات",
+    critical: "حرج",
+    
+    reorder_now: "إعادة الطلب الآن",
+    reset_filters: "إعادة تعيين الفلاتر",
+    showing_products: "عرض المنتجات",
+    forecast_details: "تفاصيل التوقع",
+    projected_inventory_for: "المخزون المتوقع لـ",
+    select_product_view_forecast: "حدد منتجًا لعرض التوقع",
+    click_product_view_forecast: "انقر على المنتج لعرض التوقع",
+    reorder_recommendation: "توصية بإعادة الطلب",
+    based_on_avg_sales: "استنادًا إلى متوسط المبيعات",
+    
+    lead_time_of: "وقت التسليم لـ",
+    you_should_order: "يجب أن تطلب",
+    units_now: "وحدات الآن",
+    create_purchase_order: "إنشاء طلب شراء",
+    no_immediate_reorder: "لا حاجة لإعادة الطلب حاليًا",
+    sufficient_stock: "مخزون كافٍ",
+    inventory_health_overview: "نظرة عامة على صحة المخزون",
+    summary_inventory_status: "ملخص حالة المخزون",
+    number_of_products: "عدد المنتجات",
+    healthy: "جيد",
+    no_sales: "بدون مبيعات",
+    
+    days_of_stock: "أيام المخزون",
+    
+    no_recent_sales_activity: "لا يوجد نشاط مبيعات حديث",
+    order_from_supplier: "طلب من المورد",
+    order_product_from_supplier: "طلب منتج من المورد",
+    
+    order_created: "تم إنشاء الطلب",
+    total_items: "إجمالي العناصر",
+   
+    creating: "جارٍ الإنشاء",
+    create_order: "إنشاء طلب",
+    export_report: "تصدير التقرير",
+    purchase_order_created: "تم إنشاء طلب الشراء",
+    order_created_successfully: "تم إنشاء الطلب بنجاح",
+    view_all_orders: "عرض جميع الطلبات",
+    failed_create_purchase_order: "فشل إنشاء طلب الشراء",
+    failed_load_forecasting_data: "فشل تحميل بيانات التوقعات",
+    order: "طلب",
+    details: "التفاصيل",
+    days: "أيام",
+    product_name: "اسم المنتج",
+    avg_daily_sales: "متوسط المبيعات اليومية",
+    reorder_qty: "كمية إعادة الطلب",
+    projected_stock: "المخزون المتوقع",
+    sammury: "ملخص",
+    Analyses: "تحليلات",
+    ActivityReports: "تقارير النشاط",
+    SalesReports: "تقارير المبيعات",
+    purchaseOrders:"أوامر الشراء",
+    forecasting: "التنبؤ",
+    
     
   },
 }

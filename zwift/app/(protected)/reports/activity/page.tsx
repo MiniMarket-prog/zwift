@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -34,24 +34,58 @@ import {
   Cell,
 } from "recharts"
 
-// 1. First, add a Row type import at the top of the file
+// Import Row type for data table
 import type { Row } from "@tanstack/react-table"
+
+// Define the AppTranslationKey type
+type AppTranslationKey =
+  | "reports"
+  | "inventory"
+  | "export"
+  | "filters"
+  | "filter"
+  | "search"
+  | "actions"
+  | "select"
+  | "all"
+  | "sale"
+  | "expenses"
+  | "edit"
+  | "low_stock"
+  | "date"
+  | "showing"
+  | "of"
+  | "entries"
+  | "clear_filters"
+  | "show"
+  | "products"
+  | "inventory_details_displayed_here"
+  | "noResults"
+  | "quantity"
+  | "time"
+
+// Define interface for header function parameters
+interface HeaderFunctionParams {
+  language: string
+  getAppTranslation: (key: AppTranslationKey, language: string) => string
+}
 
 // Define columns for the data table
 const columns = [
   {
     accessorKey: "created_at",
-    header: "Date & Time",
+    header: ({ language, getAppTranslation }: HeaderFunctionParams) =>
+      `${getAppTranslation("date", language)} & ${getAppTranslation("time", language)}`,
     cell: ({ row }: { row: Row<InventoryActivity> }) =>
       format(new Date(row.getValue("created_at")), "MMM d, yyyy h:mm a"),
   },
   {
     accessorKey: "product_name",
-    header: "Product",
+    header: ({ language, getAppTranslation }: HeaderFunctionParams) => getAppTranslation("products", language),
   },
   {
     accessorKey: "action_type",
-    header: "Action",
+    header: ({ language, getAppTranslation }: HeaderFunctionParams) => getAppTranslation("actions", language),
     cell: ({ row }: { row: Row<InventoryActivity> }) => {
       const action = row.getValue("action_type") as string
       return (
@@ -75,7 +109,7 @@ const columns = [
   },
   {
     accessorKey: "quantity_change",
-    header: "Quantity Change",
+    header: ({ language, getAppTranslation }: HeaderFunctionParams) => "Quantity Change", // Use string literal instead
     cell: ({ row }: { row: Row<InventoryActivity> }) => {
       const change = row.getValue("quantity_change")
       const value = Number(change)
@@ -88,19 +122,19 @@ const columns = [
   },
   {
     accessorKey: "previous_quantity",
-    header: "Previous Stock",
+    header: ({ language, getAppTranslation }: HeaderFunctionParams) => "Previous Stock", // Use string literal instead
   },
   {
     accessorKey: "new_quantity",
-    header: "New Stock",
+    header: ({ language, getAppTranslation }: HeaderFunctionParams) => "New Stock", // Use string literal instead
   },
   {
     accessorKey: "notes",
-    header: "Notes",
+    header: ({ language, getAppTranslation }: HeaderFunctionParams) => "Notes", // Use string literal instead
   },
   {
     accessorKey: "user_id",
-    header: "User",
+    header: ({ language, getAppTranslation }: HeaderFunctionParams) => "User", // Use string literal instead
   },
 ]
 
@@ -116,7 +150,6 @@ export default function ActivityReportsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [actionFilter, setActionFilter] = useState("all")
-  // Replace the dateRange state with:
   const [dateRange, setDateRange] = useState<DateRange>({
     from: subDays(new Date(), 30),
     to: new Date(),
@@ -131,7 +164,7 @@ export default function ActivityReportsPage() {
   const supabase = createClient()
 
   // Fetch currency setting
-  const fetchCurrency = async () => {
+  const fetchCurrency = useCallback(async () => {
     try {
       const { data: settingsData, error } = await supabase
         .from("settings")
@@ -145,7 +178,7 @@ export default function ActivityReportsPage() {
     } catch (error) {
       console.error("Error fetching currency setting:", error)
     }
-  }
+  }, [supabase])
 
   // Load activities
   useEffect(() => {
@@ -183,12 +216,12 @@ export default function ActivityReportsPage() {
       window.removeEventListener("storage", handleStorageChange)
       window.removeEventListener("focus", fetchCurrency)
     }
-  }, [])
+  }, [fetchCurrency, searchTerm, actionFilter, dateRange])
 
   // Apply filters when they change
   useEffect(() => {
     applyFilters(activities, searchTerm, actionFilter, dateRange)
-  }, [searchTerm, actionFilter, dateRange])
+  }, [searchTerm, actionFilter, dateRange, activities])
 
   // Prepare chart data when filtered activities change
   useEffect(() => {
@@ -196,41 +229,44 @@ export default function ActivityReportsPage() {
   }, [filteredActivities])
 
   // Apply all filters to the activities
-  const applyFilters = (data: InventoryActivity[], search: string, action: string, dates: { from: Date; to: Date }) => {
-    let filtered = [...data]
+  const applyFilters = useCallback(
+    (data: InventoryActivity[], search: string, action: string, dates: { from: Date; to: Date }) => {
+      let filtered = [...data]
 
-    // Apply search filter
-    if (search) {
-      const searchLower = search.toLowerCase()
-      filtered = filtered.filter(
-        (item) =>
-          item.product_name.toLowerCase().includes(searchLower) ||
-          item.action_type.toLowerCase().includes(searchLower) ||
-          (item.notes && item.notes.toLowerCase().includes(searchLower)),
-      )
-    }
+      // Apply search filter
+      if (search) {
+        const searchLower = search.toLowerCase()
+        filtered = filtered.filter(
+          (item) =>
+            item.product_name.toLowerCase().includes(searchLower) ||
+            item.action_type.toLowerCase().includes(searchLower) ||
+            (item.notes && item.notes.toLowerCase().includes(searchLower)),
+        )
+      }
 
-    // Apply action type filter
-    if (action !== "all") {
-      filtered = filtered.filter((item) => item.action_type === action)
-    }
+      // Apply action type filter
+      if (action !== "all") {
+        filtered = filtered.filter((item) => item.action_type === action)
+      }
 
-    // Apply date range filter
-    if (dates.from && dates.to) {
-      const fromDate = startOfDay(dates.from)
-      const toDate = endOfDay(dates.to)
+      // Apply date range filter
+      if (dates.from && dates.to) {
+        const fromDate = startOfDay(dates.from)
+        const toDate = endOfDay(dates.to)
 
-      filtered = filtered.filter((item) => {
-        const itemDate = parseISO(item.created_at)
-        return isWithinInterval(itemDate, { start: fromDate, end: toDate })
-      })
-    }
+        filtered = filtered.filter((item) => {
+          const itemDate = parseISO(item.created_at)
+          return isWithinInterval(itemDate, { start: fromDate, end: toDate })
+        })
+      }
 
-    setFilteredActivities(filtered)
-  }
+      setFilteredActivities(filtered)
+    },
+    [],
+  )
 
   // Prepare data for charts
-  const prepareChartData = (data: InventoryActivity[]) => {
+  const prepareChartData = useCallback((data: InventoryActivity[]) => {
     // Prepare action type chart data
     const actionCounts: Record<string, number> = {}
     data.forEach((item) => {
@@ -282,20 +318,20 @@ export default function ActivityReportsPage() {
     })
 
     setTimeChartData(timeChartData)
-  }
+  }, [])
 
   // Handle exporting data
-  const handleExport = () => {
+  const handleExport = useCallback(() => {
     // Convert filtered activities to CSV
     const headers = [
-      getAppTranslation("date"),
-      getAppTranslation("products"),
-      getAppTranslation("actions"),
-      getAppTranslation("quantity"),
-      getAppTranslation("stock"),
-      getAppTranslation("stock"),
-      getAppTranslation("description"),
-      getAppTranslation("username"),
+      getAppTranslation("date", language),
+      getAppTranslation("product", language),
+      getAppTranslation("actions", language),
+      "Quantity Change", // Use string literal instead
+      "Previous Stock", // Use string literal instead
+      "New Stock", // Use string literal instead
+      "Notes", // Use string literal instead
+      "User", // Use string literal instead
     ]
 
     const csvData = filteredActivities.map((item) => [
@@ -321,7 +357,7 @@ export default function ActivityReportsPage() {
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
-  }
+  }, [filteredActivities, getAppTranslation, language])
 
   // Colors for charts
   const COLORS = [
@@ -341,31 +377,31 @@ export default function ActivityReportsPage() {
     <div className="container mx-auto py-6 space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">{getAppTranslation("reports")}</h1>
-          <p className="text-muted-foreground">{getAppTranslation("inventory")}</p>
+          <h1 className="text-3xl font-bold tracking-tight">{getAppTranslation("reports", language)}</h1>
+          <p className="text-muted-foreground">{getAppTranslation("inventory", language)}</p>
         </div>
         <Button onClick={handleExport} className="flex items-center gap-2">
           <Download className={`h-4 w-4 ${rtlEnabled ? "ml-2" : "mr-2"}`} />
-          {getAppTranslation("export")}
+          {getAppTranslation("export", language)}
         </Button>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>{getAppTranslation("filters")}</CardTitle>
-          <CardDescription>{getAppTranslation("filter")}</CardDescription>
+          <CardTitle>{getAppTranslation("filters", language)}</CardTitle>
+          <CardDescription>{getAppTranslation("filter", language)}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="search">{getAppTranslation("search")}</Label>
+              <Label htmlFor="search">{getAppTranslation("search", language)}</Label>
               <div className="relative">
                 <Search
                   className={`absolute ${rtlEnabled ? "right-2.5" : "left-2.5"} top-2.5 h-4 w-4 text-muted-foreground`}
                 />
                 <Input
                   id="search"
-                  placeholder={getAppTranslation("search")}
+                  placeholder={getAppTranslation("search", language)}
                   className={rtlEnabled ? "pr-8" : "pl-8"}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -374,26 +410,26 @@ export default function ActivityReportsPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="action-type">{getAppTranslation("actions")}</Label>
+              <Label htmlFor="action-type">{getAppTranslation("actions", language)}</Label>
               <Select value={actionFilter} onValueChange={setActionFilter}>
                 <SelectTrigger id="action-type">
-                  <SelectValue placeholder={getAppTranslation("select")} />
+                  <SelectValue placeholder={getAppTranslation("select", language)} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">{getAppTranslation("all")}</SelectItem>
-                  <SelectItem value="Sale">{getAppTranslation("sales")}</SelectItem>
-                  <SelectItem value="Purchase">{getAppTranslation("expenses")}</SelectItem>
-                  <SelectItem value="Adjustment">{getAppTranslation("edit")}</SelectItem>
-                  <SelectItem value="Low Stock">{getAppTranslation("low_stock")}</SelectItem>
+                  <SelectItem value="all">{getAppTranslation("all", language)}</SelectItem>
+                  <SelectItem value="Sale">{getAppTranslation("sale", language)}</SelectItem>
+                  <SelectItem value="Purchase">{getAppTranslation("expenses", language)}</SelectItem>
+                  <SelectItem value="Adjustment">{getAppTranslation("edit", language)}</SelectItem>
+                  <SelectItem value="Low Stock">{getAppTranslation("low_stock", language)}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
-              <Label>{getAppTranslation("date")}</Label>
+              <Label>{getAppTranslation("date", language)}</Label>
               <DatePickerWithRange
                 date={dateRange}
-                setDate={(range) => {
+                setDate={(range: { from?: Date; to?: Date } | undefined) => {
                   // Ensure we always have valid dates
                   setDateRange({
                     from: range?.from || subDays(new Date(), 30),
@@ -407,8 +443,8 @@ export default function ActivityReportsPage() {
         <CardFooter className="border-t px-6 py-4">
           <div className="flex items-center justify-between w-full">
             <p className="text-sm text-muted-foreground">
-              {getAppTranslation("showing")} {filteredActivities.length} {getAppTranslation("of")} {activities.length}{" "}
-              {getAppTranslation("entries")}
+              {getAppTranslation("showing", language)} {filteredActivities.length} {getAppTranslation("of", language)}{" "}
+              {activities.length} {getAppTranslation("entries", language)}
             </p>
             <Button
               variant="outline"
@@ -424,7 +460,7 @@ export default function ActivityReportsPage() {
               className="flex items-center gap-1"
             >
               <RefreshCw className="h-3.5 w-3.5" />
-              {getAppTranslation("clear_filters")}
+              {getAppTranslation("clear_filters", language)}
             </Button>
           </div>
         </CardFooter>
@@ -434,27 +470,27 @@ export default function ActivityReportsPage() {
         <TabsList className="grid grid-cols-4 w-full md:w-auto">
           <TabsTrigger value="table" className="flex items-center gap-2">
             <Filter className="h-4 w-4" />
-            {getAppTranslation("show")}
+            {getAppTranslation("show", language)}
           </TabsTrigger>
           <TabsTrigger value="actions" className="flex items-center gap-2">
             <PieChart className="h-4 w-4" />
-            {getAppTranslation("actions")}
+            {getAppTranslation("actions", language)}
           </TabsTrigger>
           <TabsTrigger value="products" className="flex items-center gap-2">
             <BarChart3 className="h-4 w-4" />
-            {getAppTranslation("products")}
+            {getAppTranslation("products", language)}
           </TabsTrigger>
           <TabsTrigger value="timeline" className="flex items-center gap-2">
             <LineChart className="h-4 w-4" />
-            {getAppTranslation("date")}
+            {getAppTranslation("date", language)}
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="table" className="mt-4">
           <Card>
             <CardHeader>
-              <CardTitle>{getAppTranslation("inventory")}</CardTitle>
-              <CardDescription>{getAppTranslation("inventory_details_displayed_here")}</CardDescription>
+              <CardTitle>{getAppTranslation("inventory", language)}</CardTitle>
+              <CardDescription>{getAppTranslation("inventory_details_displayed_here", language)}</CardDescription>
             </CardHeader>
             <CardContent>
               {isLoading ? (
@@ -464,7 +500,15 @@ export default function ActivityReportsPage() {
                   ))}
                 </div>
               ) : (
-                <DataTable columns={columns} data={filteredActivities} searchKey="product_name" />
+                <DataTable
+                  columns={columns.map((col) => ({
+                    ...col,
+                    header:
+                      typeof col.header === "function" ? () => col.header({ language, getAppTranslation }) : col.header,
+                  }))}
+                  data={filteredActivities}
+                  searchKey="product_name"
+                />
               )}
             </CardContent>
           </Card>
@@ -473,8 +517,8 @@ export default function ActivityReportsPage() {
         <TabsContent value="actions" className="mt-4">
           <Card>
             <CardHeader>
-              <CardTitle>{getAppTranslation("actions")}</CardTitle>
-              <CardDescription>{getAppTranslation("inventory_details_displayed_here")}</CardDescription>
+              <CardTitle>{getAppTranslation("actions", language)}</CardTitle>
+              <CardDescription>{getAppTranslation("inventory_details_displayed_here", language)}</CardDescription>
             </CardHeader>
             <CardContent className="h-[400px]">
               {isLoading ? (
@@ -504,7 +548,7 @@ export default function ActivityReportsPage() {
                 </ResponsiveContainer>
               ) : (
                 <div className="h-full flex items-center justify-center">
-                  <p className="text-muted-foreground">{getAppTranslation("noResults")}</p>
+                  <p className="text-muted-foreground">{getAppTranslation("noResults", language)}</p>
                 </div>
               )}
             </CardContent>
@@ -514,8 +558,8 @@ export default function ActivityReportsPage() {
         <TabsContent value="products" className="mt-4">
           <Card>
             <CardHeader>
-              <CardTitle>{getAppTranslation("products")}</CardTitle>
-              <CardDescription>{getAppTranslation("inventory_details_displayed_here")}</CardDescription>
+              <CardTitle>{getAppTranslation("products", language)}</CardTitle>
+              <CardDescription>{getAppTranslation("inventory_details_displayed_here", language)}</CardDescription>
             </CardHeader>
             <CardContent className="h-[400px]">
               {isLoading ? (
@@ -538,12 +582,12 @@ export default function ActivityReportsPage() {
                     <YAxis />
                     <Tooltip />
                     <Legend />
-                    <Bar dataKey="value" name={getAppTranslation("quantity")} fill="#8884d8" />
+                    <Bar dataKey="value" name={getAppTranslation("quantity", language)} fill="#8884d8" />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
                 <div className="h-full flex items-center justify-center">
-                  <p className="text-muted-foreground">{getAppTranslation("noResults")}</p>
+                  <p className="text-muted-foreground">{getAppTranslation("noResults", language)}</p>
                 </div>
               )}
             </CardContent>
@@ -553,8 +597,8 @@ export default function ActivityReportsPage() {
         <TabsContent value="timeline" className="mt-4">
           <Card>
             <CardHeader>
-              <CardTitle>{getAppTranslation("date")}</CardTitle>
-              <CardDescription>{getAppTranslation("inventory_details_displayed_here")}</CardDescription>
+              <CardTitle>{getAppTranslation("date", language)}</CardTitle>
+              <CardDescription>{getAppTranslation("inventory_details_displayed_here", language)}</CardDescription>
             </CardHeader>
             <CardContent className="h-[400px]">
               {isLoading ? (
@@ -580,7 +624,7 @@ export default function ActivityReportsPage() {
                     <Line
                       type="monotone"
                       dataKey="Sale"
-                      name={getAppTranslation("sale")}
+                      name={getAppTranslation("sale", language)}
                       stroke="#ff0000"
                       activeDot={{ r: 8 }}
                       strokeWidth={2}
@@ -588,7 +632,7 @@ export default function ActivityReportsPage() {
                     <Line
                       type="monotone"
                       dataKey="Purchase"
-                      name={getAppTranslation("expenses")}
+                      name={getAppTranslation("expenses", language)}
                       stroke="#00c49f"
                       activeDot={{ r: 8 }}
                       strokeWidth={2}
@@ -596,7 +640,7 @@ export default function ActivityReportsPage() {
                     <Line
                       type="monotone"
                       dataKey="Adjustment"
-                      name={getAppTranslation("edit")}
+                      name={getAppTranslation("edit", language)}
                       stroke="#ffbb28"
                       activeDot={{ r: 8 }}
                       strokeWidth={2}
@@ -604,7 +648,7 @@ export default function ActivityReportsPage() {
                     <Line
                       type="monotone"
                       dataKey="Low Stock"
-                      name={getAppTranslation("low_stock")}
+                      name={getAppTranslation("low_stock", language)}
                       stroke="#8884d8"
                       activeDot={{ r: 8 }}
                       strokeWidth={2}
@@ -613,7 +657,7 @@ export default function ActivityReportsPage() {
                 </ResponsiveContainer>
               ) : (
                 <div className="h-full flex items-center justify-center">
-                  <p className="text-muted-foreground">{getAppTranslation("noResults")}</p>
+                  <p className="text-muted-foreground">{getAppTranslation("noResults", language)}</p>
                 </div>
               )}
             </CardContent>

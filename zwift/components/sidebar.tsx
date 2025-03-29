@@ -1,5 +1,7 @@
 "use client"
 
+import type React from "react"
+
 import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
@@ -10,7 +12,6 @@ import {
   Calculator,
   Package,
   User,
-  BarChart3,
   Settings,
   Menu,
   Sun,
@@ -21,10 +22,10 @@ import {
   CircleDollarSign,
   LayoutDashboard,
   AlertTriangle,
-  Activity,
-  LineChart,
   TrendingUp,
   ClipboardList,
+  Activity,
+  LineChart,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useTheme } from "next-themes"
@@ -38,6 +39,23 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
 import type { AppTranslationKey } from "@/lib/app-translations"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+
+// Define types for navigation items
+type NavItem = {
+  href: string
+  label: AppTranslationKey | string
+  icon: React.ReactNode
+  badge?: number | null
+  key?: string
+  hasSubmenu?: boolean
+  submenu?: NavSubItem[]
+}
+
+type NavSubItem = {
+  href: string
+  label: AppTranslationKey | string
+  icon: React.ReactNode
+}
 
 export function AppSidebar() {
   const [isMounted, setIsMounted] = useState(false)
@@ -77,9 +95,7 @@ export function AppSidebar() {
     setIsMounted(true)
 
     // Check if we should open any submenus based on current path
-    if (pathname.startsWith("/reports/")) {
-      setOpenSubmenu("reports")
-    }
+    // Removed the submenu logic
   }, [pathname])
 
   const fetchUnreadAlerts = useCallback(async () => {
@@ -205,7 +221,7 @@ export function AppSidebar() {
   }
 
   // Map the original labels to translation keys
-  const navItems = [
+  const navItems: NavItem[] = [
     { href: "/dashboard", label: "dashboard" as AppTranslationKey, icon: <LayoutDashboard className="h-5 w-5" /> },
     { href: "/pos", label: "pointOfSale" as AppTranslationKey, icon: <ShoppingCart className="h-5 w-5" /> },
     {
@@ -216,7 +232,6 @@ export function AppSidebar() {
     },
     { href: "/sales", label: "sales" as AppTranslationKey, icon: <DollarSign className="h-5 w-5" /> },
     { href: "/products", label: "inventory" as AppTranslationKey, icon: <Package className="h-5 w-5" /> },
-    // Removed the simple reports item to avoid duplicate keys
     { href: "/forecasting", label: "forecasting" as AppTranslationKey, icon: <TrendingUp className="h-5 w-5" /> },
     {
       href: "/purchase-orders",
@@ -226,27 +241,14 @@ export function AppSidebar() {
     { href: "/expenses", label: "expenses" as AppTranslationKey, icon: <CircleDollarSign className="h-5 w-5" /> },
     { href: "/sammury", label: "sammury" as AppTranslationKey, icon: <TrendingUp className="h-5 w-5" /> },
     {
-      href: "/reports",
-      label: "Analyses" as AppTranslationKey,
-      icon: <BarChart3 className="h-5 w-5" />,
-      hasSubmenu: true,
-      key: "reports",
-      submenu: [
-        {
-          href: "/reports/activity",
-          label: "Activity Reports",
-          icon: <Activity className="h-4 w-4" />,
-        },
-        {
-          href: "/reports/sales",
-          label: "Sales Reports",
-          icon: <LineChart className="h-4 w-4" />,
-        },
-      ],
+      href: "/reports/activity",
+      label: "ActivityReports" as AppTranslationKey,
+      icon: <Activity className="h-5 w-5" />,
     },
+    { href: "/reports/sales", label: "SalesReports" as AppTranslationKey, icon: <LineChart className="h-5 w-5" /> },
     {
       href: "/capital-analytics",
-      label: "capital-analytics" as AppTranslationKey,
+      label: "capital_analytics" as AppTranslationKey,
       icon: <Calculator className="h-5 w-5" />,
     },
     { href: "/users", label: "customers" as AppTranslationKey, icon: <User className="h-5 w-5" /> },
@@ -314,7 +316,7 @@ export function AppSidebar() {
                   </Tooltip>
 
                   <CollapsibleContent className="pl-9 space-y-1 mt-1">
-                    {item.submenu?.map((subItem) => (
+                    {item.submenu?.map((subItem: NavSubItem) => (
                       <Link
                         key={subItem.href}
                         href={subItem.href}

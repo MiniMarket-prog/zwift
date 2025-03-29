@@ -156,8 +156,9 @@ const COLORS = [
 ]
 
 const CapitalAnalyticsPage = () => {
-  const { language } = useLanguage()
+  const { language, getAppTranslation, isRTL } = useLanguage()
   const { toast } = useToast()
+  const rtlEnabled = isRTL
 
   // State variables
   const [activeTab, setActiveTab] = useState("overview")
@@ -215,14 +216,14 @@ const CapitalAnalyticsPage = () => {
     } catch (error) {
       console.error("Error fetching capital analytics:", error)
       toast({
-        title: "Error",
-        description: "Failed to load capital analytics data",
+        title: getAppTranslation("error", language),
+        description: getAppTranslation("failed_fetch_capital_analytics" as any, language),
         variant: "destructive",
       })
     } finally {
       setIsLoading(false)
     }
-  }, [toast])
+  }, [toast, getAppTranslation, language])
 
   // Add this after the fetchCapitalAnalytics function
   useEffect(() => {
@@ -240,14 +241,14 @@ const CapitalAnalyticsPage = () => {
     } catch (error) {
       console.error("Error fetching capital trends:", error)
       toast({
-        title: "Error",
-        description: "Failed to load capital trends data",
+        title: getAppTranslation("error", language),
+        description: getAppTranslation("failed_fetch_capital_trends" as any, language),
         variant: "destructive",
       })
     } finally {
       setIsLoading(false)
     }
-  }, [selectedPeriod, toast])
+  }, [selectedPeriod, toast, getAppTranslation, language])
 
   const fetchProductProfitability = useCallback(async () => {
     try {
@@ -257,14 +258,14 @@ const CapitalAnalyticsPage = () => {
     } catch (error) {
       console.error("Error fetching product profitability:", error)
       toast({
-        title: "Error",
-        description: "Failed to load product profitability data",
+        title: getAppTranslation("error", language),
+        description: getAppTranslation("failed_fetch_product_profitability" as any, language),
         variant: "destructive",
       })
     } finally {
       setIsLoading(false)
     }
-  }, [toast])
+  }, [toast, getAppTranslation, language])
 
   const fetchInventoryOptimization = useCallback(async () => {
     try {
@@ -274,14 +275,14 @@ const CapitalAnalyticsPage = () => {
     } catch (error) {
       console.error("Error fetching inventory optimization:", error)
       toast({
-        title: "Error",
-        description: "Failed to load inventory optimization data",
+        title: getAppTranslation("error", language),
+        description: getAppTranslation("failed_fetch_inventory_optimization" as any, language),
         variant: "destructive",
       })
     } finally {
       setIsLoading(false)
     }
-  }, [toast])
+  }, [toast, getAppTranslation, language])
 
   // Initial data load
   useEffect(() => {
@@ -369,7 +370,7 @@ const CapitalAnalyticsPage = () => {
       <div className="flex items-center justify-center h-screen">
         <div className="flex flex-col items-center">
           <RefreshCw className="h-8 w-8 animate-spin mb-4" />
-          <h3 className="text-lg font-medium">Loading capital analytics...</h3>
+          <h3 className="text-lg font-medium">{getAppTranslation("loading_capital_analytics" as any, language)}</h3>
         </div>
       </div>
     )
@@ -378,17 +379,17 @@ const CapitalAnalyticsPage = () => {
   return (
     <>
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
-        <h1 className="text-2xl font-bold mb-4 md:mb-0">Capital Analytics</h1>
+        <h1 className="text-2xl font-bold mb-4 md:mb-0">{getAppTranslation("capital_analytics" as any, language)}</h1>
         <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
           <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
             <SelectTrigger className="w-full md:w-[180px]">
-              <SelectValue placeholder="Select period" />
+              <SelectValue placeholder={getAppTranslation("select_period" as any, language)} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="week">Last 7 days</SelectItem>
-              <SelectItem value="month">Last 30 days</SelectItem>
-              <SelectItem value="quarter">Last 3 months</SelectItem>
-              <SelectItem value="year">Last 12 months</SelectItem>
+              <SelectItem value="week">{getAppTranslation("last_7_days" as any, language)}</SelectItem>
+              <SelectItem value="month">{getAppTranslation("last_30_days" as any, language)}</SelectItem>
+              <SelectItem value="quarter">{getAppTranslation("last_3_months" as any, language)}</SelectItem>
+              <SelectItem value="year">{getAppTranslation("last_12_months" as any, language)}</SelectItem>
             </SelectContent>
           </Select>
           <Button
@@ -400,8 +401,8 @@ const CapitalAnalyticsPage = () => {
               fetchInventoryOptimization()
             }}
           >
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh Data
+            <RefreshCw className={`h-4 w-4 ${rtlEnabled ? "ml-2" : "mr-2"}`} />
+            {getAppTranslation("refresh_data" as any, language)}
           </Button>
         </div>
       </div>
@@ -410,7 +411,9 @@ const CapitalAnalyticsPage = () => {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Inventory Value</CardTitle>
+              <CardTitle className="text-sm font-medium">
+                {getAppTranslation("total_inventory_value" as any, language)}
+              </CardTitle>
               <Wallet className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -419,7 +422,8 @@ const CapitalAnalyticsPage = () => {
               </div>
               <div className="flex items-center justify-between mt-1">
                 <p className="text-xs text-muted-foreground">
-                  {capitalAnalytics.totalProducts} products, {capitalAnalytics.totalStock} units
+                  {capitalAnalytics.totalProducts} {getAppTranslation("products" as any, language)},{" "}
+                  {capitalAnalytics.totalStock} {getAppTranslation("units" as any, language)}
                 </p>
               </div>
             </CardContent>
@@ -427,7 +431,9 @@ const CapitalAnalyticsPage = () => {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Estimated Profit</CardTitle>
+              <CardTitle className="text-sm font-medium">
+                {getAppTranslation("estimated_profit" as any, language)}
+              </CardTitle>
               <CircleDollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -436,7 +442,8 @@ const CapitalAnalyticsPage = () => {
               </div>
               <div className="flex items-center justify-between mt-1">
                 <p className="text-xs text-muted-foreground">
-                  Profit margin: {formatPercentage(capitalAnalytics.profitMargin)}
+                  {getAppTranslation("profit_margin" as any, language)}:{" "}
+                  {formatPercentage(capitalAnalytics.profitMargin)}
                 </p>
                 {getGrowthIndicator(capitalAnalytics.profitMargin)}
               </div>
@@ -445,7 +452,9 @@ const CapitalAnalyticsPage = () => {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Inventory Cost</CardTitle>
+              <CardTitle className="text-sm font-medium">
+                {getAppTranslation("inventory_cost" as any, language)}
+              </CardTitle>
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -454,7 +463,7 @@ const CapitalAnalyticsPage = () => {
               </div>
               <div className="flex items-center justify-between mt-1">
                 <p className="text-xs text-muted-foreground">
-                  Avg. cost per product:{" "}
+                  {getAppTranslation("avg_cost_per_product" as any, language)}:{" "}
                   {formatCurrency(
                     capitalAnalytics.totalCost / capitalAnalytics.totalProducts,
                     currentCurrency,
@@ -467,13 +476,17 @@ const CapitalAnalyticsPage = () => {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Inventory Turnover</CardTitle>
+              <CardTitle className="text-sm font-medium">
+                {getAppTranslation("inventory_turnover" as any, language)}
+              </CardTitle>
               <RefreshCw className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{capitalAnalytics.inventoryTurnover.toFixed(2)}x</div>
               <div className="flex items-center justify-between mt-1">
-                <p className="text-xs text-muted-foreground">Industry avg: 4-6x</p>
+                <p className="text-xs text-muted-foreground">
+                  {getAppTranslation("industry_avg" as any, language)}: 4-6x
+                </p>
                 {getGrowthIndicator(
                   ((capitalAnalytics.inventoryTurnover - 4) / 4) * 100,
                   capitalAnalytics.inventoryTurnover < 4,
@@ -486,10 +499,10 @@ const CapitalAnalyticsPage = () => {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-6">
         <TabsList className="grid grid-cols-4 w-full md:w-auto">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="profitability">Profitability</TabsTrigger>
-          <TabsTrigger value="trends">Trends</TabsTrigger>
-          <TabsTrigger value="optimization">Optimization</TabsTrigger>
+          <TabsTrigger value="overview">{getAppTranslation("overview" as any, language)}</TabsTrigger>
+          <TabsTrigger value="profitability">{getAppTranslation("profitability" as any, language)}</TabsTrigger>
+          <TabsTrigger value="trends">{getAppTranslation("trends" as any, language)}</TabsTrigger>
+          <TabsTrigger value="optimization">{getAppTranslation("optimization" as any, language)}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4 mt-4">
@@ -498,8 +511,10 @@ const CapitalAnalyticsPage = () => {
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
                 <Card className="col-span-4">
                   <CardHeader>
-                    <CardTitle>Capital Distribution by Category</CardTitle>
-                    <CardDescription>How your inventory value is distributed across product categories</CardDescription>
+                    <CardTitle>{getAppTranslation("capital_distribution_by_category" as any, language)}</CardTitle>
+                    <CardDescription>
+                      {getAppTranslation("capital_distribution_description" as any, language)}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="h-80">
@@ -529,7 +544,9 @@ const CapitalAnalyticsPage = () => {
                                   <div className="bg-background border rounded p-2 shadow-md">
                                     <p className="font-medium">{data.name}</p>
                                     <p className="text-sm">{formatCurrency(data.capital, currentCurrency, language)}</p>
-                                    <p className="text-xs text-muted-foreground">{data.productCount} products</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {data.productCount} {getAppTranslation("products" as any, language)}
+                                    </p>
                                   </div>
                                 )
                               }
@@ -550,8 +567,10 @@ const CapitalAnalyticsPage = () => {
 
                 <Card className="col-span-3">
                   <CardHeader>
-                    <CardTitle>Top Categories by Value</CardTitle>
-                    <CardDescription>Categories with highest inventory value</CardDescription>
+                    <CardTitle>{getAppTranslation("top_categories_by_value" as any, language)}</CardTitle>
+                    <CardDescription>
+                      {getAppTranslation("categories_highest_inventory_value" as any, language)}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
@@ -568,8 +587,13 @@ const CapitalAnalyticsPage = () => {
                             className="h-2"
                           />
                           <div className="flex justify-between text-xs text-muted-foreground">
-                            <span>{category.productCount} products</span>
-                            <span>Est. profit: {formatCurrency(category.profit, currentCurrency, language)}</span>
+                            <span>
+                              {category.productCount} {getAppTranslation("products" as any, language)}
+                            </span>
+                            <span>
+                              {getAppTranslation("est_profit" as any, language)}:{" "}
+                              {formatCurrency(category.profit, currentCurrency, language)}
+                            </span>
                           </div>
                         </div>
                       ))}
@@ -581,17 +605,23 @@ const CapitalAnalyticsPage = () => {
               <div className="grid gap-4 md:grid-cols-2">
                 <Card>
                   <CardHeader>
-                    <CardTitle>High-Value Products</CardTitle>
-                    <CardDescription>Products with the highest inventory value</CardDescription>
+                    <CardTitle>{getAppTranslation("high_value_products" as any, language)}</CardTitle>
+                    <CardDescription>
+                      {getAppTranslation("products_highest_inventory_value" as any, language)}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Product</TableHead>
-                          <TableHead>Stock</TableHead>
-                          <TableHead className="text-right">Unit Price</TableHead>
-                          <TableHead className="text-right">Total Value</TableHead>
+                          <TableHead>{getAppTranslation("product" as any, language)}</TableHead>
+                          <TableHead>{getAppTranslation("stock" as any, language)}</TableHead>
+                          <TableHead className="text-right">
+                            {getAppTranslation("unit_price" as any, language)}
+                          </TableHead>
+                          <TableHead className="text-right">
+                            {getAppTranslation("total_value" as any, language)}
+                          </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -614,25 +644,31 @@ const CapitalAnalyticsPage = () => {
                       className="w-full mt-4"
                       onClick={() => exportToCSV(capitalAnalytics.highValueProducts, "high_value_products")}
                     >
-                      <Download className="h-4 w-4 mr-2" />
-                      Export Full List
+                      <Download className={`h-4 w-4 ${rtlEnabled ? "ml-2" : "mr-2"}`} />
+                      {getAppTranslation("export_full_list" as any, language)}
                     </Button>
                   </CardContent>
                 </Card>
 
                 <Card>
                   <CardHeader>
-                    <CardTitle>Slow-Moving Inventory</CardTitle>
-                    <CardDescription>Products with high stock but low sales</CardDescription>
+                    <CardTitle>{getAppTranslation("slow_moving_inventory" as any, language)}</CardTitle>
+                    <CardDescription>
+                      {getAppTranslation("products_high_stock_low_sales" as any, language)}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Product</TableHead>
-                          <TableHead>Stock</TableHead>
-                          <TableHead className="text-right">Sales Ratio</TableHead>
-                          <TableHead className="text-right">Capital Tied</TableHead>
+                          <TableHead>{getAppTranslation("product" as any, language)}</TableHead>
+                          <TableHead>{getAppTranslation("stock" as any, language)}</TableHead>
+                          <TableHead className="text-right">
+                            {getAppTranslation("sales_ratio" as any, language)}
+                          </TableHead>
+                          <TableHead className="text-right">
+                            {getAppTranslation("capital_tied" as any, language)}
+                          </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -653,8 +689,8 @@ const CapitalAnalyticsPage = () => {
                       className="w-full mt-4"
                       onClick={() => exportToCSV(capitalAnalytics.slowMovingInventory, "slow_moving_inventory")}
                     >
-                      <Download className="h-4 w-4 mr-2" />
-                      Export Full List
+                      <Download className={`h-4 w-4 ${rtlEnabled ? "ml-2" : "mr-2"}`} />
+                      {getAppTranslation("export_full_list" as any, language)}
                     </Button>
                   </CardContent>
                 </Card>
@@ -669,8 +705,8 @@ const CapitalAnalyticsPage = () => {
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
                 <Card className="col-span-4">
                   <CardHeader>
-                    <CardTitle>Product Profitability Analysis</CardTitle>
-                    <CardDescription>Profit margin vs. inventory turnover rate</CardDescription>
+                    <CardTitle>{getAppTranslation("product_profitability_analysis" as any, language)}</CardTitle>
+                    <CardDescription>{getAppTranslation("profit_margin_vs_turnover" as any, language)}</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="h-80">
@@ -683,17 +719,27 @@ const CapitalAnalyticsPage = () => {
                           <XAxis dataKey="name" />
                           <YAxis
                             yAxisId="left"
-                            label={{ value: "Profit Margin (%)", angle: -90, position: "insideLeft" }}
+                            label={{
+                              value: getAppTranslation("profit_margin_percent" as any, language),
+                              angle: -90,
+                              position: "insideLeft",
+                            }}
                           />
                           <YAxis
                             yAxisId="right"
                             orientation="right"
-                            label={{ value: "Turnover Rate", angle: 90, position: "insideRight" }}
+                            label={{
+                              value: getAppTranslation("turnover_rate" as any, language),
+                              angle: 90,
+                              position: "insideRight",
+                            }}
                           />
                           <Tooltip
                             formatter={(value: number, name: string) => {
-                              if (name === "profitMargin") return [`${value.toFixed(1)}%`, "Profit Margin"]
-                              if (name === "turnoverRate") return [value.toFixed(2), "Turnover Rate"]
+                              if (name === "profitMargin")
+                                return [`${value.toFixed(1)}%`, getAppTranslation("profit_margin" as any, language)]
+                              if (name === "turnoverRate")
+                                return [value.toFixed(2), getAppTranslation("turnover_rate" as any, language)]
                               return [value, name]
                             }}
                           />
@@ -714,8 +760,10 @@ const CapitalAnalyticsPage = () => {
 
                 <Card className="col-span-3">
                   <CardHeader>
-                    <CardTitle>Most Profitable Products</CardTitle>
-                    <CardDescription>Products with highest profit margins</CardDescription>
+                    <CardTitle>{getAppTranslation("most_profitable_products" as any, language)}</CardTitle>
+                    <CardDescription>
+                      {getAppTranslation("products_highest_profit_margins" as any, language)}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
@@ -729,8 +777,14 @@ const CapitalAnalyticsPage = () => {
                           </div>
                           <Progress value={product.profitMargin} className="h-2" />
                           <div className="flex justify-between text-xs text-muted-foreground">
-                            <span>Cost: {formatCurrency(product.costPrice, currentCurrency, language)}</span>
-                            <span>Price: {formatCurrency(product.price, currentCurrency, language)}</span>
+                            <span>
+                              {getAppTranslation("cost" as any, language)}:{" "}
+                              {formatCurrency(product.costPrice, currentCurrency, language)}
+                            </span>
+                            <span>
+                              {getAppTranslation("price" as any, language)}:{" "}
+                              {formatCurrency(product.price, currentCurrency, language)}
+                            </span>
                           </div>
                         </div>
                       ))}
@@ -742,17 +796,25 @@ const CapitalAnalyticsPage = () => {
               <div className="grid gap-4 md:grid-cols-2">
                 <Card>
                   <CardHeader>
-                    <CardTitle>Highest Turnover Products</CardTitle>
-                    <CardDescription>Products that sell most frequently relative to stock</CardDescription>
+                    <CardTitle>{getAppTranslation("highest_turnover_products" as any, language)}</CardTitle>
+                    <CardDescription>
+                      {getAppTranslation("products_sell_most_frequently" as any, language)}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Product</TableHead>
-                          <TableHead className="text-right">Turnover Rate</TableHead>
-                          <TableHead className="text-right">Profit Margin</TableHead>
-                          <TableHead className="text-right">Potential Profit</TableHead>
+                          <TableHead>{getAppTranslation("product" as any, language)}</TableHead>
+                          <TableHead className="text-right">
+                            {getAppTranslation("turnover_rate" as any, language)}
+                          </TableHead>
+                          <TableHead className="text-right">
+                            {getAppTranslation("profit_margin" as any, language)}
+                          </TableHead>
+                          <TableHead className="text-right">
+                            {getAppTranslation("potential_profit" as any, language)}
+                          </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -773,25 +835,33 @@ const CapitalAnalyticsPage = () => {
                       className="w-full mt-4"
                       onClick={() => exportToCSV(productProfitability.highestTurnover, "highest_turnover_products")}
                     >
-                      <Download className="h-4 w-4 mr-2" />
-                      Export Full List
+                      <Download className={`h-4 w-4 ${rtlEnabled ? "ml-2" : "mr-2"}`} />
+                      {getAppTranslation("export_full_list" as any, language)}
                     </Button>
                   </CardContent>
                 </Card>
 
                 <Card>
                   <CardHeader>
-                    <CardTitle>Lowest Turnover Products</CardTitle>
-                    <CardDescription>Products that sell least frequently relative to stock</CardDescription>
+                    <CardTitle>{getAppTranslation("lowest_turnover_products" as any, language)}</CardTitle>
+                    <CardDescription>
+                      {getAppTranslation("products_sell_least_frequently" as any, language)}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Product</TableHead>
-                          <TableHead className="text-right">Turnover Rate</TableHead>
-                          <TableHead className="text-right">Profit Margin</TableHead>
-                          <TableHead className="text-right">Capital Tied</TableHead>
+                          <TableHead>{getAppTranslation("product" as any, language)}</TableHead>
+                          <TableHead className="text-right">
+                            {getAppTranslation("turnover_rate" as any, language)}
+                          </TableHead>
+                          <TableHead className="text-right">
+                            {getAppTranslation("profit_margin" as any, language)}
+                          </TableHead>
+                          <TableHead className="text-right">
+                            {getAppTranslation("capital_tied" as any, language)}
+                          </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -812,8 +882,8 @@ const CapitalAnalyticsPage = () => {
                       className="w-full mt-4"
                       onClick={() => exportToCSV(productProfitability.lowestTurnover, "lowest_turnover_products")}
                     >
-                      <Download className="h-4 w-4 mr-2" />
-                      Export Full List
+                      <Download className={`h-4 w-4 ${rtlEnabled ? "ml-2" : "mr-2"}`} />
+                      {getAppTranslation("export_full_list" as any, language)}
                     </Button>
                   </CardContent>
                 </Card>
@@ -828,8 +898,10 @@ const CapitalAnalyticsPage = () => {
               <div className="grid gap-4 md:grid-cols-1">
                 <Card>
                   <CardHeader>
-                    <CardTitle>Capital Trends Over Time</CardTitle>
-                    <CardDescription>Sales, expenses, and profit trends for the selected period</CardDescription>
+                    <CardTitle>{getAppTranslation("capital_trends_over_time" as any, language)}</CardTitle>
+                    <CardDescription>
+                      {getAppTranslation("sales_expenses_profit_trends" as any, language)}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="h-80">
@@ -856,9 +928,13 @@ const CapitalAnalyticsPage = () => {
                             contentStyle={{ backgroundColor: "var(--background)", border: "1px solid var(--border)" }}
                           />
                           <Legend verticalAlign="top" height={36} />
-                          <Bar dataKey="sales" name="Sales" fill="#8884d8" />
-                          <Bar dataKey="expenses" name="Expenses" fill="#82ca9d" />
-                          <Bar dataKey="profit" name="Profit" fill="#ffc658" />
+                          <Bar dataKey="sales" name={getAppTranslation("sales" as any, language)} fill="#8884d8" />
+                          <Bar
+                            dataKey="expenses"
+                            name={getAppTranslation("expenses" as any, language)}
+                            fill="#82ca9d"
+                          />
+                          <Bar dataKey="profit" name={getAppTranslation("profit" as any, language)} fill="#ffc658" />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -869,42 +945,45 @@ const CapitalAnalyticsPage = () => {
               <div className="grid gap-4 md:grid-cols-3">
                 <Card>
                   <CardHeader>
-                    <CardTitle>Total Sales</CardTitle>
+                    <CardTitle>{getAppTranslation("total_sales" as any, language)}</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold mb-2">
                       {formatCurrency(capitalTrends.totalSales, currentCurrency, language)}
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      For the period: {formatDate(dateRange.from)} - {formatDate(dateRange.to)}
+                      {getAppTranslation("for_the_period" as any, language)}: {formatDate(dateRange.from)} -{" "}
+                      {formatDate(dateRange.to)}
                     </p>
                   </CardContent>
                 </Card>
 
                 <Card>
                   <CardHeader>
-                    <CardTitle>Total Expenses</CardTitle>
+                    <CardTitle>{getAppTranslation("total_expenses" as any, language)}</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold mb-2">
                       {formatCurrency(capitalTrends.totalExpenses, currentCurrency, language)}
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      For the period: {formatDate(dateRange.from)} - {formatDate(dateRange.to)}
+                      {getAppTranslation("for_the_period" as any, language)}: {formatDate(dateRange.from)} -{" "}
+                      {formatDate(dateRange.to)}
                     </p>
                   </CardContent>
                 </Card>
 
                 <Card>
                   <CardHeader>
-                    <CardTitle>Total Profit</CardTitle>
+                    <CardTitle>{getAppTranslation("total_profit" as any, language)}</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold mb-2">
                       {formatCurrency(capitalTrends.totalProfit, currentCurrency, language)}
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      For the period: {formatDate(dateRange.from)} - {formatDate(dateRange.to)}
+                      {getAppTranslation("for_the_period" as any, language)}: {formatDate(dateRange.from)} -{" "}
+                      {formatDate(dateRange.to)}
                     </p>
                   </CardContent>
                 </Card>
@@ -919,20 +998,26 @@ const CapitalAnalyticsPage = () => {
               <div className="grid gap-4 md:grid-cols-2">
                 <Card>
                   <CardHeader>
-                    <CardTitle>Inventory Optimization Summary</CardTitle>
-                    <CardDescription>Recommendations to optimize your inventory capital</CardDescription>
+                    <CardTitle>{getAppTranslation("inventory_optimization_summary" as any, language)}</CardTitle>
+                    <CardDescription>
+                      {getAppTranslation("recommendations_optimize_inventory" as any, language)}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
                       <div className="flex flex-col gap-2">
                         <div className="flex justify-between">
-                          <span className="text-sm font-medium">Potential Capital Release</span>
+                          <span className="text-sm font-medium">
+                            {getAppTranslation("potential_capital_release" as any, language)}
+                          </span>
                           <span className="text-sm font-medium text-green-600">
                             {formatCurrency(inventoryOptimization.potentialCapitalRelease, currentCurrency, language)}
                           </span>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          By reducing overstock on {inventoryOptimization.reduceRecommendations.length} products
+                          {getAppTranslation("by_reducing_overstock" as any, language)}{" "}
+                          {inventoryOptimization.reduceRecommendations.length}{" "}
+                          {getAppTranslation("products" as any, language)}
                         </p>
                       </div>
 
@@ -940,13 +1025,17 @@ const CapitalAnalyticsPage = () => {
 
                       <div className="flex flex-col gap-2">
                         <div className="flex justify-between">
-                          <span className="text-sm font-medium">Required Restock Investment</span>
+                          <span className="text-sm font-medium">
+                            {getAppTranslation("required_restock_investment" as any, language)}
+                          </span>
                           <span className="text-sm font-medium text-amber-600">
                             {formatCurrency(inventoryOptimization.requiredRestockInvestment, currentCurrency, language)}
                           </span>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          To maintain optimal stock on {inventoryOptimization.restockRecommendations.length} products
+                          {getAppTranslation("to_maintain_optimal_stock" as any, language)}{" "}
+                          {inventoryOptimization.restockRecommendations.length}{" "}
+                          {getAppTranslation("products" as any, language)}
                         </p>
                       </div>
 
@@ -954,7 +1043,9 @@ const CapitalAnalyticsPage = () => {
 
                       <div className="flex flex-col gap-2">
                         <div className="flex justify-between">
-                          <span className="text-sm font-medium">Net Capital Impact</span>
+                          <span className="text-sm font-medium">
+                            {getAppTranslation("net_capital_impact" as any, language)}
+                          </span>
                           <span
                             className={`text-sm font-medium ${
                               inventoryOptimization.potentialCapitalRelease -
@@ -972,7 +1063,9 @@ const CapitalAnalyticsPage = () => {
                             )}
                           </span>
                         </div>
-                        <p className="text-xs text-muted-foreground">Estimated impact on working capital</p>
+                        <p className="text-xs text-muted-foreground">
+                          {getAppTranslation("estimated_impact_working_capital" as any, language)}
+                        </p>
                       </div>
                     </div>
                   </CardContent>
@@ -980,8 +1073,10 @@ const CapitalAnalyticsPage = () => {
 
                 <Card>
                   <CardHeader>
-                    <CardTitle>Optimization Impact</CardTitle>
-                    <CardDescription>Potential impact on inventory metrics</CardDescription>
+                    <CardTitle>{getAppTranslation("optimization_impact" as any, language)}</CardTitle>
+                    <CardDescription>
+                      {getAppTranslation("potential_impact_inventory_metrics" as any, language)}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="h-60">
@@ -989,10 +1084,16 @@ const CapitalAnalyticsPage = () => {
                         <PieChart>
                           <Pie
                             data={[
-                              { name: "Reduce Stock", value: inventoryOptimization.potentialCapitalRelease },
-                              { name: "Restock", value: inventoryOptimization.requiredRestockInvestment },
                               {
-                                name: "Maintain",
+                                name: getAppTranslation("reduce_stock" as any, language),
+                                value: inventoryOptimization.potentialCapitalRelease,
+                              },
+                              {
+                                name: getAppTranslation("restock" as any, language),
+                                value: inventoryOptimization.requiredRestockInvestment,
+                              },
+                              {
+                                name: getAppTranslation("maintain" as any, language),
                                 value:
                                   (capitalAnalytics?.totalCapital || 0) - inventoryOptimization.potentialCapitalRelease,
                               },
@@ -1041,18 +1142,26 @@ const CapitalAnalyticsPage = () => {
               <div className="grid gap-4 md:grid-cols-1">
                 <Card>
                   <CardHeader>
-                    <CardTitle>Restock Recommendations</CardTitle>
-                    <CardDescription>Products that need restocking based on sales data</CardDescription>
+                    <CardTitle>{getAppTranslation("restock_recommendations" as any, language)}</CardTitle>
+                    <CardDescription>{getAppTranslation("products_need_restocking" as any, language)}</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Product</TableHead>
-                          <TableHead className="text-right">Current Stock</TableHead>
-                          <TableHead className="text-right">Optimal Stock</TableHead>
-                          <TableHead className="text-right">Restock Quantity</TableHead>
-                          <TableHead className="text-right">Investment Required</TableHead>
+                          <TableHead>{getAppTranslation("product" as any, language)}</TableHead>
+                          <TableHead className="text-right">
+                            {getAppTranslation("current_stock" as any, language)}
+                          </TableHead>
+                          <TableHead className="text-right">
+                            {getAppTranslation("optimal_stock" as any, language)}
+                          </TableHead>
+                          <TableHead className="text-right">
+                            {getAppTranslation("restock_quantity" as any, language)}
+                          </TableHead>
+                          <TableHead className="text-right">
+                            {getAppTranslation("investment_required" as any, language)}
+                          </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1076,26 +1185,34 @@ const CapitalAnalyticsPage = () => {
                         exportToCSV(inventoryOptimization.restockRecommendations, "restock_recommendations")
                       }
                     >
-                      <Download className="h-4 w-4 mr-2" />
-                      Export Full List
+                      <Download className={`h-4 w-4 ${rtlEnabled ? "ml-2" : "mr-2"}`} />
+                      {getAppTranslation("export_full_list" as any, language)}
                     </Button>
                   </CardContent>
                 </Card>
 
                 <Card>
                   <CardHeader>
-                    <CardTitle>Reduce Stock Recommendations</CardTitle>
-                    <CardDescription>Products with excess inventory based on sales data</CardDescription>
+                    <CardTitle>{getAppTranslation("reduce_stock_recommendations" as any, language)}</CardTitle>
+                    <CardDescription>{getAppTranslation("products_excess_inventory" as any, language)}</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Product</TableHead>
-                          <TableHead className="text-right">Current Stock</TableHead>
-                          <TableHead className="text-right">Optimal Stock</TableHead>
-                          <TableHead className="text-right">Excess Quantity</TableHead>
-                          <TableHead className="text-right">Capital Release</TableHead>
+                          <TableHead>{getAppTranslation("product" as any, language)}</TableHead>
+                          <TableHead className="text-right">
+                            {getAppTranslation("current_stock" as any, language)}
+                          </TableHead>
+                          <TableHead className="text-right">
+                            {getAppTranslation("optimal_stock" as any, language)}
+                          </TableHead>
+                          <TableHead className="text-right">
+                            {getAppTranslation("excess_quantity" as any, language)}
+                          </TableHead>
+                          <TableHead className="text-right">
+                            {getAppTranslation("capital_release" as any, language)}
+                          </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1119,8 +1236,8 @@ const CapitalAnalyticsPage = () => {
                         exportToCSV(inventoryOptimization.reduceRecommendations, "reduce_stock_recommendations")
                       }
                     >
-                      <Download className="h-4 w-4 mr-2" />
-                      Export Full List
+                      <Download className={`h-4 w-4 ${rtlEnabled ? "ml-2" : "mr-2"}`} />
+                      {getAppTranslation("export_full_list" as any, language)}
                     </Button>
                   </CardContent>
                 </Card>
