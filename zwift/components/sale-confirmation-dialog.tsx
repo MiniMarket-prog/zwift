@@ -141,9 +141,11 @@ export function SaleConfirmationDialog({
                   <span>Tax:</span>
                   <span className="font-medium">{formatPrice(tax)}</span>
                 </div>
-                <div className="flex justify-between font-bold text-lg">
-                  <span>Total:</span>
-                  <span>{formatPrice(total)}</span>
+
+                {/* Centered total amount */}
+                <div className="text-center mt-6 mb-2">
+                  <div className="text-lg font-semibold text-muted-foreground">Total:</div>
+                  <div className="text-3xl font-bold mt-1">{formatPrice(total)}</div>
                 </div>
               </div>
 
@@ -210,6 +212,10 @@ export function SaleConfirmationDialog({
               <div className="p-4 border rounded-md">
                 <h2 className="text-center font-bold text-lg mb-2">Sale Complete</h2>
                 <p className="text-center text-muted-foreground mb-4">Your sale has been processed successfully.</p>
+                <div className="text-center mb-4">
+                  <div className="text-lg font-semibold text-muted-foreground">Total Amount</div>
+                  <div className="text-3xl font-bold mt-1">{formatPrice(total)}</div>
+                </div>
                 <div className="flex justify-center">
                   <Button
                     onClick={() => handleConfirm(true)}
