@@ -998,10 +998,6 @@ const SalesPage = () => {
                 <div className="mt-2">
                   <div className="flex justify-between items-center mb-4">
                     <div>
-                      <p className="text-sm text-muted-foreground">Sale ID</p>
-                      <p className="font-medium">#{selectedSale.id}</p>
-                    </div>
-                    <div>
                       <p className="text-sm text-muted-foreground">Date</p>
                       <p className="font-medium">{format(new Date(selectedSale.created_at), "PPP p")}</p>
                     </div>
