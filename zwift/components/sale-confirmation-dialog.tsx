@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   Dialog,
   DialogContent,
@@ -56,6 +56,16 @@ export function SaleConfirmationDialog({
   const [selectedPayment, setSelectedPayment] = useState<string>(paymentMethod || "cash")
   const [showReceipt, setShowReceipt] = useState(false)
 
+  // Reset state when dialog opens/closes
+  useEffect(() => {
+    if (isOpen) {
+      // When opening, reset to initial state based on whether we're showing a completed sale
+      setSelectedPayment(paymentMethod || "cash")
+      // Only show receipt view if explicitly told to (e.g., after a successful sale)
+      setShowReceipt(false)
+    }
+  }, [isOpen, paymentMethod])
+
   const handleConfirm = async (shouldPrint = false) => {
     if (!selectedPayment) return
 
@@ -68,9 +78,11 @@ export function SaleConfirmationDialog({
   }
 
   const handleClose = () => {
+    // First reset our internal state
     setSelectedPayment(paymentMethod || "cash")
     setShowReceipt(false)
-    onClose()
+    // Then call the parent's onClose
+    setTimeout(() => onClose(), 0)
   }
 
   // Format currency helper function
@@ -82,8 +94,15 @@ export function SaleConfirmationDialog({
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()} key={`sale-dialog-${isOpen}`}>
+      <DialogContent
+        className="sm:max-w-md max-h-[90vh] overflow-auto p-4 md:p-6"
+        aria-modal="true"
+        onInteractOutside={(e) => {
+          e.preventDefault()
+          // Only allow closing via the close button to prevent accidental dismissal
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Confirm Sale</DialogTitle>
           <DialogDescription>Review the items and select a payment method to complete the sale.</DialogDescription>
@@ -93,7 +112,7 @@ export function SaleConfirmationDialog({
           <>
             <div className="py-4">
               <h3 className="font-medium mb-2">Items:</h3>
-              <ScrollArea className="h-[300px] rounded-md border p-2">
+              <ScrollArea className="h-[200px] rounded-md border p-2">
                 {cartItems?.length > 0 ? (
                   <div className="space-y-3">
                     {cartItems.map((item) => (
@@ -172,15 +191,15 @@ export function SaleConfirmationDialog({
               </div>
             </div>
 
-            <DialogFooter className="flex flex-col sm:flex-row gap-2">
-              <Button variant="outline" onClick={onCancel} className="sm:order-1">
+            <DialogFooter className="flex flex-col sm:flex-row gap-2 mt-4">
+              <Button variant="outline" onClick={onCancel} className="sm:order-1 w-full sm:w-auto">
                 Cancel
               </Button>
               <Button
                 onClick={() => handleConfirm(false)}
                 disabled={!selectedPayment || isProcessing}
                 className={cn(
-                  "sm:order-2 bg-emerald-600 hover:bg-emerald-700",
+                  "sm:order-2 bg-emerald-600 hover:bg-emerald-700 w-full sm:w-auto",
                   "text-white border-emerald-600 hover:border-emerald-700",
                   "focus-visible:ring-emerald-500",
                   isProcessing && "opacity-70 cursor-not-allowed",
@@ -199,7 +218,7 @@ export function SaleConfirmationDialog({
                 onClick={() => handleConfirm(true)}
                 disabled={!selectedPayment || isProcessing}
                 variant="outline"
-                className="sm:order-3"
+                className="sm:order-3 w-full sm:w-auto"
               >
                 <Printer className="mr-2 h-4 w-4" />
                 Complete & Print
@@ -208,27 +227,28 @@ export function SaleConfirmationDialog({
           </>
         ) : (
           <div className="py-4">
-            <ScrollArea className="max-h-[400px] mb-4">
-              <div className="p-4 border rounded-md">
-                <h2 className="text-center font-bold text-lg mb-2">Sale Complete</h2>
-                <p className="text-center text-muted-foreground mb-4">Your sale has been processed successfully.</p>
-                <div className="text-center mb-4">
-                  <div className="text-lg font-semibold text-muted-foreground">Total Amount</div>
-                  <div className="text-3xl font-bold mt-1">{formatPrice(total)}</div>
-                </div>
-                <div className="flex justify-center">
-                  <Button
-                    onClick={() => handleConfirm(true)}
-                    className="flex items-center bg-emerald-600 hover:bg-emerald-700 text-white"
-                  >
-                    <Printer className="mr-2 h-4 w-4" />
-                    Print Receipt
-                  </Button>
-                </div>
+            <div className="p-4 border rounded-md">
+              <h2 className="text-center font-bold text-lg mb-2">Sale Complete</h2>
+              <p className="text-center text-muted-foreground mb-4">Your sale has been processed successfully.</p>
+              <div className="text-center mb-4">
+                <div className="text-lg font-semibold text-muted-foreground">Total Amount</div>
+                <div className="text-3xl font-bold mt-1">{formatPrice(total)}</div>
               </div>
-            </ScrollArea>
+              <div className="flex justify-center">
+                <Button
+                  onClick={() => handleConfirm(true)}
+                  className={cn(
+                    "flex items-center bg-emerald-600 hover:bg-emerald-700 text-white",
+                    "border-emerald-600 hover:border-emerald-700",
+                  )}
+                >
+                  <Printer className="mr-2 h-4 w-4" />
+                  Print Receipt
+                </Button>
+              </div>
+            </div>
 
-            <Button variant="outline" onClick={handleClose} className="w-full mt-2">
+            <Button variant="outline" onClick={handleClose} className="w-full mt-4">
               Close
             </Button>
           </div>
