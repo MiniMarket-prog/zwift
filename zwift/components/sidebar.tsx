@@ -251,6 +251,7 @@ export function AppSidebar() {
       label: "capital_analytics" as AppTranslationKey,
       icon: <Calculator className="h-5 w-5" />,
     },
+    { href: "/analytics", label: "analytics" as AppTranslationKey, icon: <LineChart className="h-5 w-5" /> },
     { href: "/users", label: "customers" as AppTranslationKey, icon: <User className="h-5 w-5" /> },
     { href: "/settings", label: "settings" as AppTranslationKey, icon: <Settings className="h-5 w-5" /> },
   ]

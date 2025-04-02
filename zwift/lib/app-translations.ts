@@ -2,6 +2,7 @@
 export type AppTranslationKey =
   | "alerts" // Add this line
   | "dashboard"
+  | "analytics"
   | "products"
   | "categories"
   | "customers"
@@ -681,13 +682,13 @@ export type AppTranslationKey =
 | "reorder_qty"
 | "projected_stock"
 | "min_stock"
-  "sammury"
-  "Analyses"
-  "ActivityReports"
-  "Sales_Reports"
-  "purchaseOrders"
-  "forecasting"
-  "capital_analytics"
+| "sammury"
+| "Analyses"
+| "ActivityReports"
+| "Sales_Reports"
+| "purchaseOrders"
+| "forecasting"
+| "capital_analytics"
 
 
 // Define translations for each supported language
@@ -695,6 +696,7 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
   en: {
     more_than_days_stock:"more than days stock",
     less_than_days_stock:"less than days stock",
+    purchaseOrders: "purchase Orders",
     alerts: "Alerts",
     dashboard: "Dashboard",
     refreshing: "Refreshing",
@@ -1176,6 +1178,7 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     forgotPassword: "Olvidé mi Contraseña",
     resetPassword: "Restablecer Contraseña",
     rememberMe: "Recordarme",
+    analytics: "analítica",
     or: "O",
     and: "Y",
     with: "Con",
@@ -1437,6 +1440,7 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     slow_moving_inventory: "Inventario de Movimiento Lento",
     products_high_stock_low_sales: "Productos con alto stock pero bajas ventas",
     sales_ratio: "Ratio de Ventas",
+    purchaseOrders: "Órdenes de compra",
     capital_tied: "Capital Inmovilizado",
     product_profitability_analysis: "Análisis de Rentabilidad de Productos",
     profit_margin_vs_turnover: "Margen de Beneficio vs. Tasa de Rotación",
@@ -1510,6 +1514,7 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
   fr: {
     more_than_days_stock: "plus de jours de stock",
     alerts: "Alertes",
+    purchaseOrders: "Ordres d'achat",
     dashboard: "Tableau de Bord",
     products: "Produits",
     categories: "Catégories",
@@ -1670,6 +1675,7 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     page_total: "Total de la Page",
     grand_total: "Total Général",
     filtered: "Filtré",
+    analytics: "analytique",
 
     // Expense page translations
     category_deleted_successfully: "La catégorie a été supprimée avec succès.",
@@ -2399,6 +2405,7 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     click_product_view_forecast: "انقر على المنتج لعرض التوقع",
     reorder_recommendation: "توصية بإعادة الطلب",
     based_on_avg_sales: "استنادًا إلى متوسط المبيعات",
+    purchaseOrders: "أوامر الشراء",
     
     lead_time_of: "وقت التسليم لـ",
     you_should_order: "يجب أن تطلب",
@@ -2420,7 +2427,7 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     
     order_created: "تم إنشاء الطلب",
     total_items: "إجمالي العناصر",
-   
+    analytics: "تحليلات",
     creating: "جارٍ الإنشاء",
     create_order: "إنشاء طلب",
     export_report: "تصدير التقرير",
@@ -2439,8 +2446,6 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     sammury: "ملخص",
     Analyses: "تحليلات",
     ActivityReports: "تقارير النشاط",
-    SalesReports: "تقارير المبيعات",
-    purchaseOrders:"أوامر الشراء",
     forecasting: "التنبؤ",
     
     
