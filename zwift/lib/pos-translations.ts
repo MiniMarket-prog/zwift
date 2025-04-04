@@ -1,3 +1,5 @@
+"use client"
+
 // Define types for our translations
 export type POSTranslationKey =
   | "shoppingCart"
@@ -51,6 +53,23 @@ export type POSTranslationKey =
   | "expiring_products"
   | "expiring_products_description"
   | "edit"
+  // Add the missing translation keys
+  | "discountUpdated"
+  | "confirmSale"
+  | "confirmSaleDescription"
+  | "cancel"
+  | "confirm"
+  | "confirmAndPrint"
+  | "cart"
+  | "discount"
+  | "barcodeSearch"
+  | "enterBarcode"
+  | "enterProductName"
+  | "loadingProducts"
+  | "paymentMethod"
+  | "mobilePayment"
+  | "favoriteProducts"
+  | "allProducts"
 
 // Define translations for each supported language
 export const posTranslations: Record<string, Record<POSTranslationKey, string>> = {
@@ -107,6 +126,23 @@ export const posTranslations: Record<string, Record<POSTranslationKey, string>> 
     expiring_products: "Expiring Products",
     expiring_products_description: "The following products are nearing their expiration date.",
     edit: "Edit",
+    // Add the missing translations
+    discountUpdated: "Discount Updated",
+    confirmSale: "Confirm Sale",
+    confirmSaleDescription: "Please confirm the sale details below.",
+    cancel: "Cancel",
+    confirm: "Confirm",
+    confirmAndPrint: "Confirm & Print",
+    cart: "Cart",
+    discount: "Discount",
+    barcodeSearch: "Barcode Search",
+    enterBarcode: "Enter Barcode",
+    enterProductName: "Enter Product Name",
+    loadingProducts: "Loading Products",
+    paymentMethod: "Payment Method",
+    mobilePayment: "Mobile Payment",
+    favoriteProducts: "Favorite Products",
+    allProducts: "All Products",
   },
   es: {
     shoppingCart: "Carrito de Compras",
@@ -161,6 +197,23 @@ export const posTranslations: Record<string, Record<POSTranslationKey, string>> 
     expiring_products: "Productos Caducando",
     expiring_products_description: "Los siguientes productos están cerca de su fecha de caducidad.",
     edit: "Editar",
+    // Add the missing translations
+    discountUpdated: "Descuento Actualizado",
+    confirmSale: "Confirmar Venta",
+    confirmSaleDescription: "Por favor confirme los detalles de la venta a continuación.",
+    cancel: "Cancelar",
+    confirm: "Confirmar",
+    confirmAndPrint: "Confirmar e Imprimir",
+    cart: "Carrito",
+    discount: "Descuento",
+    barcodeSearch: "Búsqueda por Código de Barras",
+    enterBarcode: "Introducir Código de Barras",
+    enterProductName: "Introducir Nombre del Producto",
+    loadingProducts: "Cargando Productos",
+    paymentMethod: "Método de Pago",
+    mobilePayment: "Pago Móvil",
+    favoriteProducts: "Productos Favoritos",
+    allProducts: "Todos los Productos",
   },
   fr: {
     shoppingCart: "Panier d'Achat",
@@ -215,6 +268,23 @@ export const posTranslations: Record<string, Record<POSTranslationKey, string>> 
     expiring_products: "Produits en Expiration",
     expiring_products_description: "Les produits suivants approchent de leur date d'expiration.",
     edit: "Modifier",
+    // Add the missing translations
+    discountUpdated: "Remise Mise à Jour",
+    confirmSale: "Confirmer la Vente",
+    confirmSaleDescription: "Veuillez confirmer les détails de la vente ci-dessous.",
+    cancel: "Annuler",
+    confirm: "Confirmer",
+    confirmAndPrint: "Confirmer et Imprimer",
+    cart: "Panier",
+    discount: "Remise",
+    barcodeSearch: "Recherche par Code-barres",
+    enterBarcode: "Entrer le Code-barres",
+    enterProductName: "Entrer le Nom du Produit",
+    loadingProducts: "Chargement des Produits",
+    paymentMethod: "Méthode de Paiement",
+    mobilePayment: "Paiement Mobile",
+    favoriteProducts: "Produits Favoris",
+    allProducts: "Tous les Produits",
   },
   ar: {
     shoppingCart: "عربة التسوق",
@@ -269,6 +339,23 @@ export const posTranslations: Record<string, Record<POSTranslationKey, string>> 
     expiring_products: "المنتجات منتهية الصلاحية",
     expiring_products_description: "المنتجات التالية تقترب من تاريخ انتهاء صلاحيتها.",
     edit: "تعديل",
+    // Add the missing translations
+    discountUpdated: "تم تحديث الخصم",
+    confirmSale: "تأكيد البيع",
+    confirmSaleDescription: "يرجى تأكيد تفاصيل البيع أدناه.",
+    cancel: "إلغاء",
+    confirm: "تأكيد",
+    confirmAndPrint: "تأكيد وطباعة",
+    cart: "سلة التسوق",
+    discount: "خصم",
+    barcodeSearch: "البحث بالباركود",
+    enterBarcode: "أدخل الباركود",
+    enterProductName: "أدخل اسم المنتج",
+    loadingProducts: "جاري تحميل المنتجات",
+    paymentMethod: "طريقة الدفع",
+    mobilePayment: "الدفع عبر الجوال",
+    favoriteProducts: "المنتجات المفضلة",
+    allProducts: "جميع المنتجات",
   },
 }
 
@@ -281,5 +368,18 @@ export function getPOSTranslation(key: POSTranslationKey, language = "en"): stri
 
   // If the key doesn't exist in the language, fall back to English
   return posTranslations[language][key] || posTranslations.en[key]
+}
+
+// Add a hook for easier access to translations
+import { useLanguage } from "@/hooks/use-language"
+
+export function usePOSTranslations() {
+  const { language } = useLanguage()
+
+  const getTranslation = (key: POSTranslationKey) => {
+    return getPOSTranslation(key, language)
+  }
+
+  return { getPOSTranslation: getTranslation }
 }
 

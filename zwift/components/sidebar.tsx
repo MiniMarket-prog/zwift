@@ -231,7 +231,7 @@ export function AppSidebar() {
       badge: unreadAlerts > 0 ? unreadAlerts : null,
     },
     { href: "/sales", label: "sales" as AppTranslationKey, icon: <DollarSign className="h-5 w-5" /> },
-    { href: "/products", label: "inventory" as AppTranslationKey, icon: <Package className="h-5 w-5" /> },
+    { href: "/products", label: "products" as AppTranslationKey, icon: <Package className="h-5 w-5" /> },
     { href: "/forecasting", label: "forecasting" as AppTranslationKey, icon: <TrendingUp className="h-5 w-5" /> },
     {
       href: "/purchase-orders",

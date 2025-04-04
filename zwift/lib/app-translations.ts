@@ -689,6 +689,7 @@ export type AppTranslationKey =
 | "purchaseOrders"
 | "forecasting"
 | "capital_analytics"
+| "products"
 
 
 // Define translations for each supported language
@@ -1103,6 +1104,7 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     user: "User",
   },
   es: {
+    
     more_than_days_stock: "más de días de stock",
     alerts: "Alertas",
     dashboard: "Tablero",

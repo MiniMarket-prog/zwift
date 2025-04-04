@@ -31,6 +31,7 @@ type SaleItemData = {
   product_id: string
   quantity: number
   price: number
+  discount?: number // Add discount field
   sale_id?: string // Make it optional
   products?: {
     id: string
@@ -163,6 +164,7 @@ export default function ReportsPage() {
           product_id, 
           quantity,
           price,
+          discount,
           products (
             id, 
             name,
@@ -385,8 +387,15 @@ export default function ReportsPage() {
           const purchasePrice = item.products?.purchase_price || null
 
           if (purchasePrice !== null) {
+            // Get the discount percentage (default to 0 if not present)
+            const discount = item.discount || 0
+
+            // Calculate the selling price after discount
+            const priceAfterDiscount = item.price * (1 - discount / 100)
+
+            // Calculate cost and profit
             const itemCost = purchasePrice * item.quantity
-            const itemRevenue = item.price * item.quantity
+            const itemRevenue = priceAfterDiscount * item.quantity
             const itemProfit = itemRevenue - itemCost
 
             totalCost += itemCost
@@ -963,13 +972,23 @@ export default function ReportsPage() {
                         if (sale.sale_items && sale.sale_items.length > 0) {
                           sale.sale_items.forEach((item) => {
                             if (item.products?.purchase_price !== null && item.products?.purchase_price !== undefined) {
-                              cost += item.products.purchase_price * item.quantity
+                              // Get the discount percentage (default to 0 if not present)
+                              const discount = item.discount || 0
+
+                              // Calculate the selling price after discount
+                              const priceAfterDiscount = item.price * (1 - discount / 100)
+
+                              // Calculate cost and revenue
+                              const itemCost = item.products.purchase_price * item.quantity
+                              const itemRevenue = priceAfterDiscount * item.quantity
+
+                              cost += itemCost
+                              profit += itemRevenue - itemCost
                               hasValidProfit = true
                             }
                           })
                         }
 
-                        profit = hasValidProfit ? sale.total - cost : 0
                         const margin = hasValidProfit && sale.total > 0 ? (profit / sale.total) * 100 : 0
 
                         return (

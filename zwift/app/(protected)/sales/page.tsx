@@ -76,6 +76,7 @@ interface SaleItem {
   quantity: number
   price: number
   product?: Product | null // Allow null for product
+  discount?: number
 }
 
 interface Sale {
@@ -125,7 +126,7 @@ const SalesPage = () => {
         // First, fetch the sale items
         const { data: itemsData, error: itemsError } = await supabase
           .from("sale_items")
-          .select("id, product_id, sale_id, quantity, price")
+          .select("id, product_id, sale_id, quantity, price, discount")
           .eq("sale_id", saleId)
 
         if (itemsError) throw itemsError
@@ -168,6 +169,7 @@ const SalesPage = () => {
         // Combine sale items with their products
         const itemsWithProducts = itemsData.map((item) => ({
           ...item,
+          discount: item.discount || 0, // Ensure discount exists, default to 0
           product: productsMap[item.product_id],
         }))
 
@@ -192,9 +194,21 @@ const SalesPage = () => {
     // If we have already loaded the items, calculate profit from them
     if (sale.items && sale.items.length > 0) {
       return sale.items.reduce((totalProfit, item) => {
-        // Calculate profit for this item
+        // Get the purchase price (cost) of the item
         const purchasePrice = item.product?.purchase_price || 0
-        const itemProfit = (item.price - purchasePrice) * item.quantity
+
+        // Check if discount exists on the item
+        const discount = item.discount || 0
+
+        // Calculate the actual selling price after discount
+        const priceAfterDiscount = item.price * (1 - discount / 100)
+
+        // Calculate profit per unit after discount
+        const profitPerUnit = priceAfterDiscount - purchasePrice
+
+        // Calculate total profit for this item
+        const itemProfit = profitPerUnit * item.quantity
+
         return totalProfit + itemProfit
       }, 0)
     }
@@ -1039,12 +1053,17 @@ const SalesPage = () => {
                                 <div className="flex items-center text-sm text-muted-foreground">
                                   <span>
                                     {formatCurrency(item.price, currentCurrency, language)} × {item.quantity}
+                                    {(item.discount ?? 0) > 0 && ` (-${item.discount}%)`}
                                   </span>
                                 </div>
                               </div>
                             </div>
                             <p className="font-medium">
-                              {formatCurrency(item.price * item.quantity, currentCurrency, language)}
+                              {formatCurrency(
+                                item.price * item.quantity * (1 - (item.discount ?? 0) / 100),
+                                currentCurrency,
+                                language,
+                              )}
                             </p>
                           </div>
                         ))}
