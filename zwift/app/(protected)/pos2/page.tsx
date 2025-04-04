@@ -56,6 +56,14 @@ interface PosCartItem extends Omit<CartItem, "product"> {
   profitAfterDiscount: number
 }
 
+// Add this function to play the beep sound after a successful scan
+const playBeepSound = () => {
+  const audio = new Audio("/beep.mp3")
+  audio.play().catch((error) => {
+    console.error("Error playing beep sound:", error)
+  })
+}
+
 export default function POSPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [recentlyScannedProducts, setRecentlyScannedProducts] = useState<Product[]>([])
@@ -106,10 +114,12 @@ export default function POSPage() {
   // Add this function before the originalProfit and profitAfterDiscount calculations
   const calculateItemProfit = (item: PosCartItem): number => {
     const purchasePrice = item.product.purchase_price || 0
-    // Calculate profit per unit after discount
+    // Calculate the discounted price per unit
     const priceAfterDiscount = item.price * (1 - item.discount / 100)
+    // Calculate profit per unit (can be negative if discount makes price lower than cost)
+    const profitPerUnit = priceAfterDiscount - purchasePrice
     // Calculate total profit for this item quantity
-    return (priceAfterDiscount - purchasePrice) * item.quantity
+    return profitPerUnit * item.quantity
   }
 
   // Then use it in the calculations
@@ -306,7 +316,7 @@ export default function POSPage() {
             : item,
         )
       } else {
-        // Add new item to cart
+        // Add new item to cart at the beginning of the array
         const originalProfit = (product.price - purchasePrice) * 1 // For 1 quantity
         const profitAfterDiscount = originalProfit // No discount initially
 
@@ -329,7 +339,7 @@ export default function POSPage() {
           originalProfit,
           profitAfterDiscount,
         }
-        return [...prevCart, newItem]
+        return [newItem, ...prevCart] // Add new item at the beginning
       }
     })
 
@@ -369,7 +379,13 @@ export default function POSPage() {
         if (item.id === itemId) {
           const purchasePrice = item.product.purchase_price || 0
           const originalProfit = (item.price - purchasePrice) * item.quantity
-          const profitAfterDiscount = originalProfit * (1 - discount / 100)
+
+          // Calculate the discounted price per unit
+          const priceAfterDiscount = item.price * (1 - discount / 100)
+          // Calculate profit per unit after discount
+          const profitPerUnit = priceAfterDiscount - purchasePrice
+          // Calculate total profit for this item quantity
+          const profitAfterDiscount = profitPerUnit * item.quantity
 
           return {
             ...item,
@@ -529,6 +545,9 @@ export default function POSPage() {
             addToCart(results[0])
             setBarcodeSearchTerm("") // Clear search field
 
+            // Play beep sound for successful scan
+            playBeepSound()
+
             // Add to recently scanned products
             setRecentlyScannedProducts((prev) => {
               const filtered = prev.filter((p) => p.id !== results[0].id)
@@ -566,6 +585,9 @@ export default function POSPage() {
             // If exactly one product found, add it to cart
             addToCart(results[0])
             setBarcodeSearchTerm("") // Clear search field
+
+            // Play beep sound for successful scan
+            playBeepSound()
 
             // Add to recently scanned products
             setRecentlyScannedProducts((prev) => {
