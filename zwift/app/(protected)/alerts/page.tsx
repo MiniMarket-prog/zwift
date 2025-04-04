@@ -37,6 +37,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useLanguage } from "@/hooks/use-language"
 import { formatCurrency } from "@/lib/format-currency"
+import { jsPDF } from "jspdf"
+import "jspdf-autotable"
+
+// Add this type import at the top of the file, after the other imports
+import type { CellHookData } from "jspdf-autotable"
 
 // Add these types at the top of the file, after the imports
 type Product = {
@@ -48,11 +53,20 @@ type Product = {
   min_stock: number
   category_id?: string | null
   image?: string | null
+  purchase_price?: number | null
 }
 
 type Category = {
   id: string
   name: string
+}
+
+// Add this type for jsPDF with autotable extensions
+interface JsPDFWithAutoTable extends jsPDF {
+  autoTable: (options: any) => any
+  lastAutoTable: {
+    finalY: number
+  }
 }
 
 const AlertsPage = () => {
@@ -83,6 +97,9 @@ const AlertsPage = () => {
   const [isExporting, setIsExporting] = useState(false)
   const [isExportingPDF, setIsExportingPDF] = useState(false)
   const [totalProductCount, setTotalProductCount] = useState(0)
+
+  // Add a new state for export page count after the other state declarations
+  const [exportPageCount, setExportPageCount] = useState<string>("auto")
 
   // Fetch currency setting
   const fetchCurrency = useCallback(async () => {
@@ -342,12 +359,26 @@ const AlertsPage = () => {
     return filteredProducts.slice(startIndex, endIndex)
   }
 
+  // Add this function to handle export page count change
+  const handleExportPageCountChange = (value: string) => {
+    setExportPageCount(value)
+  }
+
   // Export to CSV function
   const exportToCSV = async () => {
     setIsExporting(true)
     try {
       // Create CSV content
-      const headers = ["Name", "Category", "Barcode", "Price", "Current Stock", "Min Stock", "Stock Needed"]
+      const headers = [
+        "Name",
+        "Category",
+        "Barcode",
+        "Price",
+        "Purchase Price",
+        "Current Stock",
+        "Min Stock",
+        "Stock Needed",
+      ]
 
       const csvRows = [headers]
 
@@ -360,6 +391,7 @@ const AlertsPage = () => {
           categoryName,
           product.barcode || "N/A",
           product.price.toString(),
+          product.purchase_price?.toString() || "N/A",
           product.stock.toString(),
           product.min_stock.toString(),
           stockNeeded.toString(),
@@ -421,11 +453,16 @@ const AlertsPage = () => {
     setIsExportingPDF(true)
     try {
       // Dynamically import jsPDF to avoid SSR issues
-      const { jsPDF } = await import("jspdf")
-      const { default: autoTable } = await import("jspdf-autotable")
+      // const { jsPDF } = await import("jspdf")
+      // const { default: autoTable } = await import("jspdf-autotable")
 
       // Create a new PDF document
-      const doc = new jsPDF()
+      const doc = new jsPDF({
+        orientation: "landscape",
+      }) as JsPDFWithAutoTable
+
+      // Set standard font that works better with non-Latin characters
+      doc.setFont("helvetica")
 
       // Add title
       doc.setFontSize(18)
@@ -469,6 +506,7 @@ const AlertsPage = () => {
         "Category",
         "Barcode",
         "Price",
+        "Purchase Price",
         "Current Stock",
         "Min Stock",
         "Stock Needed",
@@ -479,70 +517,202 @@ const AlertsPage = () => {
         const stockNeeded = product.min_stock - product.stock
         const categoryName = getCategoryName(product.category_id)
         const price = formatCurrency(product.price, currentCurrency, language)
+        const purchasePrice = product.purchase_price
+          ? formatCurrency(product.purchase_price, currentCurrency, language)
+          : "N/A"
 
         return [
-          "", // Placeholder for image that will be added in didDrawCell
+          "", // Empty first column for images
           product.name,
           categoryName,
           product.barcode || "N/A",
           price,
+          purchasePrice,
           product.stock.toString(),
           product.min_stock.toString(),
           stockNeeded.toString(),
         ]
       })
 
-      // Add table to document
-      autoTable(doc, {
-        head: [tableColumn],
-        body: tableRows,
-        startY: 45,
-        styles: { fontSize: 10, cellPadding: 3 },
-        headStyles: { fillColor: [41, 128, 185], textColor: 255 },
-        alternateRowStyles: { fillColor: [245, 245, 245] },
-        margin: { top: 45 },
-        columnStyles: {
-          0: { cellWidth: 20 }, // Image column width
-        },
-        didDrawCell: (data) => {
-          // Only add images in the first column (index 0) and not in header
-          if (data.column.index === 0 && data.row.index >= 0 && data.row.index < filteredProducts.length) {
-            const product = filteredProducts[data.row.index]
-            const base64Image = imageMap.get(data.row.index)
+      // Determine font size and row height based on exportPageCount
+      let fontSize = 10
+      let cellPadding = 3
+      let imgWidth = 15
+      let imgHeight = 15
 
-            if (base64Image) {
-              try {
-                // Calculate cell center position
-                const centerX = data.cell.x + data.cell.width / 2
-                const centerY = data.cell.y + data.cell.height / 2
+      // If user selected a specific page count (not "auto")
+      if (exportPageCount !== "auto") {
+        const pageCount = Number.parseInt(exportPageCount, 10)
+        if (!isNaN(pageCount) && pageCount > 0) {
+          // Calculate how many rows we need to fit per page
+          const rowsPerPage = Math.ceil(filteredProducts.length / pageCount)
 
-                // Calculate dimensions to fit in cell while maintaining aspect ratio
-                const maxWidth = data.cell.width - 4
-                const maxHeight = data.cell.height - 4
-
-                // Add image to PDF
-                doc.addImage(base64Image, "JPEG", data.cell.x + 2, data.cell.y + 2, maxWidth, maxHeight)
-              } catch (error) {
-                console.error("Error adding image to PDF:", error)
-                // Draw a placeholder if image fails to load
-                doc.setFillColor(240, 240, 240)
-                doc.rect(data.cell.x + 2, data.cell.y + 2, data.cell.width - 4, data.cell.height - 4, "F")
-              }
-            } else {
-              // Draw a placeholder for products without images
-              doc.setFillColor(240, 240, 240)
-              doc.rect(data.cell.x + 2, data.cell.y + 2, data.cell.width - 4, data.cell.height - 4, "F")
-            }
+          // Adjust font size and cell padding based on rows per page
+          if (rowsPerPage > 30) {
+            fontSize = 7
+            cellPadding = 1
+            imgWidth = 10
+            imgHeight = 10
+          } else if (rowsPerPage > 20) {
+            fontSize = 8
+            cellPadding = 2
+            imgWidth = 12
+            imgHeight = 12
           }
-        },
-      })
+
+          // For single page, make everything even smaller if needed
+          if (pageCount === 1 && filteredProducts.length > 40) {
+            fontSize = 6
+            cellPadding = 1
+            imgWidth = 8
+            imgHeight = 8
+          }
+        }
+      }
+
+      // If user selected a specific page count, calculate rows per page
+      if (exportPageCount !== "auto") {
+        const pageCount = Number.parseInt(exportPageCount, 10)
+        if (!isNaN(pageCount) && pageCount > 0) {
+          // Calculate rows per page
+          const rowsPerPage = Math.ceil(filteredProducts.length / pageCount)
+
+          // Split the data into chunks for each page
+          for (let page = 0; page < pageCount; page++) {
+            const startIdx = page * rowsPerPage
+            const endIdx = Math.min(startIdx + rowsPerPage, filteredProducts.length)
+
+            if (startIdx >= filteredProducts.length) break
+
+            const pageRows = tableRows.slice(startIdx, endIdx)
+
+            // Create a table for this page
+            doc.autoTable({
+              head: [tableColumn],
+              body: pageRows,
+              startY: page === 0 ? 45 : undefined, // Only set startY for first page
+              styles: {
+                fontSize: fontSize,
+                cellPadding: cellPadding,
+                font: "helvetica",
+                overflow: "linebreak",
+                cellWidth: "wrap",
+              },
+              headStyles: {
+                fillColor: [41, 128, 185] as [number, number, number],
+                textColor: 255,
+              },
+              alternateRowStyles: { fillColor: [245, 245, 245] },
+              margin: { top: 45 },
+              columnStyles: {
+                0: { cellWidth: imgWidth + 10 }, // Image column width
+                1: { cellWidth: "auto" }, // Name
+                2: { cellWidth: "auto" }, // Category
+                3: { cellWidth: "auto" }, // Barcode
+                4: { cellWidth: "auto" }, // Price
+                5: { cellWidth: "auto" }, // Purchase Price
+                6: { cellWidth: 20 }, // Current Stock
+                7: { cellWidth: 20 }, // Min Stock
+                8: { cellWidth: 20 }, // Stock Needed
+              },
+              didDrawCell: (data: CellHookData) => {
+                // Only add images in the first column (index 0) and in the body section (not header)
+                if (data.column.index === 0 && data.section === "body" && data.row.index !== undefined) {
+                  const rowIndex = startIdx + data.row.index
+
+                  // Make sure we have a valid row index
+                  if (rowIndex >= 0 && rowIndex < filteredProducts.length) {
+                    const base64Image = imageMap.get(rowIndex)
+
+                    if (base64Image) {
+                      try {
+                        // Calculate cell dimensions
+                        const cellWidth = data.cell.width
+                        const cellHeight = data.cell.height
+
+                        // Calculate position to center the image in the cell
+                        const x = data.cell.x + (cellWidth - imgWidth) / 2
+                        const y = data.cell.y + (cellHeight - imgHeight) / 2
+
+                        // Add image to PDF
+                        doc.addImage(base64Image, "JPEG", x, y, imgWidth, imgHeight)
+                      } catch (error) {
+                        console.error("Error adding image to PDF:", error)
+                      }
+                    }
+                  }
+                }
+              },
+            })
+          }
+        }
+      } else {
+        // Auto page mode - just create one table and let jsPDF handle pagination
+        doc.autoTable({
+          head: [tableColumn],
+          body: tableRows,
+          startY: 45,
+          styles: {
+            fontSize: fontSize,
+            cellPadding: cellPadding,
+            font: "helvetica",
+            overflow: "linebreak",
+            cellWidth: "wrap",
+          },
+          headStyles: {
+            fillColor: [41, 128, 185] as [number, number, number],
+            textColor: 255,
+          },
+          alternateRowStyles: { fillColor: [245, 245, 245] },
+          margin: { top: 45 },
+          columnStyles: {
+            0: { cellWidth: imgWidth + 10 }, // Image column width
+            1: { cellWidth: "auto" }, // Name
+            2: { cellWidth: "auto" }, // Category
+            3: { cellWidth: "auto" }, // Barcode
+            4: { cellWidth: "auto" }, // Price
+            5: { cellWidth: "auto" }, // Purchase Price
+            6: { cellWidth: 20 }, // Current Stock
+            7: { cellWidth: 20 }, // Min Stock
+            8: { cellWidth: 20 }, // Stock Needed
+          },
+          didDrawCell: (data: CellHookData) => {
+            // Only add images in the first column (index 0) and in the body section (not header)
+            if (data.column.index === 0 && data.section === "body") {
+              const rowIndex = data.row.index
+
+              // Make sure we have a valid row index
+              if (rowIndex !== undefined && rowIndex >= 0 && rowIndex < filteredProducts.length) {
+                const base64Image = imageMap.get(rowIndex)
+
+                if (base64Image) {
+                  try {
+                    // Calculate cell dimensions
+                    const cellWidth = data.cell.width
+                    const cellHeight = data.cell.height
+
+                    // Calculate position to center the image in the cell
+                    const x = data.cell.x + (cellWidth - imgWidth) / 2
+                    const y = data.cell.y + (cellHeight - imgHeight) / 2
+
+                    // Add image to PDF
+                    doc.addImage(base64Image, "JPEG", x, y, imgWidth, imgHeight)
+                  } catch (error) {
+                    console.error("Error adding image to PDF:", error)
+                  }
+                }
+              }
+            }
+          },
+        })
+      }
 
       // Save the PDF
       doc.save(`low_stock_report_${new Date().toISOString().split("T")[0]}.pdf`)
 
       toast({
         title: "Export Successful",
-        description: `${filteredProducts.length} products exported to PDF`,
+        description: `${filteredProducts.length} products exported to PDF (${exportPageCount === "auto" ? "auto-paged" : exportPageCount + " page(s)"})`,
       })
     } catch (error) {
       console.error("Error exporting data to PDF:", error)
@@ -604,6 +774,18 @@ const AlertsPage = () => {
             </div>
 
             <div className="flex gap-2">
+              <Select value={exportPageCount} onValueChange={handleExportPageCountChange}>
+                <SelectTrigger className="w-[150px]">
+                  <SelectValue placeholder="PDF Pages" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto (Default)</SelectItem>
+                  <SelectItem value="1">Single Page</SelectItem>
+                  <SelectItem value="2">Two Pages</SelectItem>
+                  <SelectItem value="3">Three Pages</SelectItem>
+                  <SelectItem value="5">Five Pages</SelectItem>
+                </SelectContent>
+              </Select>
               <Button variant="outline" onClick={exportToCSV} disabled={isExporting || filteredProducts.length === 0}>
                 {isExporting ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
