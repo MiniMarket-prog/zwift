@@ -20,6 +20,7 @@ import {
   AlertCircle,
   Star,
   StarOff,
+  Barcode,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -61,6 +62,7 @@ export default function POSPage() {
   const [recentlySoldProducts, setRecentlySoldProducts] = useState<Product[]>([])
   const [cart, setCart] = useState<PosCartItem[]>([])
   const [searchTerm, setSearchTerm] = useState("")
+  const [barcodeSearchTerm, setBarcodeSearchTerm] = useState("")
   const [isLoading, setIsLoading] = useState(true)
   const [settings, setSettings] = useState({
     tax_rate: 0.08,
@@ -84,7 +86,9 @@ export default function POSPage() {
 
   // Refs
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const barcodeTimeoutRef = useRef<any>(null)
+  const barcodeSearchInputRef = useRef<HTMLInputElement>(null)
+  const searchTimeout = useRef<NodeJS.Timeout | null>(null)
+  const barcodeTimeout = useRef<NodeJS.Timeout | null>(null)
 
   // Calculate cart totals
   const cartItemCount = cart.reduce((total, item) => total + item.quantity, 0)
@@ -119,10 +123,10 @@ export default function POSPage() {
   }, 0)
   const total = subtotal + tax
 
-  // Auto-focus search input on page load
+  // Auto-focus barcode search input on page load
   useEffect(() => {
-    if (searchInputRef.current) {
-      searchInputRef.current.focus()
+    if (barcodeSearchInputRef.current) {
+      barcodeSearchInputRef.current.focus()
     }
   }, [])
 
@@ -329,17 +333,9 @@ export default function POSPage() {
       }
     })
 
-    // Reset search field after adding product
-    setSearchTerm("")
-
     // Set last added product for animation
     setLastAddedProduct(product.id)
     setTimeout(() => setLastAddedProduct(null), 1000)
-
-    // Refocus search input
-    if (searchInputRef.current) {
-      searchInputRef.current.focus()
-    }
   }
 
   // Update item quantity
@@ -480,39 +476,58 @@ export default function POSPage() {
     }).format(date)
   }
 
-  // Handle search input change with barcode scanner detection
-  const handleSearchChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle search input change
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
     setSearchTerm(value)
 
-    // Clear any existing timeout
-    if (barcodeTimeoutRef.current) {
-      clearTimeout(barcodeTimeoutRef.current)
+    // Clear any pending search timeout
+    if (searchTimeout.current) {
+      clearTimeout(searchTimeout.current)
     }
 
-    // Store the last scan time to prevent duplicate scans
-    const now = Date.now()
-    const lastScanTime = barcodeTimeoutRef.current ? Number(barcodeTimeoutRef.current) || 0 : 0
+    // Debounce search to avoid too many requests
+    searchTimeout.current = setTimeout(async () => {
+      if (value.trim() !== "") {
+        setIsSearching(true)
+        try {
+          const results = await searchProducts(value)
+          setProducts(results)
+          setActiveTab("recent") // Show on main tab
+        } catch (error) {
+          console.error("Error searching products:", error)
+        } finally {
+          setIsSearching(false)
+        }
+      } else {
+        setProducts([])
+      }
+    }, 300)
+  }
 
-    // If this is a barcode scan (fast input within 100ms of last scan), ignore it
-    if (now - lastScanTime < 100 && value.length > lastSearchLength) {
-      console.log("Ignoring potential duplicate scan")
-      return
+  // Handle barcode search input change
+  const handleBarcodeSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    setBarcodeSearchTerm(value)
+
+    // Clear any pending barcode timeout
+    if (barcodeTimeout.current) {
+      clearTimeout(barcodeTimeout.current)
     }
 
     // If the input is likely from a barcode scanner (fast input)
     // we'll automatically search after a short delay
-    barcodeTimeoutRef.current = setTimeout(async () => {
-      if (value.length > 5) {
-        // Most barcodes are longer than 5 characters
+    barcodeTimeout.current = setTimeout(async () => {
+      if (value.trim() !== "") {
         setIsSearching(true)
         try {
           const results = await searchProducts(value)
-          console.log("Search results:", results) // Log to check stock values
+          console.log("Barcode search results:", results)
+
           if (results.length === 1) {
             // If exactly one product found, add it to cart
             addToCart(results[0])
-            setSearchTerm("") // Clear search field
+            setBarcodeSearchTerm("") // Clear search field
 
             // Add to recently scanned products
             setRecentlyScannedProducts((prev) => {
@@ -533,30 +548,53 @@ export default function POSPage() {
           setIsSearching(false)
         }
       }
-    }, 300) // 300ms delay to detect if it's a barcode scanner
-
-    // For regular typing search (not barcode), search after a short delay
-    if (value.length > 0) {
-      barcodeTimeoutRef.current = setTimeout(async () => {
-        setIsSearching(true)
-        try {
-          const results = await searchProducts(value)
-          console.log("Search results:", results) // Log to check stock values
-          setProducts(results)
-          setActiveTab("recent") // Show on main tab
-        } catch (error) {
-          console.error("Error searching products:", error)
-        } finally {
-          setIsSearching(false)
-        }
-      }, 500) // 500ms delay for regular typing
-    }
+    }, 300)
   }
 
-  // Add this effect to track the search term length
-  useEffect(() => {
-    setLastSearchLength(searchTerm.length)
-  }, [searchTerm])
+  // Handle barcode search keydown for Enter key
+  const handleBarcodeSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && barcodeSearchTerm.trim() !== "") {
+      e.preventDefault() // Prevent form submission
+
+      // Process the barcode search immediately
+      const processBarcode = async () => {
+        setIsSearching(true)
+        try {
+          const results = await searchProducts(barcodeSearchTerm)
+
+          if (results.length === 1) {
+            // If exactly one product found, add it to cart
+            addToCart(results[0])
+            setBarcodeSearchTerm("") // Clear search field
+
+            // Add to recently scanned products
+            setRecentlyScannedProducts((prev) => {
+              const filtered = prev.filter((p) => p.id !== results[0].id)
+              return [results[0], ...filtered].slice(0, 10)
+            })
+          } else if (results.length > 1) {
+            // If multiple products found, show them
+            setProducts(results)
+            setActiveTab("recent") // Show on main tab
+          } else {
+            // No products found
+            setProducts([])
+          }
+        } catch (error) {
+          console.error("Error processing barcode:", error)
+        } finally {
+          setIsSearching(false)
+
+          // Refocus the barcode input for the next scan
+          if (barcodeSearchInputRef.current) {
+            barcodeSearchInputRef.current.focus()
+          }
+        }
+      }
+
+      processBarcode()
+    }
+  }
 
   return (
     <TooltipProvider>
@@ -564,16 +602,17 @@ export default function POSPage() {
         {/* Products Section */}
         <div className="w-full md:w-2/3 p-4 overflow-auto">
           <div className="mb-4">
-            <div className="relative flex items-center">
-              <div className="relative flex-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {/* Product search input */}
+              <div className="relative flex items-center">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   ref={searchInputRef}
                   type="search"
-                  placeholder="Search products or scan barcode..."
+                  placeholder="Search products by name..."
                   className="pl-10 pr-10 h-12 text-lg rounded-full border-primary/20 focus-visible:ring-primary/30"
                   value={searchTerm}
-                  onChange={handleSearchChange}
+                  onChange={handleSearch}
                 />
                 {searchTerm && (
                   <button
@@ -589,9 +628,33 @@ export default function POSPage() {
                   </button>
                 )}
               </div>
-              <Button variant="ghost" size="icon" className="ml-2 rounded-full" onClick={() => {}}>
-                <Scan className="h-5 w-5" />
-              </Button>
+
+              {/* Barcode search input */}
+              <div className="relative flex items-center">
+                <Barcode className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  ref={barcodeSearchInputRef}
+                  type="search"
+                  placeholder="Scan barcode..."
+                  className="pl-10 pr-10 h-12 text-lg rounded-full border-primary/20 focus-visible:ring-primary/30"
+                  value={barcodeSearchTerm}
+                  onChange={handleBarcodeSearch}
+                  onKeyDown={handleBarcodeSearchKeyDown}
+                />
+                {barcodeSearchTerm && (
+                  <button
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      setBarcodeSearchTerm("")
+                      if (barcodeSearchInputRef.current) {
+                        barcodeSearchInputRef.current.focus()
+                      }
+                    }}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
