@@ -347,7 +347,7 @@ const AlertsPage = () => {
     setIsExporting(true)
     try {
       // Create CSV content
-      const headers = ["Name", "Category", "Price", "Current Stock", "Min Stock", "Stock Needed"]
+      const headers = ["Name", "Category", "Barcode", "Price", "Current Stock", "Min Stock", "Stock Needed"]
 
       const csvRows = [headers]
 
@@ -358,6 +358,7 @@ const AlertsPage = () => {
         const row = [
           product.name,
           categoryName,
+          product.barcode || "N/A",
           product.price.toString(),
           product.stock.toString(),
           product.min_stock.toString(),
@@ -395,6 +396,26 @@ const AlertsPage = () => {
     }
   }
 
+  // Helper function to convert image URL to base64
+  const getImageAsBase64 = async (url: string): Promise<string> => {
+    try {
+      // Fetch the image
+      const response = await fetch(url)
+      const blob = await response.blob()
+
+      // Convert blob to base64
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(reader.result as string)
+        reader.onerror = reject
+        reader.readAsDataURL(blob)
+      })
+    } catch (error) {
+      console.error("Error converting image to base64:", error)
+      return ""
+    }
+  }
+
   // Export to PDF function
   const exportToPDF = async () => {
     setIsExportingPDF(true)
@@ -417,16 +438,53 @@ const AlertsPage = () => {
       // Add total count
       doc.text(`Total Products: ${filteredProducts.length}`, 14, 38)
 
+      // Pre-load all images as base64 before creating the table
+      const imagePromises = filteredProducts.map(async (product, index) => {
+        if (product.image) {
+          try {
+            // Convert image URL to base64
+            const base64Image = await getImageAsBase64(product.image)
+            return { index, base64Image }
+          } catch (error) {
+            console.error(`Error loading image for product ${product.name}:`, error)
+            return { index, base64Image: null }
+          }
+        }
+        return { index, base64Image: null }
+      })
+
+      // Wait for all images to load
+      const imageResults = await Promise.all(imagePromises)
+
+      // Create a map of product index to base64 image
+      const imageMap = new Map<number, string | null>()
+      imageResults.forEach((result) => {
+        imageMap.set(result.index, result.base64Image)
+      })
+
       // Prepare table data
-      const tableColumn = ["Name", "Category", "Price", "Current Stock", "Min Stock", "Stock Needed"]
+      const tableColumn = [
+        "Image",
+        "Name",
+        "Category",
+        "Barcode",
+        "Price",
+        "Current Stock",
+        "Min Stock",
+        "Stock Needed",
+      ]
+
+      // Create table rows
       const tableRows = filteredProducts.map((product) => {
         const stockNeeded = product.min_stock - product.stock
         const categoryName = getCategoryName(product.category_id)
         const price = formatCurrency(product.price, currentCurrency, language)
 
         return [
+          "", // Placeholder for image that will be added in didDrawCell
           product.name,
           categoryName,
+          product.barcode || "N/A",
           price,
           product.stock.toString(),
           product.min_stock.toString(),
@@ -443,6 +501,40 @@ const AlertsPage = () => {
         headStyles: { fillColor: [41, 128, 185], textColor: 255 },
         alternateRowStyles: { fillColor: [245, 245, 245] },
         margin: { top: 45 },
+        columnStyles: {
+          0: { cellWidth: 20 }, // Image column width
+        },
+        didDrawCell: (data) => {
+          // Only add images in the first column (index 0) and not in header
+          if (data.column.index === 0 && data.row.index >= 0 && data.row.index < filteredProducts.length) {
+            const product = filteredProducts[data.row.index]
+            const base64Image = imageMap.get(data.row.index)
+
+            if (base64Image) {
+              try {
+                // Calculate cell center position
+                const centerX = data.cell.x + data.cell.width / 2
+                const centerY = data.cell.y + data.cell.height / 2
+
+                // Calculate dimensions to fit in cell while maintaining aspect ratio
+                const maxWidth = data.cell.width - 4
+                const maxHeight = data.cell.height - 4
+
+                // Add image to PDF
+                doc.addImage(base64Image, "JPEG", data.cell.x + 2, data.cell.y + 2, maxWidth, maxHeight)
+              } catch (error) {
+                console.error("Error adding image to PDF:", error)
+                // Draw a placeholder if image fails to load
+                doc.setFillColor(240, 240, 240)
+                doc.rect(data.cell.x + 2, data.cell.y + 2, data.cell.width - 4, data.cell.height - 4, "F")
+              }
+            } else {
+              // Draw a placeholder for products without images
+              doc.setFillColor(240, 240, 240)
+              doc.rect(data.cell.x + 2, data.cell.y + 2, data.cell.width - 4, data.cell.height - 4, "F")
+            }
+          }
+        },
       })
 
       // Save the PDF
