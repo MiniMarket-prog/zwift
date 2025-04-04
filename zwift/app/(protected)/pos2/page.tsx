@@ -32,7 +32,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Progress } from "@/components/ui/progress"
-import { cn } from "@/lib/utils2"
+import { cn } from "@/lib/utils"
 import {
   createSale,
   getSettings,
@@ -75,6 +75,7 @@ export default function POSPage() {
   const [favoriteProducts, setFavoriteProducts] = useState<Product[]>([])
   const [userId, setUserId] = useState<string | null>(null)
   const [productFavorites, setProductFavorites] = useState<Record<string, boolean>>({})
+  const [lastSearchLength, setLastSearchLength] = useState(0)
 
   // Checkout dialog state
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false)
@@ -83,7 +84,7 @@ export default function POSPage() {
 
   // Refs
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const barcodeTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const barcodeTimeoutRef = useRef<any>(null)
 
   // Calculate cart totals
   const cartItemCount = cart.reduce((total, item) => total + item.quantity, 0)
@@ -489,6 +490,16 @@ export default function POSPage() {
       clearTimeout(barcodeTimeoutRef.current)
     }
 
+    // Store the last scan time to prevent duplicate scans
+    const now = Date.now()
+    const lastScanTime = barcodeTimeoutRef.current ? Number(barcodeTimeoutRef.current) || 0 : 0
+
+    // If this is a barcode scan (fast input within 100ms of last scan), ignore it
+    if (now - lastScanTime < 100 && value.length > lastSearchLength) {
+      console.log("Ignoring potential duplicate scan")
+      return
+    }
+
     // If the input is likely from a barcode scanner (fast input)
     // we'll automatically search after a short delay
     barcodeTimeoutRef.current = setTimeout(async () => {
@@ -541,6 +552,11 @@ export default function POSPage() {
       }, 500) // 500ms delay for regular typing
     }
   }
+
+  // Add this effect to track the search term length
+  useEffect(() => {
+    setLastSearchLength(searchTerm.length)
+  }, [searchTerm])
 
   return (
     <TooltipProvider>

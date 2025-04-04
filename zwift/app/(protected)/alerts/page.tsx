@@ -20,6 +20,7 @@ import {
 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { createClient } from "@/lib/supabase-client"
+import { getLowStockProducts } from "@/lib/supabase" // Import the same function used in the POS page
 
 // First, let's add imports for the dialog and other components we'll need
 import {
@@ -81,6 +82,7 @@ const AlertsPage = () => {
   const [totalPages, setTotalPages] = useState(1)
   const [isExporting, setIsExporting] = useState(false)
   const [isExportingPDF, setIsExportingPDF] = useState(false)
+  const [totalProductCount, setTotalProductCount] = useState(0)
 
   // Fetch currency setting
   const fetchCurrency = useCallback(async () => {
@@ -99,24 +101,33 @@ const AlertsPage = () => {
     }
   }, [supabase])
 
-  // Fetch low stock products from Supabase
+  // Fetch low stock products using the same function as the POS page
   const fetchLowStockProducts = useCallback(async () => {
     try {
       setIsLoading(true)
-      // Fetch all products
-      const { data, error } = await supabase.from("products").select("*")
 
-      if (error) {
-        throw error
-      }
+      // First, get the total count of products for reference
+      const { count: totalCount } = await supabase.from("products").select("*", { count: "exact", head: true })
 
-      // Filter products where stock is less than min_stock
-      const lowStock = data?.filter((product: Product) => product.stock < product.min_stock) || []
+      setTotalProductCount(totalCount || 0)
+      console.log(`Total products in database: ${totalCount}`)
+
+      // Use the same function as the POS page to get low stock products
+      const lowStock = await getLowStockProducts()
+      console.log(`Found ${lowStock.length} low stock products using getLowStockProducts()`)
+
       setLowStockProducts(lowStock as Product[])
       setFilteredProducts(lowStock as Product[])
 
       // Calculate total pages
       setTotalPages(Math.max(1, Math.ceil(lowStock.length / pageSize)))
+
+      // Initialize edited stock levels
+      const initialStockLevels: Record<string, number> = {}
+      lowStock.forEach((product: Product) => {
+        initialStockLevels[product.id] = product.stock
+      })
+      setEditedStockLevels(initialStockLevels)
     } catch (error) {
       console.error("Error fetching low stock products:", error)
       toast({
@@ -246,6 +257,9 @@ const AlertsPage = () => {
     setIsAdjustDialogOpen(true)
   }
 
+  // State for edited stock levels
+  const [editedStockLevels, setEditedStockLevels] = useState<Record<string, number>>({})
+
   // Add a function to handle stock adjustment
   const handleStockAdjustment = async () => {
     if (!selectedProduct) return
@@ -279,6 +293,17 @@ const AlertsPage = () => {
   // Add a function to increment/decrement stock
   const adjustStock = (amount: number) => {
     setAdjustedStock((prev) => Math.max(0, prev + amount))
+  }
+
+  // Handle stock level change
+  const handleStockChange = (productId: string, value: string) => {
+    const newStock = Number.parseInt(value, 10)
+    if (!isNaN(newStock) && newStock >= 0) {
+      setEditedStockLevels((prev) => ({
+        ...prev,
+        [productId]: newStock,
+      }))
+    }
   }
 
   // Get category name by ID
@@ -452,6 +477,13 @@ const AlertsPage = () => {
       <Card className="mb-6">
         <CardHeader className="pb-3">
           <CardTitle>{getAppTranslation("low_stock_products", language)}</CardTitle>
+          {totalProductCount > 0 && (
+            <div className="text-sm">
+              <p className="text-muted-foreground">
+                Showing {lowStockProducts.length} low stock items out of {totalProductCount} total products
+              </p>
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">

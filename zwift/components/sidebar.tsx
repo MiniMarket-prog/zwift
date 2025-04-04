@@ -98,43 +98,57 @@ export function AppSidebar() {
     // Removed the submenu logic
   }, [pathname])
 
+  // Use a PostgreSQL function to count low stock products
   const fetchUnreadAlerts = useCallback(async () => {
     try {
       console.log("Fetching unread alerts...")
-      const { error: tableError } = await supabase.from("products").select("id").limit(1)
 
-      if (tableError) {
-        console.error("Error checking products table:", tableError)
-        setUnreadAlerts(0)
-        return
+      // Try to use the PostgreSQL function first
+      try {
+        const { data, error } = await supabase.rpc("count_low_stock_products")
+
+        if (!error && data) {
+          // Handle different possible return formats
+          let lowStockCount = 0
+
+          if (Array.isArray(data)) {
+            // If it returns an array with objects that have a count property
+            lowStockCount = data[0]?.count || 0
+          } else if (typeof data === "number") {
+            // If it returns a number directly
+            lowStockCount = data
+          } else if (typeof data === "object" && data !== null && "count" in data) {
+            // If it returns an object with a count property
+            lowStockCount = data.count
+          }
+
+          console.log(`Found ${lowStockCount} products with low stock via RPC`)
+          setUnreadAlerts(lowStockCount)
+          return
+        }
+      } catch (rpcError) {
+        console.error("RPC method failed, falling back to direct query:", rpcError)
       }
 
-      const { data: lowStockData, error } = await supabase.from("products").select("id, stock, min_stock")
+      // Fallback: Use a direct query if the RPC method fails
+      // We'll use a simpler approach - get all products and filter in JavaScript
+      const { data, error } = await supabase.from("products").select("id, stock, min_stock")
 
       if (error) {
         console.error("Error fetching products:", error)
-        setUnreadAlerts(0)
         return
       }
 
+      // Filter products where stock < min_stock in JavaScript
       const lowStockProducts =
-        lowStockData?.filter(
-          (product) =>
-            typeof product.stock === "number" &&
-            typeof product.min_stock === "number" &&
-            product.stock < product.min_stock,
-        ) || []
+        data?.filter((product) => product.stock < product.min_stock || product.stock === null) || []
 
       const lowStockCount = lowStockProducts.length
-
-      console.log(
-        `Found ${lowStockCount} products with low stock:`,
-        lowStockProducts.map((p) => `ID: ${p.id}, Stock: ${p.stock}, Min Stock: ${p.min_stock}`),
-      )
+      console.log(`Found ${lowStockCount} products with low stock via client-side filtering`)
 
       setUnreadAlerts(lowStockCount)
     } catch (error) {
-      console.error("Error fetching unread alerts:", error)
+      console.error("Error in fetchUnreadAlerts:", error)
       setUnreadAlerts(0)
     }
   }, [supabase])
@@ -228,7 +242,7 @@ export function AppSidebar() {
       href: "/alerts",
       label: "alerts" as AppTranslationKey,
       icon: <AlertTriangle className="h-5 w-5" />,
-      badge: unreadAlerts > 0 ? unreadAlerts : null,
+      badge: unreadAlerts, // Remove the conditional check, always show the badge value
     },
     { href: "/sales", label: "sales" as AppTranslationKey, icon: <DollarSign className="h-5 w-5" /> },
     { href: "/products", label: "products" as AppTranslationKey, icon: <Package className="h-5 w-5" /> },
@@ -348,7 +362,7 @@ export function AppSidebar() {
                     >
                       <span className="mr-3">{item.icon}</span>
                       {!isCollapsed && <span>{getTranslation(item.label)}</span>}
-                      {item.badge && (
+                      {item.badge !== undefined && item.badge !== null && item.badge > 0 && (
                         <Badge
                           variant="destructive"
                           className={cn(
