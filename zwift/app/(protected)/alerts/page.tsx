@@ -17,6 +17,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   FileText,
+  Package,
 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { createClient } from "@/lib/supabase-client"
@@ -39,6 +40,7 @@ import { useLanguage } from "@/hooks/use-language"
 import { formatCurrency } from "@/lib/format-currency"
 import { jsPDF } from "jspdf"
 import "jspdf-autotable"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 // Add this type import at the top of the file, after the other imports
 import type { CellHookData } from "jspdf-autotable"
@@ -66,6 +68,22 @@ interface JsPDFWithAutoTable extends jsPDF {
   autoTable: (options: any) => any
   lastAutoTable: {
     finalY: number
+  }
+  internal: {
+    events: any
+    scaleFactor: number
+    pageSize: {
+      width: number
+      getWidth: () => number
+      height: number
+      getHeight: () => number
+    }
+    pages: number[]
+    getEncryptor(objectId: number): (data: string) => string
+    getNumberOfPages: () => number
+    getCurrentPageInfo: () => { pageNumber: number }
+    getFontSize: () => number
+    getStringUnitWidth: (text: string) => number
   }
 }
 
@@ -100,6 +118,9 @@ const AlertsPage = () => {
 
   // Add a new state for export page count after the other state declarations
   const [exportPageCount, setExportPageCount] = useState<string>("auto")
+
+  // State for edited stock levels
+  const [editedStockLevels, setEditedStockLevels] = useState<Record<string, number>>({})
 
   // Fetch currency setting
   const fetchCurrency = useCallback(async () => {
@@ -274,9 +295,6 @@ const AlertsPage = () => {
     setIsAdjustDialogOpen(true)
   }
 
-  // State for edited stock levels
-  const [editedStockLevels, setEditedStockLevels] = useState<Record<string, number>>({})
-
   // Add a function to handle stock adjustment
   const handleStockAdjustment = async () => {
     if (!selectedProduct) return
@@ -339,6 +357,27 @@ const AlertsPage = () => {
     }
 
     return "Uncategorized"
+  }
+
+  // Add this function to handle translation keys safely:
+  // This will help us avoid TypeScript errors with undefined translation keys
+  const getTranslation = (key: string): string => {
+    try {
+      // Try to get the translation using the app's translation system
+      // @ts-ignore - Ignore TypeScript errors for keys not in AppTranslationKey
+      const translated = getAppTranslation(key, language)
+
+      // If the translation is the same as the key, it means no translation was found
+      if (translated === key) {
+        // Return a formatted version of the key as fallback
+        return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase())
+      }
+
+      return translated
+    } catch (error) {
+      // If there's an error, return a formatted version of the key
+      return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase())
+    }
   }
 
   // Handle page size change
@@ -429,22 +468,62 @@ const AlertsPage = () => {
   }
 
   // Helper function to convert image URL to base64
-  const getImageAsBase64 = async (url: string): Promise<string> => {
+  const getImageAsBase64Helper = async (url: string): Promise<string> => {
     try {
-      // Fetch the image
-      const response = await fetch(url)
-      const blob = await response.blob()
+      // For local images or images from the same origin
+      if (url.startsWith("/") || url.startsWith(window.location.origin)) {
+        try {
+          const response = await fetch(url, {
+            mode: "cors",
+            cache: "no-cache",
+            headers: {
+              "Cache-Control": "no-cache",
+            },
+          })
 
-      // Convert blob to base64
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onloadend = () => resolve(reader.result as string)
-        reader.onerror = reject
-        reader.readAsDataURL(blob)
-      })
+          if (response.ok) {
+            const blob = await response.blob()
+            return new Promise((resolve) => {
+              const reader = new FileReader()
+              reader.onloadend = () => resolve(reader.result as string)
+              reader.readAsDataURL(blob)
+            })
+          }
+        } catch (error) {
+          console.error("Error fetching local image:", error)
+        }
+      }
+
+      // For external images, try with a proxy or CORS-anywhere service
+      try {
+        // Try using a CORS proxy if available
+        const proxyUrl = `https://cors-anywhere.herokuapp.com/${url}`
+        const response = await fetch(proxyUrl, {
+          mode: "cors",
+          headers: {
+            "X-Requested-With": "XMLHttpRequest",
+          },
+        })
+
+        if (response.ok) {
+          const blob = await response.blob()
+          return new Promise((resolve) => {
+            const reader = new FileReader()
+            reader.onloadend = () => resolve(reader.result as string)
+            reader.readAsDataURL(blob)
+          })
+        }
+      } catch (error) {
+        console.error("Error fetching image via proxy:", error)
+      }
+
+      // If all attempts fail, return a placeholder image
+      console.log("Using placeholder image for:", url)
+      return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAACXBIWXMAAAsTAAALEwEAmpwYAAABWklEQVR4nO2UO0sDQRDHf3O5BARjoUUECx/gq7ARTMRC0N7CT2Fnb2FjZ2FnI1gKfgCx00YsxFLFwkcpaiGKj7vdGYtEuNzlLgbBwj8s7Oz8Z2b/O7OwoP+uQEFnTeAYaAEGmAIjwHqsYAJYBPaBGjBt/TpwCMwBo8CyFewAFWAXGPB8FWADmLHiTWAVOLHiVWAZWABKwBGwZn0bwDwwB+wAh8A2cAMsAXnP9wDcAVfAJXAGnAIXwLMVvwGPwD1wC9wBLaDu5W0Cj8A9cApcAhfAM/AeCbSBd6BlRXXgCrgGnoAH4A64Bd7sXBNoAk2gYUVvQMPO1YEX4NXGfAJdoAMEkUAX6Nh5Y+c7QGDnP4Au0LPzPc/fBbqRQM/z9zx/L+YLYr4g5gv+RyAHlIEpYBwYA0aAYaAIFIB8IpEQkUQiISKJhIgkEiKSSIhIIiEiiYSIJBIikkiISCIhIomEiPRrfQEVnA7CFsZPFAAAAABJRU5ErkJggg=="
     } catch (error) {
       console.error("Error converting image to base64:", error)
-      return ""
+      // Return a simple placeholder image on error
+      return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAACXBIWXMAAAsTAAALEwEAmpwYAAABWklEQVR4nO2UO0sDQRDHf3O5BARjoUUECx/gq7ARTMRC0N7CT2Fnb2FjZ2FjZ2FnI1gKfgCx00YsxFLFwkcpaiGKj7vdGYtEuNzlLgbBwj8s7Oz8Z2b/O7OwoP+uQEFnTeAYaAEGmAIjwHqsYAJYBPaBGjBt/TpwCMwBo8CyFewAFWAXGPB8FWADmLHiTWAVOLHiVWAZWABKwBGwZn0bwDwwB+wAh8A2cAMsAXnP9wDcAVfAJXAGnAIXwLMVvwGPwD1wC9wBLaDu5W0Cj8A9cApcAhfAM/AeCbSBd6BlRXXgCrgGnoAH4A64Bd7sXBNoAk2gYUVvQMPO1YEX4NXGfAJdoAMEkUAX6Nh5Y+c7QGDnP4Au0LPzPc/fBbqRQM/z9zx/L+YLYr4g5gv+RyAHlIEpYBwYA0aAYaAIFIB8IpEQkUQiISKJhIgkEiKSSIhIIiEiiYSIJBIikkiISCIhIomEiPRrfQEVnA7CFsZPFAAAAABJRU5ErkJggg=="
     }
   }
 
@@ -452,16 +531,21 @@ const AlertsPage = () => {
   const exportToPDF = async () => {
     setIsExportingPDF(true)
     try {
-      // Dynamically import jsPDF to avoid SSR issues
-      // const { jsPDF } = await import("jspdf")
-      // const { default: autoTable } = await import("jspdf-autotable")
-
       // Create a new PDF document
       const doc = new jsPDF({
-        orientation: "landscape",
+        orientation: "portrait", // Changed from landscape to portrait
+        unit: "mm",
+        format: "a4",
       }) as JsPDFWithAutoTable
 
-      // Set standard font that works better with non-Latin characters
+      // Set RTL mode if using Arabic
+      if (isRTL || language.startsWith("ar")) {
+        doc.setR2L(true)
+        // Additional RTL configuration for better Arabic support
+        doc.setLanguage("ar")
+      }
+
+      // Use standard font - we'll handle Arabic text differently
       doc.setFont("helvetica")
 
       // Add title
@@ -475,12 +559,12 @@ const AlertsPage = () => {
       // Add total count
       doc.text(`Total Products: ${filteredProducts.length}`, 14, 38)
 
-      // Pre-load all images as base64 before creating the table
+      // Pre-process images - handle CORS issues by skipping problematic images
       const imagePromises = filteredProducts.map(async (product, index) => {
         if (product.image) {
           try {
             // Convert image URL to base64
-            const base64Image = await getImageAsBase64(product.image)
+            const base64Image = await getImageAsBase64Helper(product.image)
             return { index, base64Image }
           } catch (error) {
             console.error(`Error loading image for product ${product.name}:`, error)
@@ -523,7 +607,7 @@ const AlertsPage = () => {
 
         return [
           "", // Empty first column for images
-          product.name,
+          product.name, // Keep original text without processing
           categoryName,
           product.barcode || "N/A",
           price,
@@ -535,10 +619,10 @@ const AlertsPage = () => {
       })
 
       // Determine font size and row height based on exportPageCount
-      let fontSize = 10
-      let cellPadding = 3
-      let imgWidth = 15
-      let imgHeight = 15
+      let fontSize = 9
+      let cellPadding = 2
+      let imgWidth = 12
+      let imgHeight = 12
 
       // If user selected a specific page count (not "auto")
       if (exportPageCount !== "auto") {
@@ -549,29 +633,110 @@ const AlertsPage = () => {
 
           // Adjust font size and cell padding based on rows per page
           if (rowsPerPage > 30) {
-            fontSize = 7
-            cellPadding = 1
-            imgWidth = 10
-            imgHeight = 10
-          } else if (rowsPerPage > 20) {
-            fontSize = 8
-            cellPadding = 2
-            imgWidth = 12
-            imgHeight = 12
-          }
-
-          // For single page, make everything even smaller if needed
-          if (pageCount === 1 && filteredProducts.length > 40) {
             fontSize = 6
             cellPadding = 1
             imgWidth = 8
             imgHeight = 8
+          } else if (rowsPerPage > 20) {
+            fontSize = 7
+            cellPadding = 1.5
+            imgWidth = 10
+            imgHeight = 10
+          }
+
+          // For single page, make everything even smaller
+          if (pageCount === 1 && filteredProducts.length > 40) {
+            fontSize = 5
+            cellPadding = 1
+            imgWidth = 6
+            imgHeight = 6
           }
         }
       }
 
-      // If user selected a specific page count, calculate rows per page
-      if (exportPageCount !== "auto") {
+      // Configure auto table options
+      const tableOptions = {
+        head: [tableColumn],
+        body: tableRows,
+        startY: 45,
+        styles: {
+          fontSize: fontSize,
+          cellPadding: cellPadding,
+          font: "helvetica",
+          overflow: "linebreak",
+          cellWidth: "wrap",
+          halign: isRTL || language.startsWith("ar") ? "right" : "left",
+        },
+        headStyles: {
+          fillColor: [41, 128, 185] as [number, number, number],
+          textColor: 255,
+          halign: "center",
+        },
+        alternateRowStyles: { fillColor: [245, 245, 245] },
+        margin: { top: 45, right: 10, left: 10, bottom: 15 },
+        columnStyles: {
+          0: { cellWidth: 15 }, // Image column
+          1: { cellWidth: 35 }, // Name
+          2: { cellWidth: 25 }, // Category
+          3: { cellWidth: 22 }, // Barcode
+          4: { cellWidth: 15 }, // Price
+          5: { cellWidth: 20 }, // Purchase Price
+          6: { cellWidth: 15 }, // Current Stock
+          7: { cellWidth: 15 }, // Min Stock
+          8: { cellWidth: 15 }, // Stock Needed
+        },
+        didDrawCell: (data: CellHookData) => {
+          // Only add images in the first column (index 0) and in the body section (not header)
+          if (data.column.index === 0 && data.section === "body" && data.row.index !== undefined) {
+            const rowIndex = data.row.index
+
+            // Make sure we have a valid row index
+            if (rowIndex >= 0 && rowIndex < filteredProducts.length) {
+              const base64Image = imageMap.get(rowIndex)
+
+              if (base64Image) {
+                try {
+                  // Calculate cell dimensions
+                  const cellWidth = data.cell.width
+                  const cellHeight = data.cell.height
+
+                  // Calculate position to center the image in the cell
+                  const x = data.cell.x + (cellWidth - imgWidth) / 2
+                  const y = data.cell.y + (cellHeight - imgHeight) / 2
+
+                  // Add image to PDF - use PNG format
+                  doc.addImage(base64Image, "PNG", x, y, imgWidth, imgHeight)
+
+                  // Log successful image addition
+                  console.log(`Successfully added image for product at index ${rowIndex}`)
+                } catch (error) {
+                  console.error(`Error adding image to PDF for product at index ${rowIndex}:`, error)
+                }
+              } else {
+                console.log(`No base64Image available for product at index ${rowIndex}`)
+              }
+            }
+          }
+        },
+        didDrawPage: (data: any) => {
+          // Add page number at the bottom
+          doc.setFontSize(8)
+
+          // Get page size from doc
+          const pageSize = doc.internal.pageSize
+          const pageHeight = pageSize.height ? pageSize.height : pageSize.getHeight()
+
+          // Just use the page data provided by autotable
+          const text = `Page ${data.pageNumber}`
+          const textWidth = (doc.getStringUnitWidth(text) * 8) / doc.internal.scaleFactor
+          const textX = (pageSize.width - textWidth) / 2
+
+          doc.text(text, textX, pageHeight - 10)
+        },
+      }
+
+      // If user selected a specific page count, split the data into chunks
+      if (exportPageCount !== "auto" && exportPageCount !== "1") {
         const pageCount = Number.parseInt(exportPageCount, 10)
         if (!isNaN(pageCount) && pageCount > 0) {
           // Calculate rows per page
@@ -588,123 +753,15 @@ const AlertsPage = () => {
 
             // Create a table for this page
             doc.autoTable({
-              head: [tableColumn],
+              ...tableOptions,
               body: pageRows,
               startY: page === 0 ? 45 : undefined, // Only set startY for first page
-              styles: {
-                fontSize: fontSize,
-                cellPadding: cellPadding,
-                font: "helvetica",
-                overflow: "linebreak",
-                cellWidth: "wrap",
-              },
-              headStyles: {
-                fillColor: [41, 128, 185] as [number, number, number],
-                textColor: 255,
-              },
-              alternateRowStyles: { fillColor: [245, 245, 245] },
-              margin: { top: 45 },
-              columnStyles: {
-                0: { cellWidth: imgWidth + 10 }, // Image column width
-                1: { cellWidth: "auto" }, // Name
-                2: { cellWidth: "auto" }, // Category
-                3: { cellWidth: "auto" }, // Barcode
-                4: { cellWidth: "auto" }, // Price
-                5: { cellWidth: "auto" }, // Purchase Price
-                6: { cellWidth: 20 }, // Current Stock
-                7: { cellWidth: 20 }, // Min Stock
-                8: { cellWidth: 20 }, // Stock Needed
-              },
-              didDrawCell: (data: CellHookData) => {
-                // Only add images in the first column (index 0) and in the body section (not header)
-                if (data.column.index === 0 && data.section === "body" && data.row.index !== undefined) {
-                  const rowIndex = startIdx + data.row.index
-
-                  // Make sure we have a valid row index
-                  if (rowIndex >= 0 && rowIndex < filteredProducts.length) {
-                    const base64Image = imageMap.get(rowIndex)
-
-                    if (base64Image) {
-                      try {
-                        // Calculate cell dimensions
-                        const cellWidth = data.cell.width
-                        const cellHeight = data.cell.height
-
-                        // Calculate position to center the image in the cell
-                        const x = data.cell.x + (cellWidth - imgWidth) / 2
-                        const y = data.cell.y + (cellHeight - imgHeight) / 2
-
-                        // Add image to PDF
-                        doc.addImage(base64Image, "JPEG", x, y, imgWidth, imgHeight)
-                      } catch (error) {
-                        console.error("Error adding image to PDF:", error)
-                      }
-                    }
-                  }
-                }
-              },
             })
           }
         }
       } else {
-        // Auto page mode - just create one table and let jsPDF handle pagination
-        doc.autoTable({
-          head: [tableColumn],
-          body: tableRows,
-          startY: 45,
-          styles: {
-            fontSize: fontSize,
-            cellPadding: cellPadding,
-            font: "helvetica",
-            overflow: "linebreak",
-            cellWidth: "wrap",
-          },
-          headStyles: {
-            fillColor: [41, 128, 185] as [number, number, number],
-            textColor: 255,
-          },
-          alternateRowStyles: { fillColor: [245, 245, 245] },
-          margin: { top: 45 },
-          columnStyles: {
-            0: { cellWidth: imgWidth + 10 }, // Image column width
-            1: { cellWidth: "auto" }, // Name
-            2: { cellWidth: "auto" }, // Category
-            3: { cellWidth: "auto" }, // Barcode
-            4: { cellWidth: "auto" }, // Price
-            5: { cellWidth: "auto" }, // Purchase Price
-            6: { cellWidth: 20 }, // Current Stock
-            7: { cellWidth: 20 }, // Min Stock
-            8: { cellWidth: 20 }, // Stock Needed
-          },
-          didDrawCell: (data: CellHookData) => {
-            // Only add images in the first column (index 0) and in the body section (not header)
-            if (data.column.index === 0 && data.section === "body") {
-              const rowIndex = data.row.index
-
-              // Make sure we have a valid row index
-              if (rowIndex !== undefined && rowIndex >= 0 && rowIndex < filteredProducts.length) {
-                const base64Image = imageMap.get(rowIndex)
-
-                if (base64Image) {
-                  try {
-                    // Calculate cell dimensions
-                    const cellWidth = data.cell.width
-                    const cellHeight = data.cell.height
-
-                    // Calculate position to center the image in the cell
-                    const x = data.cell.x + (cellWidth - imgWidth) / 2
-                    const y = data.cell.y + (cellHeight - imgHeight) / 2
-
-                    // Add image to PDF
-                    doc.addImage(base64Image, "JPEG", x, y, imgWidth, imgHeight)
-                  } catch (error) {
-                    console.error("Error adding image to PDF:", error)
-                  }
-                }
-              }
-            }
-          },
-        })
+        // Auto page mode or single page - just create one table
+        doc.autoTable(tableOptions)
       }
 
       // Save the PDF
@@ -819,9 +876,15 @@ const AlertsPage = () => {
                 <TableCaption>{getAppTranslation("products_below_min_stock", language)}</TableCaption>
                 <TableHeader>
                   <TableRow>
+                    {/* Added image column */}
+                    <TableHead className="w-[60px]">{getAppTranslation("image", language)}</TableHead>
                     <TableHead>{getAppTranslation("name", language)}</TableHead>
                     <TableHead>{getAppTranslation("category", language)}</TableHead>
+                    {/* Add barcode column */}
+                    <TableHead>{getAppTranslation("barcode", language)}</TableHead>
                     <TableHead>{getAppTranslation("price", language)}</TableHead>
+                    {/* Add purchase price column */}
+                    <TableHead>{getAppTranslation("purchase_price", language)}</TableHead>
                     <TableHead className="text-center">{getAppTranslation("current_stock", language)}</TableHead>
                     <TableHead className="text-center">{getAppTranslation("min_stock", language)}</TableHead>
                     <TableHead className="text-right">{getAppTranslation("actions", language)}</TableHead>
@@ -831,11 +894,41 @@ const AlertsPage = () => {
                   {filteredProducts.length > 0 ? (
                     getPaginatedProducts().map((product) => (
                       <TableRow key={product.id}>
+                        {/* Image column */}
+                        <TableCell>
+                          <Avatar className="h-10 w-10">
+                            {product.image ? (
+                              <AvatarImage src={product.image} alt={product.name} />
+                            ) : (
+                              <AvatarFallback>
+                                <Package className="h-5 w-5 text-muted-foreground" />
+                              </AvatarFallback>
+                            )}
+                          </Avatar>
+                        </TableCell>
                         <TableCell className="font-medium">{product.name}</TableCell>
                         <TableCell>
                           <Badge variant="outline">{getCategoryName(product.category_id)}</Badge>
                         </TableCell>
+                        {/* Barcode column */}
+                        <TableCell>
+                          {product.barcode ? (
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs font-mono">{product.barcode}</span>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">N/A</span>
+                          )}
+                        </TableCell>
                         <TableCell>{formatCurrency(product.price, currentCurrency, language)}</TableCell>
+                        {/* Purchase price column */}
+                        <TableCell>
+                          {product.purchase_price ? (
+                            formatCurrency(product.purchase_price, currentCurrency, language)
+                          ) : (
+                            <span className="text-muted-foreground text-xs">N/A</span>
+                          )}
+                        </TableCell>
                         <TableCell className="text-center">
                           <Badge variant="destructive">{product.stock}</Badge>
                         </TableCell>
@@ -856,7 +949,7 @@ const AlertsPage = () => {
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-4">
+                      <TableCell colSpan={9} className="text-center py-4">
                         {getAppTranslation("no_low_stock_products", language)}
                       </TableCell>
                     </TableRow>
