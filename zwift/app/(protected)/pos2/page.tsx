@@ -86,6 +86,7 @@ export default function POSPage() {
   const [userId, setUserId] = useState<string | null>(null)
   const [productFavorites, setProductFavorites] = useState<Record<string, boolean>>({})
   const [lastSearchLength, setLastSearchLength] = useState(0)
+  const [globalDiscount, setGlobalDiscount] = useState<number>(0)
 
   // Checkout dialog state
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false)
@@ -400,6 +401,34 @@ export default function POSPage() {
     )
   }
 
+  // Apply global discount to all items
+  const applyGlobalDiscount = (discountPercent: number) => {
+    setGlobalDiscount(discountPercent)
+
+    // Apply the discount to each item in the cart
+    setCart((prevCart) =>
+      prevCart.map((item) => {
+        const purchasePrice = item.product.purchase_price || 0
+        const originalProfit = (item.price - purchasePrice) * item.quantity
+
+        // Calculate the discounted price per unit
+        const priceAfterDiscount = item.price * (1 - discountPercent / 100)
+        // Calculate profit per unit after discount
+        const profitPerUnit = priceAfterDiscount - purchasePrice
+        // Calculate total profit for this item quantity
+        const profitAfterDiscount = profitPerUnit * item.quantity
+
+        return {
+          ...item,
+          discount: discountPercent,
+          subtotal: calculateSubtotal(item.quantity, item.price, discountPercent),
+          originalProfit,
+          profitAfterDiscount,
+        }
+      }),
+    )
+  }
+
   // Calculate subtotal
   const calculateSubtotal = (quantity: number, price: number, discount: number) => {
     return quantity * price * (1 - discount / 100)
@@ -412,6 +441,17 @@ export default function POSPage() {
     return Math.floor(profitMargin)
   }
 
+  // Check if global discount would cause any items to be sold at a loss
+  const checkGlobalDiscountImpact = (discountPercent: number) => {
+    return cart.some((item) => {
+      const purchasePrice = item.product.purchase_price || 0
+      if (!purchasePrice) return false
+
+      const maxDiscount = calculateMaxDiscount(item.price, purchasePrice)
+      return discountPercent > maxDiscount
+    })
+  }
+
   // Remove item from cart
   const removeFromCart = (itemId: string) => {
     setCart((prevCart) => prevCart.filter((item) => item.id !== itemId))
@@ -420,6 +460,7 @@ export default function POSPage() {
   // Clear cart
   const clearCart = () => {
     setCart([])
+    setGlobalDiscount(0)
   }
 
   // Process checkout
@@ -1343,6 +1384,42 @@ export default function POSPage() {
                 <span className="text-muted-foreground">Subtotal</span>
                 <span>{formatCurrency(subtotal)}</span>
               </div>
+
+              {/* Global Discount Input */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Global Discount</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <AlertCircle className="h-3 w-3 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Applies to all items in cart</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <div className="flex items-center">
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={globalDiscount}
+                    onChange={(e) => applyGlobalDiscount(Number(e.target.value) || 0)}
+                    className={cn(
+                      "w-16 h-7 text-sm px-2 text-right",
+                      checkGlobalDiscountImpact(globalDiscount) && "border-red-500 text-red-500",
+                    )}
+                    placeholder="0%"
+                  />
+                  <span className="ml-1 text-sm text-muted-foreground">%</span>
+                  {globalDiscount > 0 && (
+                    <Button variant="ghost" size="icon" className="h-6 w-6 ml-1" onClick={() => applyGlobalDiscount(0)}>
+                      <X className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+
               {totalDiscount > 0 && (
                 <div className="flex justify-between text-green-600">
                   <span>Discount</span>
