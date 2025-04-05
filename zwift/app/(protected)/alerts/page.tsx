@@ -1,49 +1,27 @@
 "use client"
 
+import { DialogFooter } from "@/components/ui/dialog"
+
+import { TableHead } from "@/components/ui/table"
+
 import type React from "react"
 
 import { useEffect, useState, useCallback } from "react"
-import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import {
-  ShoppingCart,
-  Loader2,
-  AlertCircle,
-  Download,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  FileText,
-  Package,
-} from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { createClient } from "@/lib/supabase-client"
 import { getLowStockProducts } from "@/lib/supabase" // Import the same function used in the POS page
-
-// First, let's add imports for the dialog and other components we'll need
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import { Plus, Minus, Save } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { useLanguage } from "@/hooks/use-language"
 import { formatCurrency } from "@/lib/format-currency"
 import { jsPDF } from "jspdf"
 import "jspdf-autotable"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-
-// Add this type import at the top of the file, after the other imports
-import type { CellHookData } from "jspdf-autotable"
+import { Minus, Plus, Loader2, Save } from "lucide-react" // Import missing icons
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Badge } from "@/components/ui/badge"
+// Add the import for PaginationControl at the top of the file with the other imports
+import { PaginationControl } from "@/components/pagination-control"
 
 // Add these types at the top of the file, after the imports
 type Product = {
@@ -121,6 +99,10 @@ const AlertsPage = () => {
 
   // State for edited stock levels
   const [editedStockLevels, setEditedStockLevels] = useState<Record<string, number>>({})
+
+  // First, add state for edited prices
+  const [editedPrice, setEditedPrice] = useState<number | null>(null)
+  const [editedPurchasePrice, setEditedPurchasePrice] = useState<number | null>(null)
 
   // Fetch currency setting
   const fetchCurrency = useCallback(async () => {
@@ -292,6 +274,8 @@ const AlertsPage = () => {
   const handleAdjustClick = (product: Product) => {
     setSelectedProduct(product)
     setAdjustedStock(product.stock)
+    setEditedPrice(product.price)
+    setEditedPurchasePrice(product.purchase_price || null)
     setIsAdjustDialogOpen(true)
   }
 
@@ -301,23 +285,35 @@ const AlertsPage = () => {
 
     setIsAdjusting(true)
     try {
-      const { error } = await supabase.from("products").update({ stock: adjustedStock }).eq("id", selectedProduct.id)
+      // Create an update object with the stock and any changed prices
+      const updateData: any = { stock: adjustedStock }
+
+      // Only include price fields if they've been changed
+      if (editedPrice !== null && editedPrice !== selectedProduct.price) {
+        updateData.price = editedPrice
+      }
+
+      if (editedPurchasePrice !== null && editedPurchasePrice !== selectedProduct.purchase_price) {
+        updateData.purchase_price = editedPurchasePrice
+      }
+
+      const { error } = await supabase.from("products").update(updateData).eq("id", selectedProduct.id)
 
       if (error) throw error
 
       toast({
-        title: getAppTranslation("stock_updated", language),
-        description: `${selectedProduct.name} ${getAppTranslation("stock_has_been_updated", language)} ${adjustedStock} ${getAppTranslation("units", language)}.`,
+        title: getAppTranslation("product_updated", language),
+        description: `${selectedProduct.name} ${getTranslation("has_been_updated")}.`,
       })
 
       // Close dialog and refresh products
       setIsAdjustDialogOpen(false)
       fetchLowStockProducts()
     } catch (error) {
-      console.error("Error adjusting stock:", error)
+      console.error("Error updating product:", error)
       toast({
         title: getAppTranslation("error", language),
-        description: getAppTranslation("failed_to_update_stock", language),
+        description: getAppTranslation("failed_to_update_product", language),
         variant: "destructive",
       })
     } finally {
@@ -469,61 +465,50 @@ const AlertsPage = () => {
 
   // Helper function to convert image URL to base64
   const getImageAsBase64Helper = async (url: string): Promise<string> => {
+    // Instead of trying to fetch external images which often fail due to CORS,
+    // we'll use a set of predefined base64 encoded images based on the URL pattern
+
+    // Simple hash function to get a consistent number from a string
+    const simpleHash = (str: string) => {
+      let hash = 0
+      for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i)
+        hash = (hash << 5) - hash + char
+        hash = hash & hash // Convert to 32bit integer
+      }
+      return Math.abs(hash) % 5 // Get a number between 0-4
+    }
+
+    // Array of simple colored square base64 images
+    const coloredSquares = [
+      // Blue square
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAOxAAADsQBlSsOGwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAABLSURBVFiF7c6xCQAgDEXRp3QFcf9pHEFcIoWNKIJ4By5vgKQiSZJ+ZmZVtc0xl3vjvZ8H4B0wswOoqgGY2QZ0EbGMcQBIknQrSQ84ggvLMHhhgwAAAABJRU5ErkJggg==",
+      // Green square
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAOxAAADsQBlSsOGwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAABLSURBVFiF7c4xDcAwDEXRD6EzUPbfliGozlAJiQvXEt7Jsi8YqUiSJEmfM7Oq2uaYy73x3s8D8A6Y2QFUVQPMbAO6iFjGOAAkSbqVpAcUWAvLQmLy7AAAAABJRU5ErkJggg==",
+      // Red square
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAOxAAADsQBlSsOGwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAABLSURBVFiF7c6xDcAwDARBQ3QFcv9tXIHoDBWQuHANYU+QdgZGKpIkSdLnzKyqtjnmcm+89/MAvANmdgBV1QAz24AuIpYxDgBJkm4l6QEFjQvLt9Kh5QAAAABJRU5ErkJggg==",
+      // Yellow square
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAOxAAADsQBlSsOGwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAABLSURBVFiF7c4xDcAwDEXRD6EzUPbfliGozlAJiQvXEt7Jsi8YqUiSJEmfM7Oq2uaYy73x3s8D8A6Y2QFUVQPMbAO6iFjGOAAkSbqVpAcUWAvLQmLy7AAAAABJRU5ErkJggg==",
+      // Purple square
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAOxAAADsQBlSsOGwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAABLSURBVFiF7c4xDcAwDARBQ3QFcv9tXIHoDBWQuHANYU+QdgZGKpIkSdLnzKyqtjnmcm+89/MAvANmdgBV1QAz24AuIpYxDgBJkm4l6QEFjQvLt9Kh5QAAAABJRU5ErkJggg==",
+    ]
+
+    // Shopping cart icon as fallback
+    const shoppingCartIcon =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAACXBIWXMAAAsTAAALEwEAmpwYAAABWklEQVR4nO2UO0sDQRDHf3O5BARjoUUECx/gq7ARTMRC0N7CT2Fnb2FjZ2FjZ2FnI1gKfgCx00YsxFLFwkcpaiGKj7vdGYtEuNzlLgbBwj8s7Oz8Z2b/O7OwoP+uQEFnTeAYaAEGmAIjwHqsYAJYBPaBGjBt/TpwCMwBo8CyFewAFWAXGPB8FWADmLHiTWAVOLHiVWAZWABKwBGwZn0bwDwwB+wAh8A2cAMsAXnP9wDcAVfAJXAGnAIXwLMVvwGPwD1wC9wBLaDu5W0Cj8A9cApcAhfAM/AeCbSBd6BlRXXgCrgGnoAH4A64Bd7sXBNoAk2gYUVvQMPO1YEX4NXGfAJdoAMEkUAX6Nh5Y+c7QGDnP4Au0LPzPc/fBbqRQM/z9zx/L+YLYr4g5gv+RyAHlIEpYBwYA0aAYaAIFIB8IpEQkUQiISKJhIgkEiKSSIhIIiEiiYSIJBIikkiISCIhIomEiPRrfQEVnA7CFsZPFAAAAABJRU5ErkJggg=="
+
     try {
-      // For local images or images from the same origin
-      if (url.startsWith("/") || url.startsWith(window.location.origin)) {
-        try {
-          const response = await fetch(url, {
-            mode: "cors",
-            cache: "no-cache",
-            headers: {
-              "Cache-Control": "no-cache",
-            },
-          })
-
-          if (response.ok) {
-            const blob = await response.blob()
-            return new Promise((resolve) => {
-              const reader = new FileReader()
-              reader.onloadend = () => resolve(reader.result as string)
-              reader.readAsDataURL(blob)
-            })
-          }
-        } catch (error) {
-          console.error("Error fetching local image:", error)
-        }
+      // If URL is empty or invalid, return shopping cart icon
+      if (!url || !url.startsWith("http")) {
+        return shoppingCartIcon
       }
 
-      // For external images, try with a proxy or CORS-anywhere service
-      try {
-        // Try using a CORS proxy if available
-        const proxyUrl = `https://cors-anywhere.herokuapp.com/${url}`
-        const response = await fetch(proxyUrl, {
-          mode: "cors",
-          headers: {
-            "X-Requested-With": "XMLHttpRequest",
-          },
-        })
-
-        if (response.ok) {
-          const blob = await response.blob()
-          return new Promise((resolve) => {
-            const reader = new FileReader()
-            reader.onloadend = () => resolve(reader.result as string)
-            reader.readAsDataURL(blob)
-          })
-        }
-      } catch (error) {
-        console.error("Error fetching image via proxy:", error)
-      }
-
-      // If all attempts fail, return a placeholder image
-      console.log("Using placeholder image for:", url)
-      return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAACXBIWXMAAAsTAAALEwEAmpwYAAABWklEQVR4nO2UO0sDQRDHf3O5BARjoUUECx/gq7ARTMRC0N7CT2Fnb2FjZ2FnI1gKfgCx00YsxFLFwkcpaiGKj7vdGYtEuNzlLgbBwj8s7Oz8Z2b/O7OwoP+uQEFnTeAYaAEGmAIjwHqsYAJYBPaBGjBt/TpwCMwBo8CyFewAFWAXGPB8FWADmLHiTWAVOLHiVWAZWABKwBGwZn0bwDwwB+wAh8A2cAMsAXnP9wDcAVfAJXAGnAIXwLMVvwGPwD1wC9wBLaDu5W0Cj8A9cApcAhfAM/AeCbSBd6BlRXXgCrgGnoAH4A64Bd7sXBNoAk2gYUVvQMPO1YEX4NXGfAJdoAMEkUAX6Nh5Y+c7QGDnP4Au0LPzPc/fBbqRQM/z9zx/L+YLYr4g5gv+RyAHlIEpYBwYA0aAYaAIFIB8IpEQkUQiISKJhIgkEiKSSIhIIiEiiYSIJBIikkiISCIhIomEiPRrfQEVnA7CFsZPFAAAAABJRU5ErkJggg=="
+      // Use the hash of the URL to select a colored square
+      const index = simpleHash(url)
+      return coloredSquares[index]
     } catch (error) {
-      console.error("Error converting image to base64:", error)
-      // Return a simple placeholder image on error
-      return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAACXBIWXMAAAsTAAALEwEAmpwYAAABWklEQVR4nO2UO0sDQRDHf3O5BARjoUUECx/gq7ARTMRC0N7CT2Fnb2FjZ2FjZ2FnI1gKfgCx00YsxFLFwkcpaiGKj7vdGYtEuNzlLgbBwj8s7Oz8Z2b/O7OwoP+uQEFnTeAYaAEGmAIjwHqsYAJYBPaBGjBt/TpwCMwBo8CyFewAFWAXGPB8FWADmLHiTWAVOLHiVWAZWABKwBGwZn0bwDwwB+wAh8A2cAMsAXnP9wDcAVfAJXAGnAIXwLMVvwGPwD1wC9wBLaDu5W0Cj8A9cApcAhfAM/AeCbSBd6BlRXXgCrgGnoAH4A64Bd7sXBNoAk2gYUVvQMPO1YEX4NXGfAJdoAMEkUAX6Nh5Y+c7QGDnP4Au0LPzPc/fBbqRQM/z9zx/L+YLYr4g5gv+RyAHlIEpYBwYA0aAYaAIFIB8IpEQkUQiISKJhIgkEiKSSIhIIiEiiYSIJBIikkiISCIhIomEiPRrfQEVnA7CFsZPFAAAAABJRU5ErkJggg=="
+      console.error("Error generating image:", error)
+      return shoppingCartIcon
     }
   }
 
@@ -533,7 +518,7 @@ const AlertsPage = () => {
     try {
       // Create a new PDF document
       const doc = new jsPDF({
-        orientation: "portrait", // Changed from landscape to portrait
+        orientation: "portrait",
         unit: "mm",
         format: "a4",
       }) as JsPDFWithAutoTable
@@ -545,7 +530,7 @@ const AlertsPage = () => {
         doc.setLanguage("ar")
       }
 
-      // Use standard font - we'll handle Arabic text differently
+      // Use standard font
       doc.setFont("helvetica")
 
       // Add title
@@ -559,33 +544,8 @@ const AlertsPage = () => {
       // Add total count
       doc.text(`Total Products: ${filteredProducts.length}`, 14, 38)
 
-      // Pre-process images - handle CORS issues by skipping problematic images
-      const imagePromises = filteredProducts.map(async (product, index) => {
-        if (product.image) {
-          try {
-            // Convert image URL to base64
-            const base64Image = await getImageAsBase64Helper(product.image)
-            return { index, base64Image }
-          } catch (error) {
-            console.error(`Error loading image for product ${product.name}:`, error)
-            return { index, base64Image: null }
-          }
-        }
-        return { index, base64Image: null }
-      })
-
-      // Wait for all images to load
-      const imageResults = await Promise.all(imagePromises)
-
-      // Create a map of product index to base64 image
-      const imageMap = new Map<number, string | null>()
-      imageResults.forEach((result) => {
-        imageMap.set(result.index, result.base64Image)
-      })
-
-      // Prepare table data
+      // Prepare table data - REMOVE IMAGE COLUMN
       const tableColumn = [
-        "Image",
         "Name",
         "Category",
         "Barcode",
@@ -596,7 +556,7 @@ const AlertsPage = () => {
         "Stock Needed",
       ]
 
-      // Create table rows
+      // Create table rows - REMOVE IMAGE COLUMN
       const tableRows = filteredProducts.map((product) => {
         const stockNeeded = product.min_stock - product.stock
         const categoryName = getCategoryName(product.category_id)
@@ -606,8 +566,7 @@ const AlertsPage = () => {
           : "N/A"
 
         return [
-          "", // Empty first column for images
-          product.name, // Keep original text without processing
+          product.name,
           categoryName,
           product.barcode || "N/A",
           price,
@@ -621,8 +580,6 @@ const AlertsPage = () => {
       // Determine font size and row height based on exportPageCount
       let fontSize = 9
       let cellPadding = 2
-      let imgWidth = 12
-      let imgHeight = 12
 
       // If user selected a specific page count (not "auto")
       if (exportPageCount !== "auto") {
@@ -635,21 +592,15 @@ const AlertsPage = () => {
           if (rowsPerPage > 30) {
             fontSize = 6
             cellPadding = 1
-            imgWidth = 8
-            imgHeight = 8
           } else if (rowsPerPage > 20) {
             fontSize = 7
             cellPadding = 1.5
-            imgWidth = 10
-            imgHeight = 10
           }
 
           // For single page, make everything even smaller
           if (pageCount === 1 && filteredProducts.length > 40) {
             fontSize = 5
             cellPadding = 1
-            imgWidth = 6
-            imgHeight = 6
           }
         }
       }
@@ -675,48 +626,14 @@ const AlertsPage = () => {
         alternateRowStyles: { fillColor: [245, 245, 245] },
         margin: { top: 45, right: 10, left: 10, bottom: 15 },
         columnStyles: {
-          0: { cellWidth: 15 }, // Image column
-          1: { cellWidth: 35 }, // Name
-          2: { cellWidth: 25 }, // Category
-          3: { cellWidth: 22 }, // Barcode
-          4: { cellWidth: 15 }, // Price
-          5: { cellWidth: 20 }, // Purchase Price
-          6: { cellWidth: 15 }, // Current Stock
-          7: { cellWidth: 15 }, // Min Stock
-          8: { cellWidth: 15 }, // Stock Needed
-        },
-        didDrawCell: (data: CellHookData) => {
-          // Only add images in the first column (index 0) and in the body section (not header)
-          if (data.column.index === 0 && data.section === "body" && data.row.index !== undefined) {
-            const rowIndex = data.row.index
-
-            // Make sure we have a valid row index
-            if (rowIndex >= 0 && rowIndex < filteredProducts.length) {
-              const base64Image = imageMap.get(rowIndex)
-
-              if (base64Image) {
-                try {
-                  // Calculate cell dimensions
-                  const cellWidth = data.cell.width
-                  const cellHeight = data.cell.height
-
-                  // Calculate position to center the image in the cell
-                  const x = data.cell.x + (cellWidth - imgWidth) / 2
-                  const y = data.cell.y + (cellHeight - imgHeight) / 2
-
-                  // Add image to PDF - use PNG format
-                  doc.addImage(base64Image, "PNG", x, y, imgWidth, imgHeight)
-
-                  // Log successful image addition
-                  console.log(`Successfully added image for product at index ${rowIndex}`)
-                } catch (error) {
-                  console.error(`Error adding image to PDF for product at index ${rowIndex}:`, error)
-                }
-              } else {
-                console.log(`No base64Image available for product at index ${rowIndex}`)
-              }
-            }
-          }
+          0: { cellWidth: 40 }, // Name
+          1: { cellWidth: 25 }, // Category
+          2: { cellWidth: 25 }, // Barcode
+          3: { cellWidth: 20 }, // Price
+          4: { cellWidth: 25 }, // Purchase Price
+          5: { cellWidth: 20 }, // Current Stock
+          6: { cellWidth: 20 }, // Min Stock
+          7: { cellWidth: 20 }, // Stock Needed
         },
         didDrawPage: (data: any) => {
           // Add page number at the bottom
@@ -783,259 +700,24 @@ const AlertsPage = () => {
     }
   }
 
+  // Update the Dialog component to include price and purchase price fields
+  // Replace the existing Dialog component with this updated version
+
   return (
-    <div className="container mx-auto py-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
-        <h1 className="text-3xl font-bold mb-4 md:mb-0">{getAppTranslation("alerts", language)}</h1>
-        <Badge variant="outline" className="text-sm py-1 px-3 flex items-center">
-          <AlertCircle className={`h-4 w-4 ${rtlEnabled ? "ml-1" : "mr-1"}`} />
-          {lowStockProducts.length} {getAppTranslation("items_below_min_stock", language)}
-        </Badge>
-      </div>
-
-      <Card className="mb-6">
-        <CardHeader className="pb-3">
-          <CardTitle>{getAppTranslation("low_stock_products", language)}</CardTitle>
-          {totalProductCount > 0 && (
-            <div className="text-sm">
-              <p className="text-muted-foreground">
-                Showing {lowStockProducts.length} low stock items out of {totalProductCount} total products
-              </p>
-            </div>
-          )}
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-              <div className="relative w-full sm:w-auto">
-                <Input
-                  type="text"
-                  placeholder={getAppTranslation("search_products", language)}
-                  onChange={handleSearch}
-                  className="max-w-xs"
-                />
-              </div>
-              <Select onValueChange={handleCategoryFilter} value={categoryFilter}>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder={getAppTranslation("filter_by_category", language)} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{getAppTranslation("all_categories", language)}</SelectItem>
-                  {categories.map((category) => (
-                    <SelectItem key={category.id} value={category.id}>
-                      {category.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex gap-2">
-              <Select value={exportPageCount} onValueChange={handleExportPageCountChange}>
-                <SelectTrigger className="w-[150px]">
-                  <SelectValue placeholder="PDF Pages" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="auto">Auto (Default)</SelectItem>
-                  <SelectItem value="1">Single Page</SelectItem>
-                  <SelectItem value="2">Two Pages</SelectItem>
-                  <SelectItem value="3">Three Pages</SelectItem>
-                  <SelectItem value="5">Five Pages</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button variant="outline" onClick={exportToCSV} disabled={isExporting || filteredProducts.length === 0}>
-                {isExporting ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="mr-2 h-4 w-4" />
-                )}
-                Export CSV
-              </Button>
-              <Button
-                variant="outline"
-                onClick={exportToPDF}
-                disabled={isExportingPDF || filteredProducts.length === 0}
-              >
-                {isExportingPDF ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <FileText className="mr-2 h-4 w-4" />
-                )}
-                Export PDF
-              </Button>
-            </div>
-          </div>
-
-          {isLoading ? (
-            <div className="flex justify-center items-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-          ) : (
-            <div className="border rounded-lg overflow-hidden">
-              <Table>
-                <TableCaption>{getAppTranslation("products_below_min_stock", language)}</TableCaption>
-                <TableHeader>
-                  <TableRow>
-                    {/* Added image column */}
-                    <TableHead className="w-[60px]">{getAppTranslation("image", language)}</TableHead>
-                    <TableHead>{getAppTranslation("name", language)}</TableHead>
-                    <TableHead>{getAppTranslation("category", language)}</TableHead>
-                    {/* Add barcode column */}
-                    <TableHead>{getAppTranslation("barcode", language)}</TableHead>
-                    <TableHead>{getAppTranslation("price", language)}</TableHead>
-                    {/* Add purchase price column */}
-                    <TableHead>{getAppTranslation("purchase_price", language)}</TableHead>
-                    <TableHead className="text-center">{getAppTranslation("current_stock", language)}</TableHead>
-                    <TableHead className="text-center">{getAppTranslation("min_stock", language)}</TableHead>
-                    <TableHead className="text-right">{getAppTranslation("actions", language)}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredProducts.length > 0 ? (
-                    getPaginatedProducts().map((product) => (
-                      <TableRow key={product.id}>
-                        {/* Image column */}
-                        <TableCell>
-                          <Avatar className="h-10 w-10">
-                            {product.image ? (
-                              <AvatarImage src={product.image} alt={product.name} />
-                            ) : (
-                              <AvatarFallback>
-                                <Package className="h-5 w-5 text-muted-foreground" />
-                              </AvatarFallback>
-                            )}
-                          </Avatar>
-                        </TableCell>
-                        <TableCell className="font-medium">{product.name}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{getCategoryName(product.category_id)}</Badge>
-                        </TableCell>
-                        {/* Barcode column */}
-                        <TableCell>
-                          {product.barcode ? (
-                            <div className="flex items-center gap-1">
-                              <span className="text-xs font-mono">{product.barcode}</span>
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">N/A</span>
-                          )}
-                        </TableCell>
-                        <TableCell>{formatCurrency(product.price, currentCurrency, language)}</TableCell>
-                        {/* Purchase price column */}
-                        <TableCell>
-                          {product.purchase_price ? (
-                            formatCurrency(product.purchase_price, currentCurrency, language)
-                          ) : (
-                            <span className="text-muted-foreground text-xs">N/A</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant="destructive">{product.stock}</Badge>
-                        </TableCell>
-                        <TableCell className="text-center">{product.min_stock}</TableCell>
-                        <TableCell className="text-right space-x-2">
-                          <Button variant="outline" size="sm" onClick={() => handleAddToCart(product)}>
-                            <ShoppingCart className={`h-4 w-4 ${rtlEnabled ? "ml-1" : "mr-1"}`} />
-                            {getAppTranslation("add_to_cart", language)}
-                          </Button>
-                          <Button size="sm" onClick={() => handleRestock(product)}>
-                            {getAppTranslation("restock", language)}
-                          </Button>
-                          <Button variant="secondary" size="sm" onClick={() => handleAdjustClick(product)}>
-                            {getAppTranslation("adjust", language)}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={9} className="text-center py-4">
-                        {getAppTranslation("no_low_stock_products", language)}
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-
-          {/* Pagination controls */}
-          {filteredProducts.length > 0 && (
-            <div className="flex flex-col sm:flex-row justify-between items-center mt-4 gap-4">
-              <div className="text-sm text-muted-foreground">
-                {getAppTranslation("showing", language)}{" "}
-                {Math.min((currentPage - 1) * pageSize + 1, filteredProducts.length)} -{" "}
-                {Math.min(currentPage * pageSize, filteredProducts.length)} {getAppTranslation("of", language)}{" "}
-                {filteredProducts.length} {/* Use direct string instead of translation key */}
-                items
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <div className="flex items-center space-x-2 mr-4">
-                  <span className="text-sm">{getAppTranslation("show", language)}</span>
-                  <Select value={pageSize.toString()} onValueChange={handlePageSizeChange}>
-                    <SelectTrigger className="w-[70px]">
-                      <SelectValue placeholder={pageSize.toString()} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="5">5</SelectItem>
-                      <SelectItem value="10">10</SelectItem>
-                      <SelectItem value="20">20</SelectItem>
-                      <SelectItem value="50">50</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {/* Use direct string instead of translation key */}
-                  <span className="text-sm">per page</span>
-                </div>
-
-                <Button variant="outline" size="icon" onClick={() => handlePageChange(1)} disabled={currentPage === 1}>
-                  <ChevronsLeft className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => handlePageChange(currentPage - 1)}
-                  disabled={currentPage === 1}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="text-sm px-4">
-                  {getAppTranslation("page", language)} {currentPage} {getAppTranslation("of", language)} {totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => handlePageChange(currentPage + 1)}
-                  disabled={currentPage === totalPages}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => handlePageChange(totalPages)}
-                  disabled={currentPage === totalPages}
-                >
-                  <ChevronsRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
+    <>
       {/* Stock Adjustment Dialog */}
       <Dialog open={isAdjustDialogOpen} onOpenChange={setIsAdjustDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>{getAppTranslation("adjust_stock_level", language)}</DialogTitle>
+            <DialogTitle>{getTranslation("adjust_product")}</DialogTitle>
             <DialogDescription>
               {selectedProduct
-                ? `${getAppTranslation("update_stock_for", language)} ${selectedProduct.name}`
-                : getAppTranslation("update_stock_level", language)}
+                ? `${getTranslation("update_product")} ${selectedProduct.name}`
+                : getTranslation("update_product_details")}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            {/* Stock adjustment */}
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="stock" className="text-right">
                 {getAppTranslation("current_stock", language)}
@@ -1057,6 +739,45 @@ const AlertsPage = () => {
                 </Button>
               </div>
             </div>
+
+            {/* Price adjustment */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="price" className="text-right">
+                {getAppTranslation("price", language)}
+              </Label>
+              <div className="col-span-3">
+                <Input
+                  id="price"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={editedPrice !== null ? editedPrice : ""}
+                  onChange={(e) => setEditedPrice(e.target.value ? Number.parseFloat(e.target.value) : null)}
+                  className="w-full"
+                  placeholder="Enter price"
+                />
+              </div>
+            </div>
+
+            {/* Purchase price adjustment */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="purchase-price" className="text-right">
+                {getAppTranslation("purchase_price", language)}
+              </Label>
+              <div className="col-span-3">
+                <Input
+                  id="purchase-price"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={editedPurchasePrice !== null ? editedPurchasePrice : ""}
+                  onChange={(e) => setEditedPurchasePrice(e.target.value ? Number.parseFloat(e.target.value) : null)}
+                  className="w-full"
+                  placeholder="Enter purchase price"
+                />
+              </div>
+            </div>
+
             {selectedProduct && (
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label className="text-right">{getAppTranslation("min_stock", language)}</Label>
@@ -1067,6 +788,20 @@ const AlertsPage = () => {
                       {getAppTranslation("warning", language)}: {getAppTranslation("stock_below_min", language)}
                     </p>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* Profit margin calculation */}
+            {editedPrice !== null && editedPurchasePrice !== null && editedPurchasePrice > 0 && (
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label className="text-right">{getAppTranslation("profit_margin", language)}</Label>
+                <div className="col-span-3">
+                  <Badge variant={editedPrice > editedPurchasePrice ? "outline" : "destructive"}>
+                    {editedPrice > editedPurchasePrice
+                      ? `${(((editedPrice - editedPurchasePrice) / editedPrice) * 100).toFixed(2)}%`
+                      : getAppTranslation("loss", language)}
+                  </Badge>
                 </div>
               </div>
             )}
@@ -1091,7 +826,187 @@ const AlertsPage = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+
+      <div className="container py-10">
+        <div className="flex flex-col md:flex-row items-center justify-between space-y-4 md:space-y-0 md:space-x-4">
+          <div className="flex-1 space-y-2">
+            <h2 className="text-2xl font-bold">{getTranslation("low_stock_alerts")}</h2>
+            <p className="text-muted-foreground">{getTranslation("products_running_low")}</p>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Input
+              type="search"
+              placeholder={getAppTranslation("search_products", language)}
+              className="md:w-64"
+              onChange={handleSearch}
+            />
+            <select
+              className="rounded-md border border-input bg-background px-4 py-2 text-sm"
+              value={categoryFilter}
+              onChange={(e) => handleCategoryFilter(e.target.value)}
+            >
+              <option value="all">{getAppTranslation("all_categories", language)}</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="mt-6 overflow-x-auto">
+          <div className="inline-block min-w-full align-middle">
+            <div className="overflow-hidden shadow ring-1 ring-black/5 rounded-lg">
+              <table className="min-w-full divide-y divide-gray-300">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">
+                      {getAppTranslation("product", language)}
+                    </th>
+                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                      {getAppTranslation("category", language)}
+                    </th>
+                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                      {getAppTranslation("barcode", language)}
+                    </th>
+                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                      {getAppTranslation("price", language)}
+                    </th>
+                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                      {getAppTranslation("purchase_price", language)}
+                    </th>
+                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                      {getAppTranslation("current_stock", language)}
+                    </th>
+                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                      {getAppTranslation("min_stock", language)}
+                    </th>
+                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                      {getTranslation("stock_needed")}
+                    </th>
+                    <th scope="col" className="relative py-3.5 pl-3 pr-4 sm:pr-6 text-right">
+                      <TableHead className="text-right">{getAppTranslation("actions", language)}</TableHead>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 bg-white">
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={8} className="text-center py-4">
+                        <Loader2 className="h-6 w-6 mx-auto animate-spin" />
+                        <p className="mt-2">{getTranslation("loading_products")}...</p>
+                      </td>
+                    </tr>
+                  ) : filteredProducts.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="text-center py-4">
+                        {getAppTranslation("no_low_stock_products", language)}
+                      </td>
+                    </tr>
+                  ) : (
+                    getPaginatedProducts().map((product) => {
+                      const stockNeeded = product.min_stock - product.stock
+
+                      return (
+                        <tr key={product.id}>
+                          <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm sm:pl-6">
+                            <div className="flex items-center">
+                              <div className="h-10 w-10 flex-shrink-0">
+                                <img
+                                  className="h-10 w-10 rounded-full object-cover"
+                                  src={product.image || "/placeholder.jpg"}
+                                  alt={product.name}
+                                />
+                              </div>
+                              <div className="ml-4">
+                                <div className="font-medium text-gray-900">{product.name}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                            {getCategoryName(product.category_id)}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                            {product.barcode || "N/A"}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                            {formatCurrency(product.price, currentCurrency, language)}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                            {product.purchase_price
+                              ? formatCurrency(product.purchase_price, currentCurrency, language)
+                              : "N/A"}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                            {editedStockLevels[product.id] !== undefined
+                              ? editedStockLevels[product.id]
+                              : product.stock}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{product.min_stock}</td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                            {stockNeeded > 0 ? (
+                              <Badge variant="destructive">{stockNeeded}</Badge>
+                            ) : (
+                              <Badge>{stockNeeded}</Badge>
+                            )}
+                          </td>
+                          <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
+                            <div className="flex items-center space-x-2">
+                              <Button variant="secondary" size="sm" onClick={() => handleAdjustClick(product)}>
+                                {getAppTranslation("edit", language)}
+                              </Button>
+                              <Button variant="outline" size="sm" onClick={() => handleRestock(product)}>
+                                {getAppTranslation("restock", language)}
+                              </Button>
+                              <Button size="sm" onClick={() => handleAddToCart(product)}>
+                                {getAppTranslation("add_to_cart", language)}
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col md:flex-row items-center justify-between mt-4 space-y-4 md:space-y-0 md:space-x-4">
+          <div className="flex items-center space-x-2">
+            <Label htmlFor="export-page-count">{getTranslation("pages")}:</Label>
+            <select
+              id="export-page-count"
+              className="rounded-md border border-input bg-background px-4 py-2 text-sm"
+              value={exportPageCount}
+              onChange={(e) => handleExportPageCountChange(e.target.value)}
+            >
+              <option value="auto">{getTranslation("auto")}</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+            </select>
+          </div>
+
+          {/* Use the imported PaginationControl component */}
+          <PaginationControl
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={handlePageChange}
+            pageSize={pageSize}
+            onPageSizeChange={(size) => handlePageSizeChange(size.toString())}
+            pageSizeOptions={[5, 10, 20, 50]}
+            onExportPDF={exportToPDF}
+            onExportCSV={exportToCSV}
+            isExporting={isExporting || isExportingPDF}
+          />
+        </div>
+      </div>
+    </>
   )
 }
 
