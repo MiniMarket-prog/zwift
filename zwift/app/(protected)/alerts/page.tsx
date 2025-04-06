@@ -707,10 +707,10 @@ const AlertsPage = () => {
     <>
       {/* Stock Adjustment Dialog */}
       <Dialog open={isAdjustDialogOpen} onOpenChange={setIsAdjustDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[425px] max-w-[95vw]">
           <DialogHeader>
-            <DialogTitle>{getTranslation("adjust_product")}</DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-xl">{getTranslation("adjust_product")}</DialogTitle>
+            <DialogDescription className="text-base">
               {selectedProduct
                 ? `${getTranslation("update_product")} ${selectedProduct.name}`
                 : getTranslation("update_product_details")}
@@ -719,7 +719,7 @@ const AlertsPage = () => {
           <div className="grid gap-4 py-4">
             {/* Stock adjustment */}
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="stock" className="text-right">
+              <Label htmlFor="stock" className="text-right font-medium text-foreground">
                 {getAppTranslation("current_stock", language)}
               </Label>
               <div className="col-span-3 flex items-center space-x-2">
@@ -732,7 +732,7 @@ const AlertsPage = () => {
                   min="0"
                   value={adjustedStock}
                   onChange={(e) => setAdjustedStock(Math.max(0, Number.parseInt(e.target.value) || 0))}
-                  className="w-20 text-center"
+                  className="w-20 text-center font-medium"
                 />
                 <Button variant="outline" size="icon" onClick={() => adjustStock(1)}>
                   <Plus className="h-4 w-4" />
@@ -742,7 +742,7 @@ const AlertsPage = () => {
 
             {/* Price adjustment */}
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="price" className="text-right">
+              <Label htmlFor="price" className="text-right font-medium text-foreground">
                 {getAppTranslation("price", language)}
               </Label>
               <div className="col-span-3">
@@ -753,7 +753,7 @@ const AlertsPage = () => {
                   step="0.01"
                   value={editedPrice !== null ? editedPrice : ""}
                   onChange={(e) => setEditedPrice(e.target.value ? Number.parseFloat(e.target.value) : null)}
-                  className="w-full"
+                  className="w-full font-medium"
                   placeholder="Enter price"
                 />
               </div>
@@ -828,20 +828,20 @@ const AlertsPage = () => {
       </Dialog>
 
       <div className="container py-10">
-        <div className="flex flex-col md:flex-row items-center justify-between space-y-4 md:space-y-0 md:space-x-4">
+        <div className="flex flex-col space-y-4">
           <div className="flex-1 space-y-2">
-            <h2 className="text-2xl font-bold">{getTranslation("low_stock_alerts")}</h2>
-            <p className="text-muted-foreground">{getTranslation("products_running_low")}</p>
+            <h2 className="text-2xl font-bold text-foreground">{getTranslation("low_stock_alerts")}</h2>
+            <p className="text-muted-foreground text-base">{getTranslation("products_running_low")}</p>
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
             <Input
               type="search"
               placeholder={getAppTranslation("search_products", language)}
-              className="md:w-64"
+              className="w-full sm:w-64"
               onChange={handleSearch}
             />
             <select
-              className="rounded-md border border-input bg-background px-4 py-2 text-sm"
+              className="rounded-md border border-input bg-background px-4 py-2 text-sm w-full sm:w-auto"
               value={categoryFilter}
               onChange={(e) => handleCategoryFilter(e.target.value)}
             >
@@ -859,30 +859,39 @@ const AlertsPage = () => {
           <div className="inline-block min-w-full align-middle">
             <div className="overflow-hidden shadow ring-1 ring-black/5 rounded-lg">
               <table className="min-w-full divide-y divide-gray-300">
-                <thead className="bg-gray-50">
+                <thead className="bg-muted">
                   <tr>
-                    <th scope="col" className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">
+                    <th
+                      scope="col"
+                      className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-foreground sm:pl-6"
+                    >
                       {getAppTranslation("product", language)}
                     </th>
-                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-foreground">
                       {getAppTranslation("category", language)}
                     </th>
-                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                    <th
+                      scope="col"
+                      className="px-3 py-3.5 text-left text-sm font-semibold text-foreground hidden md:table-cell"
+                    >
                       {getAppTranslation("barcode", language)}
                     </th>
-                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-foreground">
                       {getAppTranslation("price", language)}
                     </th>
-                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                    <th
+                      scope="col"
+                      className="px-3 py-3.5 text-left text-sm font-semibold text-foreground hidden md:table-cell"
+                    >
                       {getAppTranslation("purchase_price", language)}
                     </th>
-                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-foreground">
                       {getAppTranslation("current_stock", language)}
                     </th>
-                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-foreground">
                       {getAppTranslation("min_stock", language)}
                     </th>
-                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-foreground">
                       {getTranslation("stock_needed")}
                     </th>
                     <th scope="col" className="relative py-3.5 pl-3 pr-4 sm:pr-6 text-right">
@@ -890,7 +899,7 @@ const AlertsPage = () => {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200 bg-white">
+                <tbody className="divide-y divide-gray-200 bg-background">
                   {isLoading ? (
                     <tr>
                       <td colSpan={8} className="text-center py-4">
@@ -910,7 +919,7 @@ const AlertsPage = () => {
 
                       return (
                         <tr key={product.id}>
-                          <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm sm:pl-6">
+                          <td className="py-4 pl-4 pr-3 text-sm sm:pl-6">
                             <div className="flex items-center">
                               <div className="h-10 w-10 flex-shrink-0">
                                 <img
@@ -920,46 +929,56 @@ const AlertsPage = () => {
                                 />
                               </div>
                               <div className="ml-4">
-                                <div className="font-medium text-gray-900">{product.name}</div>
+                                <div className="font-medium text-foreground">{product.name}</div>
                               </div>
                             </div>
                           </td>
-                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                            {getCategoryName(product.category_id)}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                          <td className="px-3 py-4 text-sm text-foreground">{getCategoryName(product.category_id)}</td>
+                          <td className="px-3 py-4 text-sm text-foreground hidden md:table-cell">
                             {product.barcode || "N/A"}
                           </td>
-                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                          <td className="px-3 py-4 text-sm font-medium text-foreground">
                             {formatCurrency(product.price, currentCurrency, language)}
                           </td>
-                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                          <td className="px-3 py-4 text-sm text-foreground hidden md:table-cell">
                             {product.purchase_price
                               ? formatCurrency(product.purchase_price, currentCurrency, language)
                               : "N/A"}
                           </td>
-                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                          <td className="px-3 py-4 text-sm font-medium text-foreground">
                             {editedStockLevels[product.id] !== undefined
                               ? editedStockLevels[product.id]
                               : product.stock}
                           </td>
-                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{product.min_stock}</td>
-                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                          <td className="px-3 py-4 text-sm font-medium text-foreground">{product.min_stock}</td>
+                          <td className="px-3 py-4 text-sm">
                             {stockNeeded > 0 ? (
-                              <Badge variant="destructive">{stockNeeded}</Badge>
+                              <Badge variant="destructive" className="font-medium">
+                                {stockNeeded}
+                              </Badge>
                             ) : (
-                              <Badge>{stockNeeded}</Badge>
+                              <Badge className="font-medium">{stockNeeded}</Badge>
                             )}
                           </td>
-                          <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
-                            <div className="flex items-center space-x-2">
-                              <Button variant="secondary" size="sm" onClick={() => handleAdjustClick(product)}>
+                          <td className="relative py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
+                            <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2">
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => handleAdjustClick(product)}
+                                className="w-full sm:w-auto"
+                              >
                                 {getAppTranslation("edit", language)}
                               </Button>
-                              <Button variant="outline" size="sm" onClick={() => handleRestock(product)}>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleRestock(product)}
+                                className="w-full sm:w-auto"
+                              >
                                 {getAppTranslation("restock", language)}
                               </Button>
-                              <Button size="sm" onClick={() => handleAddToCart(product)}>
+                              <Button size="sm" onClick={() => handleAddToCart(product)} className="w-full sm:w-auto">
                                 {getAppTranslation("add_to_cart", language)}
                               </Button>
                             </div>
@@ -974,36 +993,42 @@ const AlertsPage = () => {
           </div>
         </div>
 
-        <div className="flex flex-col md:flex-row items-center justify-between mt-4 space-y-4 md:space-y-0 md:space-x-4">
-          <div className="flex items-center space-x-2">
-            <Label htmlFor="export-page-count">{getTranslation("pages")}:</Label>
-            <select
-              id="export-page-count"
-              className="rounded-md border border-input bg-background px-4 py-2 text-sm"
-              value={exportPageCount}
-              onChange={(e) => handleExportPageCountChange(e.target.value)}
-            >
-              <option value="auto">{getTranslation("auto")}</option>
-              <option value="1">1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
-              <option value="5">5</option>
-            </select>
-          </div>
+        <div className="flex flex-col space-y-4 mt-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center space-x-2">
+              <Label htmlFor="export-page-count" className="text-foreground font-medium">
+                {getTranslation("pages")}:
+              </Label>
+              <select
+                id="export-page-count"
+                className="rounded-md border border-input bg-background px-4 py-2 text-sm"
+                value={exportPageCount}
+                onChange={(e) => handleExportPageCountChange(e.target.value)}
+              >
+                <option value="auto" className="font-medium">
+                  {getTranslation("auto") || "Automatic"}
+                </option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+              </select>
+            </div>
 
-          {/* Use the imported PaginationControl component */}
-          <PaginationControl
-            currentPage={currentPage}
-            totalPages={totalPages}
-            onPageChange={handlePageChange}
-            pageSize={pageSize}
-            onPageSizeChange={(size) => handlePageSizeChange(size.toString())}
-            pageSizeOptions={[5, 10, 20, 50]}
-            onExportPDF={exportToPDF}
-            onExportCSV={exportToCSV}
-            isExporting={isExporting || isExportingPDF}
-          />
+            {/* Use the imported PaginationControl component */}
+            <PaginationControl
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={handlePageChange}
+              pageSize={pageSize}
+              onPageSizeChange={(size) => handlePageSizeChange(size.toString())}
+              pageSizeOptions={[5, 10, 20, 50]}
+              onExportPDF={exportToPDF}
+              onExportCSV={exportToCSV}
+              isExporting={isExporting || isExportingPDF}
+            />
+          </div>
         </div>
       </div>
     </>

@@ -63,8 +63,8 @@ export function PaginationControl({
   }
 
   return (
-    <div className={`flex items-center justify-between gap-2 ${className}`}>
-      <div className="flex items-center gap-2">
+    <div className={`flex flex-col sm:flex-row items-center justify-between gap-2 ${className}`}>
+      <div className="flex items-center gap-2 w-full sm:w-auto justify-start">
         {pageSize !== undefined && onPageSizeChange && (
           <Select value={pageSize.toString()} onValueChange={(value) => onPageSizeChange(Number.parseInt(value, 10))}>
             <SelectTrigger className="w-16">
@@ -94,7 +94,7 @@ export function PaginationControl({
         )}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 my-2 sm:my-0">
         {showFirstLast && (
           <Button
             variant="outline"
@@ -117,17 +117,17 @@ export function PaginationControl({
         </Button>
 
         <div className="flex items-center gap-1 min-w-[120px] justify-center">
-          <span className="text-sm">Page</span>
+          <span className="text-sm font-medium">Page</span>
           <input
             type="text"
             value={inputPage}
             onChange={handlePageInputChange}
             onBlur={handlePageInputBlur}
             onKeyDown={handlePageInputKeyDown}
-            className="w-12 h-8 text-center border rounded-md"
+            className="w-12 h-8 text-center border rounded-md font-medium"
             aria-label="Current page"
           />
-          <span className="text-sm">of {totalPages}</span>
+          <span className="text-sm font-medium">of {totalPages}</span>
         </div>
 
         <Button
@@ -152,7 +152,7 @@ export function PaginationControl({
         )}
       </div>
 
-      <div className="w-16">{/* Empty div to balance the layout */}</div>
+      <div className="w-16 hidden sm:block">{/* Empty div to balance the layout */}</div>
     </div>
   )
 }
