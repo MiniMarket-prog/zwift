@@ -61,7 +61,7 @@ interface JsPDFWithAutoTable extends jsPDF {
     getNumberOfPages: () => number
     getCurrentPageInfo: () => { pageNumber: number }
     getFontSize: () => number
-    getStringUnitWidth: (text: string) => number
+    getStringUnitWidth: (text: string) => string
   }
 }
 
@@ -103,6 +103,13 @@ const AlertsPage = () => {
   // First, add state for edited prices
   const [editedPrice, setEditedPrice] = useState<number | null>(null)
   const [editedPurchasePrice, setEditedPurchasePrice] = useState<number | null>(null)
+
+  // Add a new state for the barcode dialog after the other state declarations
+  const [isBarcodeDialogOpen, setIsBarcodeDialogOpen] = useState(false)
+  const [selectedBarcode, setSelectedBarcode] = useState<{ name: string; barcode: string | undefined }>({
+    name: "",
+    barcode: undefined,
+  })
 
   // Fetch currency setting
   const fetchCurrency = useCallback(async () => {
@@ -268,6 +275,15 @@ const AlertsPage = () => {
         variant: "destructive",
       })
     }
+  }
+
+  // Add a function to handle showing the barcode dialog
+  const handleShowBarcode = (product: Product) => {
+    setSelectedBarcode({
+      name: product.name,
+      barcode: product.barcode,
+    })
+    setIsBarcodeDialogOpen(true)
   }
 
   // Add a function to handle opening the adjust stock dialog
@@ -827,6 +843,89 @@ const AlertsPage = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Barcode Dialog */}
+      <Dialog open={isBarcodeDialogOpen} onOpenChange={setIsBarcodeDialogOpen}>
+        <DialogContent className="sm:max-w-[425px] max-w-[95vw]">
+          <DialogHeader>
+            <DialogTitle className="text-xl">{getTranslation("product_barcode")}</DialogTitle>
+            <DialogDescription className="text-base">
+              {selectedBarcode.name ? `${getTranslation("barcode_for")} ${selectedBarcode.name}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="barcode" className="text-right font-medium text-foreground">
+                {getAppTranslation("barcode", language)}
+              </Label>
+              <div className="col-span-3">
+                <Input
+                  id="barcode"
+                  type="text"
+                  value={selectedBarcode.barcode || getTranslation("no_barcode")}
+                  readOnly
+                  className="w-full font-medium"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsBarcodeDialogOpen(false)}>
+              {getAppTranslation("close", language)}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Barcode Dialog for mobile */}
+      <Dialog open={isBarcodeDialogOpen} onOpenChange={setIsBarcodeDialogOpen}>
+        <DialogContent className="sm:max-w-[425px] max-w-[95vw]">
+          <DialogHeader>
+            <DialogTitle className="text-xl">{getTranslation("product_barcode")}</DialogTitle>
+            <DialogDescription className="text-base">{selectedBarcode.name}</DialogDescription>
+          </DialogHeader>
+          <div className="py-4 flex flex-col items-center justify-center">
+            {selectedBarcode.barcode ? (
+              <>
+                <div className="bg-white p-4 rounded-md mb-4">
+                  {/* Display barcode as text in a monospace font with larger size */}
+                  <div className="font-mono text-xl text-center mb-2 select-all">{selectedBarcode.barcode}</div>
+
+                  {/* Display barcode in a format that resembles a barcode */}
+                  <div className="flex justify-center items-center h-16 overflow-hidden">
+                    {selectedBarcode.barcode.split("").map((char, index) => (
+                      <div
+                        key={index}
+                        className="h-full w-1 mx-[1px]"
+                        style={{
+                          backgroundColor: Math.random() > 0.5 ? "black" : "white",
+                          height: "100%",
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <Button
+                  onClick={() => {
+                    if (navigator.clipboard) {
+                      navigator.clipboard.writeText(selectedBarcode.barcode || "")
+                      toast({
+                        title: getTranslation("copied"),
+                        description: getTranslation("barcode_copied_to_clipboard"),
+                      })
+                    }
+                  }}
+                  className="w-full"
+                >
+                  {getTranslation("copy_barcode")}
+                </Button>
+              </>
+            ) : (
+              <div className="text-center py-4 text-muted-foreground">{getTranslation("no_barcode_available")}</div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <div className="container py-10">
         <div className="flex flex-col space-y-4">
           <div className="flex-1 space-y-2">
@@ -921,12 +1020,18 @@ const AlertsPage = () => {
                         <tr key={product.id}>
                           <td className="py-4 pl-4 pr-3 text-sm sm:pl-6">
                             <div className="flex items-center">
-                              <div className="h-10 w-10 flex-shrink-0">
+                              <div
+                                className="h-10 w-10 flex-shrink-0 cursor-pointer md:cursor-default"
+                                onClick={() => handleShowBarcode(product)}
+                              >
                                 <img
                                   className="h-10 w-10 rounded-full object-cover"
                                   src={product.image || "/placeholder.jpg"}
                                   alt={product.name}
                                 />
+                                <span className="md:hidden block text-[8px] text-center mt-1 text-muted-foreground">
+                                  {getTranslation("view_barcode")}
+                                </span>
                               </div>
                               <div className="ml-4">
                                 <div className="font-medium text-foreground">{product.name}</div>
@@ -980,6 +1085,14 @@ const AlertsPage = () => {
                               </Button>
                               <Button size="sm" onClick={() => handleAddToCart(product)} className="w-full sm:w-auto">
                                 {getAppTranslation("add_to_cart", language)}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleShowBarcode(product)}
+                                className="w-full sm:w-auto"
+                              >
+                                {getTranslation("show_barcode")}
                               </Button>
                             </div>
                           </td>
