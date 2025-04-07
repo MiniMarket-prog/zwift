@@ -238,36 +238,22 @@ export function AppSidebar() {
   const navItems: NavItem[] = [
     { href: "/dashboard", label: "dashboard" as AppTranslationKey, icon: <LayoutDashboard className="h-5 w-5" /> },
     { href: "/pos2", label: "pointOfSale" as AppTranslationKey, icon: <ShoppingCart className="h-5 w-5" /> },
-    {
-      href: "/alerts",
-      label: "alerts" as AppTranslationKey,
-      icon: <AlertTriangle className="h-5 w-5" />,
+    { href: "/alerts", label: "alerts" as AppTranslationKey, icon: <AlertTriangle className="h-5 w-5" />,
       badge: unreadAlerts, // Remove the conditional check, always show the badge value
     },
+    { href: "/products", label: "products" as AppTranslationKey, icon: <Package className="h-5 w-5" /> }, 
     { href: "/sales", label: "sales" as AppTranslationKey, icon: <DollarSign className="h-5 w-5" /> },
-    { href: "/products", label: "products" as AppTranslationKey, icon: <Package className="h-5 w-5" /> },
-    { href: "/forecasting", label: "forecasting" as AppTranslationKey, icon: <TrendingUp className="h-5 w-5" /> },
-    {
-      href: "/purchase-orders",
-      label: "purchaseOrders" as AppTranslationKey,
-      icon: <ClipboardList className="h-5 w-5" />,
-    },
+    
+    //{ href: "/forecasting", label: "forecasting" as AppTranslationKey, icon: <TrendingUp className="h-5 w-5" /> },
+    //  { href: "/purchase-orders", label: "purchaseOrders" as AppTranslationKey, icon: <ClipboardList className="h-5 w-5" />, },
     { href: "/expenses", label: "expenses" as AppTranslationKey, icon: <CircleDollarSign className="h-5 w-5" /> },
     { href: "/sammury", label: "sammury" as AppTranslationKey, icon: <TrendingUp className="h-5 w-5" /> },
-    {
-      href: "/reports/activity",
-      label: "ActivityReports" as AppTranslationKey,
-      icon: <Activity className="h-5 w-5" />,
-    },
-    { href: "/reports/sales", label: "SalesReports" as AppTranslationKey, icon: <LineChart className="h-5 w-5" /> },
-    {
-      href: "/capital-analytics",
-      label: "capital_analytics" as AppTranslationKey,
-      icon: <Calculator className="h-5 w-5" />,
-    },
-    { href: "/analytics", label: "analytics" as AppTranslationKey, icon: <LineChart className="h-5 w-5" /> },
-    { href: "/users", label: "customers" as AppTranslationKey, icon: <User className="h-5 w-5" /> },
-    { href: "/settings", label: "settings" as AppTranslationKey, icon: <Settings className="h-5 w-5" /> },
+    //{ href: "/reports/activity", label: "ActivityReports" as AppTranslationKey, icon: <Activity className="h-5 w-5" />, },
+    //{ href: "/reports/sales", label: "SalesReports" as AppTranslationKey, icon: <LineChart className="h-5 w-5" /> },
+   // { href: "/capital-analytics", label: "capital_analytics" as AppTranslationKey, icon: <Calculator className="h-5 w-5" />,  },
+   // { href: "/analytics", label: "analytics" as AppTranslationKey, icon: <LineChart className="h-5 w-5" /> },
+   // { href: "/users", label: "customers" as AppTranslationKey, icon: <User className="h-5 w-5" /> },
+   // { href: "/settings", label: "settings" as AppTranslationKey, icon: <Settings className="h-5 w-5" /> },
   ]
 
   const SidebarContent = () => (

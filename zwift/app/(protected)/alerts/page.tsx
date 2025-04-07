@@ -1,9 +1,7 @@
 "use client"
 
 import { DialogFooter } from "@/components/ui/dialog"
-
 import { TableHead } from "@/components/ui/table"
-
 import type React from "react"
 
 import { useEffect, useState, useCallback } from "react"
@@ -20,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 // Add the import for PaginationControl at the top of the file with the other imports
 import { PaginationControl } from "@/components/pagination-control"
 
@@ -104,12 +103,25 @@ const AlertsPage = () => {
   const [editedPrice, setEditedPrice] = useState<number | null>(null)
   const [editedPurchasePrice, setEditedPurchasePrice] = useState<number | null>(null)
 
+  // Add state for category editing
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+
+  // Add state for image editing after the other state variables
+  const [editedImageUrl, setEditedImageUrl] = useState<string | null>(null)
+
   // Add a new state for the barcode dialog after the other state declarations
   const [isBarcodeDialogOpen, setIsBarcodeDialogOpen] = useState(false)
   const [selectedBarcode, setSelectedBarcode] = useState<{ name: string; barcode: string | undefined }>({
     name: "",
     barcode: undefined,
   })
+
+  // Add these state variables for sorting after the other state declarations
+  const [sortField, setSortField] = useState<string | null>(null)
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc")
+
+  // Add a new state for edited barcode after the other state variables
+  const [editedBarcode, setEditedBarcode] = useState<string | null>(null)
 
   // Fetch currency setting
   const fetchCurrency = useCallback(async () => {
@@ -243,6 +255,27 @@ const AlertsPage = () => {
     setCategoryFilter(value)
   }
 
+  // Add a function to handle showing the barcode dialog
+  const handleShowBarcode = (product: Product) => {
+    setSelectedBarcode({
+      name: product.name,
+      barcode: product.barcode,
+    })
+    setIsBarcodeDialogOpen(true)
+  }
+
+  // Update the handleAdjustClick function to initialize the barcode value
+  const handleAdjustClick = (product: Product) => {
+    setSelectedProduct(product)
+    setAdjustedStock(product.stock)
+    setEditedPrice(product.price)
+    setEditedPurchasePrice(product.purchase_price || null)
+    setSelectedCategory(product.category_id || "uncategorized")
+    setEditedImageUrl(product.image || null)
+    setEditedBarcode(product.barcode || null)
+    setIsAdjustDialogOpen(true)
+  }
+
   const handleAddToCart = (product: Product) => {
     // Implement add to cart functionality
     toast({
@@ -277,25 +310,7 @@ const AlertsPage = () => {
     }
   }
 
-  // Add a function to handle showing the barcode dialog
-  const handleShowBarcode = (product: Product) => {
-    setSelectedBarcode({
-      name: product.name,
-      barcode: product.barcode,
-    })
-    setIsBarcodeDialogOpen(true)
-  }
-
-  // Add a function to handle opening the adjust stock dialog
-  const handleAdjustClick = (product: Product) => {
-    setSelectedProduct(product)
-    setAdjustedStock(product.stock)
-    setEditedPrice(product.price)
-    setEditedPurchasePrice(product.purchase_price || null)
-    setIsAdjustDialogOpen(true)
-  }
-
-  // Add a function to handle stock adjustment
+  // Update the handleStockAdjustment function to include barcode in the update data
   const handleStockAdjustment = async () => {
     if (!selectedProduct) return
 
@@ -311,6 +326,22 @@ const AlertsPage = () => {
 
       if (editedPurchasePrice !== null && editedPurchasePrice !== selectedProduct.purchase_price) {
         updateData.purchase_price = editedPurchasePrice
+      }
+
+      // Add category update
+      if (selectedCategory !== selectedProduct.category_id) {
+        // If "uncategorized" is selected, set category_id to null
+        updateData.category_id = selectedCategory === "uncategorized" ? null : selectedCategory
+      }
+
+      // Add image update
+      if (editedImageUrl !== selectedProduct.image) {
+        updateData.image = editedImageUrl
+      }
+
+      // Add barcode update
+      if (editedBarcode !== selectedProduct.barcode) {
+        updateData.barcode = editedBarcode
       }
 
       const { error } = await supabase.from("products").update(updateData).eq("id", selectedProduct.id)
@@ -403,11 +434,59 @@ const AlertsPage = () => {
     setCurrentPage(page)
   }
 
-  // Get paginated products
+  // Add this function to handle column sorting
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      // If already sorting by this field, toggle direction
+      setSortDirection(sortDirection === "asc" ? "desc" : "asc")
+    } else {
+      // New sort field, default to ascending
+      setSortField(field)
+      setSortDirection("asc")
+    }
+  }
+
+  // Modify the getPaginatedProducts function to include sorting
   const getPaginatedProducts = () => {
+    // First sort the products if a sort field is selected
+    const sortedProducts = [...filteredProducts]
+
+    if (sortField) {
+      sortedProducts.sort((a, b) => {
+        let valueA: any
+        let valueB: any
+
+        // Special handling for different field types
+        if (sortField === "name") {
+          valueA = a.name.toLowerCase()
+          valueB = b.name.toLowerCase()
+        } else if (sortField === "category_id") {
+          valueA = getCategoryName(a.category_id).toLowerCase()
+          valueB = getCategoryName(b.category_id).toLowerCase()
+        } else if (sortField === "barcode") {
+          valueA = a.barcode || ""
+          valueB = b.barcode || ""
+        } else {
+          // For other fields, safely access the property
+          valueA = a[sortField as keyof Product]
+          valueB = b[sortField as keyof Product]
+
+          // Handle null/undefined values
+          valueA = valueA === null || valueA === undefined ? 0 : valueA
+          valueB = valueB === null || valueB === undefined ? 0 : valueB
+        }
+
+        // Compare the values (now guaranteed to be defined)
+        if (valueA < valueB) return sortDirection === "asc" ? -1 : 1
+        if (valueA > valueB) return sortDirection === "asc" ? 1 : -1
+        return 0
+      })
+    }
+
+    // Then paginate
     const startIndex = (currentPage - 1) * pageSize
     const endIndex = startIndex + pageSize
-    return filteredProducts.slice(startIndex, endIndex)
+    return sortedProducts.slice(startIndex, endIndex)
   }
 
   // Add this function to handle export page count change
@@ -716,9 +795,6 @@ const AlertsPage = () => {
     }
   }
 
-  // Update the Dialog component to include price and purchase price fields
-  // Replace the existing Dialog component with this updated version
-
   return (
     <>
       {/* Stock Adjustment Dialog */}
@@ -753,6 +829,73 @@ const AlertsPage = () => {
                 <Button variant="outline" size="icon" onClick={() => adjustStock(1)}>
                   <Plus className="h-4 w-4" />
                 </Button>
+              </div>
+            </div>
+
+            {/* Category selection */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="category" className="text-right font-medium text-foreground">
+                {getAppTranslation("category", language)}
+              </Label>
+              <div className="col-span-3">
+                <Select value={selectedCategory || "uncategorized"} onValueChange={setSelectedCategory}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="uncategorized">Uncategorized</SelectItem>
+                    {categories.map((category) => (
+                      <SelectItem key={category.id} value={category.id}>
+                        {category.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Image URL field */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="image" className="text-right font-medium text-foreground">
+                {getAppTranslation("image", language) || "Image URL"}
+              </Label>
+              <div className="col-span-3">
+                <div className="flex flex-col gap-2">
+                  {editedImageUrl && (
+                    <div className="relative w-16 h-16 mb-2 mx-auto">
+                      <img
+                        src={editedImageUrl || "/placeholder.svg"}
+                        alt="Product preview"
+                        className="w-full h-full object-cover rounded-md"
+                      />
+                    </div>
+                  )}
+                  <Input
+                    id="image"
+                    type="text"
+                    value={editedImageUrl || ""}
+                    onChange={(e) => setEditedImageUrl(e.target.value || null)}
+                    className="w-full"
+                    placeholder="Enter image URL"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Barcode field */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="barcode" className="text-right font-medium text-foreground">
+                {getAppTranslation("barcode", language) || "Barcode"}
+              </Label>
+              <div className="col-span-3">
+                <Input
+                  id="barcode"
+                  type="text"
+                  value={editedBarcode || ""}
+                  onChange={(e) => setEditedBarcode(e.target.value || null)}
+                  className="w-full"
+                  placeholder="Enter barcode"
+                />
               </div>
             </div>
 
@@ -876,56 +1019,6 @@ const AlertsPage = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Barcode Dialog for mobile */}
-      <Dialog open={isBarcodeDialogOpen} onOpenChange={setIsBarcodeDialogOpen}>
-        <DialogContent className="sm:max-w-[425px] max-w-[95vw]">
-          <DialogHeader>
-            <DialogTitle className="text-xl">{getTranslation("product_barcode")}</DialogTitle>
-            <DialogDescription className="text-base">{selectedBarcode.name}</DialogDescription>
-          </DialogHeader>
-          <div className="py-4 flex flex-col items-center justify-center">
-            {selectedBarcode.barcode ? (
-              <>
-                <div className="bg-white p-4 rounded-md mb-4">
-                  {/* Display barcode as text in a monospace font with larger size */}
-                  <div className="font-mono text-xl text-center mb-2 select-all">{selectedBarcode.barcode}</div>
-
-                  {/* Display barcode in a format that resembles a barcode */}
-                  <div className="flex justify-center items-center h-16 overflow-hidden">
-                    {selectedBarcode.barcode.split("").map((char, index) => (
-                      <div
-                        key={index}
-                        className="h-full w-1 mx-[1px]"
-                        style={{
-                          backgroundColor: Math.random() > 0.5 ? "black" : "white",
-                          height: "100%",
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <Button
-                  onClick={() => {
-                    if (navigator.clipboard) {
-                      navigator.clipboard.writeText(selectedBarcode.barcode || "")
-                      toast({
-                        title: getTranslation("copied"),
-                        description: getTranslation("barcode_copied_to_clipboard"),
-                      })
-                    }
-                  }}
-                  className="w-full"
-                >
-                  {getTranslation("copy_barcode")}
-                </Button>
-              </>
-            ) : (
-              <div className="text-center py-4 text-muted-foreground">{getTranslation("no_barcode_available")}</div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
       <div className="container py-10">
         <div className="flex flex-col space-y-4">
           <div className="flex-1 space-y-2">
@@ -962,33 +1055,79 @@ const AlertsPage = () => {
                   <tr>
                     <th
                       scope="col"
-                      className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-foreground sm:pl-6"
+                      className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-foreground sm:pl-6 cursor-pointer hover:bg-muted/80"
+                      onClick={() => handleSort("name")}
                     >
-                      {getAppTranslation("product", language)}
-                    </th>
-                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-foreground">
-                      {getAppTranslation("category", language)}
+                      <div className="flex items-center">
+                        {getAppTranslation("product", language)}
+                        {sortField === "name" && <span className="ml-1">{sortDirection === "asc" ? "↑" : "↓"}</span>}
+                      </div>
                     </th>
                     <th
                       scope="col"
-                      className="px-3 py-3.5 text-left text-sm font-semibold text-foreground hidden md:table-cell"
+                      className="px-3 py-3.5 text-left text-sm font-semibold text-foreground cursor-pointer hover:bg-muted/80"
+                      onClick={() => handleSort("category_id")}
                     >
-                      {getAppTranslation("barcode", language)}
-                    </th>
-                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-foreground">
-                      {getAppTranslation("price", language)}
+                      <div className="flex items-center">
+                        {getAppTranslation("category", language)}
+                        {sortField === "category_id" && (
+                          <span className="ml-1">{sortDirection === "asc" ? "↑" : "↓"}</span>
+                        )}
+                      </div>
                     </th>
                     <th
                       scope="col"
-                      className="px-3 py-3.5 text-left text-sm font-semibold text-foreground hidden md:table-cell"
+                      className="px-3 py-3.5 text-left text-sm font-semibold text-foreground hidden md:table-cell cursor-pointer hover:bg-muted/80"
+                      onClick={() => handleSort("barcode")}
                     >
-                      {getAppTranslation("purchase_price", language)}
+                      <div className="flex items-center">
+                        {getAppTranslation("barcode", language)}
+                        {sortField === "barcode" && <span className="ml-1">{sortDirection === "asc" ? "↑" : "↓"}</span>}
+                      </div>
                     </th>
-                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-foreground">
-                      {getAppTranslation("current_stock", language)}
+                    <th
+                      scope="col"
+                      className="px-3 py-3.5 text-left text-sm font-semibold text-foreground cursor-pointer hover:bg-muted/80"
+                      onClick={() => handleSort("price")}
+                    >
+                      <div className="flex items-center">
+                        {getAppTranslation("price", language)}
+                        {sortField === "price" && <span className="ml-1">{sortDirection === "asc" ? "↑" : "↓"}</span>}
+                      </div>
                     </th>
-                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-foreground">
-                      {getAppTranslation("min_stock", language)}
+                    <th
+                      scope="col"
+                      className="px-3 py-3.5 text-left text-sm font-semibold text-foreground hidden md:table-cell cursor-pointer hover:bg-muted/80"
+                      onClick={() => handleSort("purchase_price")}
+                    >
+                      <div className="flex items-center">
+                        {getAppTranslation("purchase_price", language)}
+                        {sortField === "purchase_price" && (
+                          <span className="ml-1">{sortDirection === "asc" ? "↑" : "↓"}</span>
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-3 py-3.5 text-left text-sm font-semibold text-foreground cursor-pointer hover:bg-muted/80"
+                      onClick={() => handleSort("stock")}
+                    >
+                      <div className="flex items-center">
+                        {getAppTranslation("current_stock", language)}
+                        {sortField === "stock" && <span className="ml-1">{sortDirection === "asc" ? "↑" : "↓"}</span>}
+                      </div>
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-3 py-3.5 text-left text-sm font-semibold text-foreground cursor-pointer hover:bg-muted/80"
+                      onClick={() => handleSort("min_stock")}
+                    >
+                      <div className="flex items-center">
+                        {getAppTranslation("min_stock", language)}
+                        {sortField === "min_stock" && (
+                          <span className="ml-1">{sortDirection === "asc" ? "↑" : "↓"}</span>
+                        )}
+                      </div>
                     </th>
                     <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-foreground">
                       {getTranslation("stock_needed")}
@@ -998,6 +1137,7 @@ const AlertsPage = () => {
                     </th>
                   </tr>
                 </thead>
+
                 <tbody className="divide-y divide-gray-200 bg-background">
                   {isLoading ? (
                     <tr>
@@ -1074,17 +1214,6 @@ const AlertsPage = () => {
                                 className="w-full sm:w-auto"
                               >
                                 {getAppTranslation("edit", language)}
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleRestock(product)}
-                                className="w-full sm:w-auto"
-                              >
-                                {getAppTranslation("restock", language)}
-                              </Button>
-                              <Button size="sm" onClick={() => handleAddToCart(product)} className="w-full sm:w-auto">
-                                {getAppTranslation("add_to_cart", language)}
                               </Button>
                               <Button
                                 variant="ghost"
