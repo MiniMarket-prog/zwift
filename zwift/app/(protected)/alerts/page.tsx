@@ -927,23 +927,6 @@ const AlertsPage = () => {
               </div>
             </div>
 
-            {/* Product Name field */}
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="name" className="text-right font-medium text-foreground">
-                {getAppTranslation("product_name", language) || "Product Name"}
-              </Label>
-              <div className="col-span-3">
-                <Input
-                  id="name"
-                  type="text"
-                  value={editedProductName || ""}
-                  onChange={(e) => setEditedProductName(e.target.value || "")}
-                  className="w-full"
-                  placeholder="Enter product name"
-                />
-              </div>
-            </div>
-
             {/* Price adjustment */}
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="price" className="text-right font-medium text-foreground">
