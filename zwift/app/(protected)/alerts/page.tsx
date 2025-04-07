@@ -123,6 +123,9 @@ const AlertsPage = () => {
   // Add a new state for edited barcode after the other state variables
   const [editedBarcode, setEditedBarcode] = useState<string | null>(null)
 
+  // Add a new state for edited product name after the other state variables
+  const [editedProductName, setEditedProductName] = useState<string>("")
+
   // Fetch currency setting
   const fetchCurrency = useCallback(async () => {
     try {
@@ -273,6 +276,7 @@ const AlertsPage = () => {
     setSelectedCategory(product.category_id || "uncategorized")
     setEditedImageUrl(product.image || null)
     setEditedBarcode(product.barcode || null)
+    setEditedProductName(product.name)
     setIsAdjustDialogOpen(true)
   }
 
@@ -307,6 +311,8 @@ const AlertsPage = () => {
         description: getAppTranslation("failed_to_restock_product", language),
         variant: "destructive",
       })
+    } finally {
+      setIsAdjusting(false)
     }
   }
 
@@ -342,6 +348,11 @@ const AlertsPage = () => {
       // Add barcode update
       if (editedBarcode !== selectedProduct.barcode) {
         updateData.barcode = editedBarcode
+      }
+
+      // Add product name update
+      if (editedProductName !== selectedProduct.name) {
+        updateData.name = editedProductName
       }
 
       const { error } = await supabase.from("products").update(updateData).eq("id", selectedProduct.id)
@@ -809,6 +820,23 @@ const AlertsPage = () => {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            {/* Product name field */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="product-name" className="text-right font-medium text-foreground">
+                {getAppTranslation("product_name", language) || "Product Name"}
+              </Label>
+              <div className="col-span-3">
+                <Input
+                  id="product-name"
+                  type="text"
+                  value={editedProductName}
+                  onChange={(e) => setEditedProductName(e.target.value)}
+                  className="w-full font-medium"
+                  placeholder="Enter product name"
+                />
+              </div>
+            </div>
+
             {/* Stock adjustment */}
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="stock" className="text-right font-medium text-foreground">
@@ -895,6 +923,23 @@ const AlertsPage = () => {
                   onChange={(e) => setEditedBarcode(e.target.value || null)}
                   className="w-full"
                   placeholder="Enter barcode"
+                />
+              </div>
+            </div>
+
+            {/* Product Name field */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="name" className="text-right font-medium text-foreground">
+                {getAppTranslation("product_name", language) || "Product Name"}
+              </Label>
+              <div className="col-span-3">
+                <Input
+                  id="name"
+                  type="text"
+                  value={editedProductName || ""}
+                  onChange={(e) => setEditedProductName(e.target.value || "")}
+                  className="w-full"
+                  placeholder="Enter product name"
                 />
               </div>
             </div>
