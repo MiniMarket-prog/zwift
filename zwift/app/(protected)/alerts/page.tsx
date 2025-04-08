@@ -833,6 +833,7 @@ const AlertsPage = () => {
                   onChange={(e) => setEditedProductName(e.target.value)}
                   className="w-full font-medium"
                   placeholder="Enter product name"
+                  autoFocus={false}
                 />
               </div>
             </div>
@@ -853,6 +854,7 @@ const AlertsPage = () => {
                   value={adjustedStock}
                   onChange={(e) => setAdjustedStock(Math.max(0, Number.parseInt(e.target.value) || 0))}
                   className="w-20 text-center font-medium"
+                  autoFocus={true}
                 />
                 <Button variant="outline" size="icon" onClick={() => adjustStock(1)}>
                   <Plus className="h-4 w-4" />
@@ -1306,4 +1308,3 @@ const AlertsPage = () => {
 }
 
 export default AlertsPage
-

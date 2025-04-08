@@ -73,9 +73,9 @@ export default function ReportsPage() {
   // State for active tab and period selection
   const [activeTab, setActiveTab] = useState("sales")
   const [isLoading, setIsLoading] = useState(false)
-  const [period, setPeriod] = useState<PeriodOption>("last7days")
+  const [period, setPeriod] = useState<PeriodOption>("today")
   const [dateRange, setDateRange] = useState<DateRange>({
-    from: subDays(new Date(), 7),
+    from: subDays(new Date(), 0),
     to: new Date(),
   })
   const [isCustomPeriod, setIsCustomPeriod] = useState(false)
