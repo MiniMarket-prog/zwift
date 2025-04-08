@@ -11,7 +11,6 @@ import {
   ShoppingCart,
   Calculator,
   Package,
-  User,
   Settings,
   Menu,
   Sun,
@@ -23,9 +22,9 @@ import {
   LayoutDashboard,
   AlertTriangle,
   TrendingUp,
-  ClipboardList,
-  Activity,
   LineChart,
+  BarChart,
+  Lightbulb,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useTheme } from "next-themes"
@@ -238,22 +237,76 @@ export function AppSidebar() {
   const navItems: NavItem[] = [
     { href: "/dashboard", label: "dashboard" as AppTranslationKey, icon: <LayoutDashboard className="h-5 w-5" /> },
     { href: "/pos2", label: "pointOfSale" as AppTranslationKey, icon: <ShoppingCart className="h-5 w-5" /> },
-    { href: "/alerts", label: "alerts" as AppTranslationKey, icon: <AlertTriangle className="h-5 w-5" />,
-      badge: unreadAlerts, // Remove the conditional check, always show the badge value
+    {
+      href: "/alerts",
+      label: "alerts" as AppTranslationKey,
+      icon: <AlertTriangle className="h-5 w-5" />,
+      badge: unreadAlerts,
     },
-    { href: "/products", label: "products" as AppTranslationKey, icon: <Package className="h-5 w-5" /> }, 
+    { href: "/products", label: "products" as AppTranslationKey, icon: <Package className="h-5 w-5" /> },
     { href: "/sales", label: "sales" as AppTranslationKey, icon: <DollarSign className="h-5 w-5" /> },
-    
-    //{ href: "/forecasting", label: "forecasting" as AppTranslationKey, icon: <TrendingUp className="h-5 w-5" /> },
-    //  { href: "/purchase-orders", label: "purchaseOrders" as AppTranslationKey, icon: <ClipboardList className="h-5 w-5" />, },
     { href: "/expenses", label: "expenses" as AppTranslationKey, icon: <CircleDollarSign className="h-5 w-5" /> },
     { href: "/sammury", label: "sammury" as AppTranslationKey, icon: <TrendingUp className="h-5 w-5" /> },
-    //{ href: "/reports/activity", label: "ActivityReports" as AppTranslationKey, icon: <Activity className="h-5 w-5" />, },
-    //{ href: "/reports/sales", label: "SalesReports" as AppTranslationKey, icon: <LineChart className="h-5 w-5" /> },
-   // { href: "/capital-analytics", label: "capital_analytics" as AppTranslationKey, icon: <Calculator className="h-5 w-5" />,  },
-   // { href: "/analytics", label: "analytics" as AppTranslationKey, icon: <LineChart className="h-5 w-5" /> },
-   // { href: "/users", label: "customers" as AppTranslationKey, icon: <User className="h-5 w-5" /> },
-   // { href: "/settings", label: "settings" as AppTranslationKey, icon: <Settings className="h-5 w-5" /> },
+    {
+      key: "financial",
+      href: "#",
+      label: "Financial Analytics",
+      icon: <Calculator className="h-5 w-5" />,
+      hasSubmenu: true,
+      submenu: [
+        {
+          href: "/initial-investments",
+          label: "Initial Investments",
+          icon: <DollarSign className="h-4 w-4" />,
+        },
+        {
+          href: "/operating-expenses",
+          label: "Operating Expenses",
+          icon: <CircleDollarSign className="h-4 w-4" />,
+        },
+        {
+          href: "/revenue",
+          label: "Revenue",
+          icon: <DollarSign className="h-4 w-4" />,
+        },
+        {
+          href: "/cogs",
+          label: "COGS",
+          icon: <Package className="h-4 w-4" />,
+        },
+        {
+          href: "/net-profit",
+          label: "Net Profit",
+          icon: <TrendingUp className="h-4 w-4" />,
+        },
+        {
+          href: "/profit-advice",
+          label: "Profit Advice",
+          icon: <Lightbulb className="h-4 w-4" />,
+        },
+        {
+          href: "/profit-analysis",
+          label: "Profit Analysis",
+          icon: <LineChart className="h-4 w-4" />,
+        },
+        {
+          href: "/roi",
+          label: "ROI",
+          icon: <BarChart className="h-4 w-4" />,
+        },
+        {
+          href: "/break-even",
+          label: "Break-even Analysis",
+          icon: <LineChart className="h-4 w-4" />,
+        },
+        {
+          href: "/stock-value",
+          label: "Stock Value",
+          icon: <Package className="h-4 w-4" />,
+        },
+      ],
+    },
+    { href: "/settings", label: "settings" as AppTranslationKey, icon: <Settings className="h-5 w-5" /> },
   ]
 
   const SidebarContent = () => (
@@ -443,4 +496,3 @@ export function AppSidebar() {
 }
 
 export default AppSidebar
-
