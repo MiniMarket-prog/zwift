@@ -1,11 +1,17 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { createClient } from "@/lib/supabase-client"
 import { useToast } from "@/hooks/use-toast"
 import { useLanguage } from "@/hooks/use-language"
 import { formatCurrency, getCurrentCurrency, type SupportedCurrency } from "@/lib/format-currency"
-import { Package, TrendingUp, TrendingDown, Loader2, RefreshCw, ArrowUpDown, Search } from "lucide-react"
+import { Package, TrendingUp, TrendingDown, Loader2, RefreshCw, ArrowUpDown, Search, ShoppingCart } from "lucide-react"
+import { createClient } from "@/lib/supabase-client"
+import {
+  fetchProductsWithSalesData,
+  calculateStockSummary,
+  type Product,
+  type StockSummary,
+} from "@/lib/stock-value-service"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -16,48 +22,8 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { PaginationControl } from "@/components/pagination-control"
-
-// Define types based on your database schema
-interface Product {
-  id: string
-  name: string
-  price: number
-  barcode: string
-  stock: number
-  min_stock: number
-  image: string | null
-  category_id: string | null
-  created_at: string
-  purchase_price: number | null
-  expiry_date: string | null
-  expiry_notification_days: number | null
-  is_pack: boolean
-  parent_product_id: string | null
-  pack_quantity: number | null
-  pack_discount_percentage: number | null
-  category_name?: string
-}
-
-interface Category {
-  id: string
-  name: string
-  total_value: number
-  total_cost: number
-  product_count: number
-}
-
-interface StockSummary {
-  total_retail_value: number
-  total_cost_value: number
-  total_profit_potential: number
-  total_products: number
-  total_units: number
-  categories: Category[]
-  low_stock_value: number
-  high_stock_value: number
-  expired_value: number
-  expiring_soon_value: number
-}
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
 
 export default function StockValuePage() {
   // State variables
@@ -75,6 +41,12 @@ export default function StockValuePage() {
     high_stock_value: 0,
     expired_value: 0,
     expiring_soon_value: 0,
+    active_inventory_value: 0,
+    inactive_inventory_value: 0,
+    active_product_count: 0,
+    active_unit_count: 0,
+    active_cost_value: 0,
+    active_profit_potential: 0,
   })
   const [isLoading, setIsLoading] = useState(true)
   const [isFetchingMore, setIsFetchingMore] = useState(false)
@@ -83,8 +55,9 @@ export default function StockValuePage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [categoryFilter, setCategoryFilter] = useState<string>("all")
   const [stockFilter, setStockFilter] = useState<string>("all")
+  const [salesFilter, setSalesFilter] = useState<string>("all") // New filter for sales history
   const [loadingProgress, setLoadingProgress] = useState(0)
-  const [totalCount, setTotalCount] = useState(0)
+  const [showOnlySoldProducts, setShowOnlySoldProducts] = useState(false) // Toggle for showing only products with sales
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
@@ -113,93 +86,29 @@ export default function StockValuePage() {
     }
   }
 
-  // Get total count of products
-  const fetchTotalCount = async () => {
-    try {
-      const { count, error } = await supabase.from("products").select("*", { count: "exact", head: true })
-
-      if (error) throw error
-
-      return count || 0
-    } catch (error) {
-      console.error("Error fetching product count:", error)
-      return 0
-    }
-  }
-
-  // Fetch products with pagination to overcome the 1000 row limit
-  const fetchAllProducts = async () => {
-    const PAGE_SIZE = 1000 // Supabase's maximum limit
-    let allProducts: Product[] = []
-    let hasMore = true
-    let page = 0
-
-    // Get total count first
-    const count = await fetchTotalCount()
-    setTotalCount(count)
-
-    while (hasMore) {
-      setIsFetchingMore(true)
-      try {
-        const from = page * PAGE_SIZE
-        const to = from + PAGE_SIZE - 1
-
-        // Update loading progress
-        setLoadingProgress(Math.min(((page * PAGE_SIZE) / count) * 100, 99))
-
-        const { data, error } = await supabase
-          .from("products")
-          .select(`
-            *,
-            categories:category_id (
-              id,
-              name
-            )
-          `)
-          .range(from, to)
-
-        if (error) throw error
-
-        if (data && data.length > 0) {
-          // Process products data
-          const processedProducts = data.map((product) => ({
-            ...product,
-            category_name: product.categories?.name || "Uncategorized",
-          }))
-
-          allProducts = [...allProducts, ...processedProducts]
-          page++
-
-          // Check if we've reached the end
-          hasMore = data.length === PAGE_SIZE
-        } else {
-          hasMore = false
-        }
-      } catch (error) {
-        console.error("Error fetching products batch:", error)
-        hasMore = false
-      }
-    }
-
-    setLoadingProgress(100)
-    setIsFetchingMore(false)
-    return allProducts
-  }
-
   // Fetch products and categories
   const fetchData = async () => {
     setIsLoading(true)
+    setLoadingProgress(0)
     try {
       await fetchCurrency()
 
-      // Fetch all products with pagination
-      const allProducts = await fetchAllProducts()
+      // Show loading progress
+      setIsFetchingMore(true)
+      setLoadingProgress(30)
+
+      // Fetch all products with sales data
+      const allProducts = await fetchProductsWithSalesData()
+      setLoadingProgress(80)
 
       setProducts(allProducts)
       setFilteredProducts(allProducts)
 
       // Calculate stock summary
-      calculateStockSummary(allProducts)
+      const summary = calculateStockSummary(allProducts)
+      setStockSummary(summary)
+
+      setLoadingProgress(100)
     } catch (error) {
       console.error("Error fetching data:", error)
       toast({
@@ -209,85 +118,8 @@ export default function StockValuePage() {
       })
     } finally {
       setIsLoading(false)
+      setIsFetchingMore(false)
     }
-  }
-
-  // Calculate stock summary
-  const calculateStockSummary = (products: Product[]) => {
-    const summary: StockSummary = {
-      total_retail_value: 0,
-      total_cost_value: 0,
-      total_profit_potential: 0,
-      total_products: products.length,
-      total_units: 0,
-      categories: [],
-      low_stock_value: 0,
-      high_stock_value: 0,
-      expired_value: 0,
-      expiring_soon_value: 0,
-    }
-
-    // Category map to aggregate values
-    const categoryMap = new Map<string, Category>()
-
-    // Current date for expiry calculations
-    const currentDate = new Date()
-    const thirtyDaysFromNow = new Date()
-    thirtyDaysFromNow.setDate(currentDate.getDate() + 30)
-
-    products.forEach((product) => {
-      // Calculate product values
-      const retailValue = product.price * product.stock
-      const costValue = (product.purchase_price || 0) * product.stock
-      const profitPotential = retailValue - costValue
-
-      // Add to totals
-      summary.total_retail_value += retailValue
-      summary.total_cost_value += costValue
-      summary.total_profit_potential += profitPotential
-      summary.total_units += product.stock
-
-      // Check stock levels
-      if (product.stock <= product.min_stock) {
-        summary.low_stock_value += retailValue
-      } else if (product.stock > product.min_stock * 3) {
-        summary.high_stock_value += retailValue
-      }
-
-      // Check expiry
-      if (product.expiry_date) {
-        const expiryDate = new Date(product.expiry_date)
-        if (expiryDate < currentDate) {
-          summary.expired_value += retailValue
-        } else if (expiryDate <= thirtyDaysFromNow) {
-          summary.expiring_soon_value += retailValue
-        }
-      }
-
-      // Aggregate by category
-      const categoryId = product.category_id || "uncategorized"
-      const categoryName = product.category_name || "Uncategorized"
-
-      if (!categoryMap.has(categoryId)) {
-        categoryMap.set(categoryId, {
-          id: categoryId,
-          name: categoryName,
-          total_value: 0,
-          total_cost: 0,
-          product_count: 0,
-        })
-      }
-
-      const category = categoryMap.get(categoryId)!
-      category.total_value += retailValue
-      category.total_cost += costValue
-      category.product_count += 1
-    })
-
-    // Convert category map to array
-    summary.categories = Array.from(categoryMap.values()).sort((a, b) => b.total_value - a.total_value)
-
-    setStockSummary(summary)
   }
 
   // Handle sort change
@@ -303,6 +135,20 @@ export default function StockValuePage() {
   // Apply sorting and filtering
   useEffect(() => {
     let result = [...products]
+
+    // Apply sales history filter if enabled
+    if (showOnlySoldProducts) {
+      result = result.filter((product) => product.has_sales)
+    }
+
+    // Apply sales filter
+    if (salesFilter !== "all") {
+      if (salesFilter === "with_sales") {
+        result = result.filter((product) => product.has_sales)
+      } else if (salesFilter === "no_sales") {
+        result = result.filter((product) => !product.has_sales)
+      }
+    }
 
     // Apply search filter
     if (searchQuery) {
@@ -364,7 +210,17 @@ export default function StockValuePage() {
 
     // Reset to first page when filters change
     setCurrentPage(1)
-  }, [products, searchQuery, categoryFilter, stockFilter, sortField, sortDirection, pageSize])
+  }, [
+    products,
+    searchQuery,
+    categoryFilter,
+    stockFilter,
+    salesFilter,
+    showOnlySoldProducts,
+    sortField,
+    sortDirection,
+    pageSize,
+  ])
 
   // Update displayed products when filtered products or pagination changes
   useEffect(() => {
@@ -400,6 +256,11 @@ export default function StockValuePage() {
     return ((product.price - product.purchase_price) / product.purchase_price) * 100
   }
 
+  // Toggle the "show only sold products" filter
+  const toggleShowOnlySoldProducts = () => {
+    setShowOnlySoldProducts(!showOnlySoldProducts)
+  }
+
   return (
     <div className="container py-10">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
@@ -427,40 +288,77 @@ export default function StockValuePage() {
         </div>
       )}
 
+      {/* Active Inventory Toggle */}
+      <div className="flex items-center space-x-2 mb-6">
+        <Switch id="active-inventory" checked={showOnlySoldProducts} onCheckedChange={toggleShowOnlySoldProducts} />
+        <Label htmlFor="active-inventory">Show only products with sales history (active inventory)</Label>
+      </div>
+
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-3 mb-6">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total Retail Value</CardTitle>
-            <CardDescription>Current selling price of all stock</CardDescription>
+            <CardTitle className="text-sm font-medium">
+              {showOnlySoldProducts ? "Active Inventory Value" : "Total Retail Value"}
+            </CardTitle>
+            <CardDescription>
+              {showOnlySoldProducts ? "Value of products with sales history" : "Current selling price of all stock"}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatCurrency(stockSummary.total_retail_value, currency, language)}
+              {formatCurrency(
+                showOnlySoldProducts ? stockSummary.active_inventory_value : stockSummary.total_retail_value,
+                currency,
+                language,
+              )}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {stockSummary.total_units} units across {stockSummary.total_products} products
+              {showOnlySoldProducts
+                ? `${stockSummary.active_unit_count.toLocaleString()} units across ${stockSummary.active_product_count.toLocaleString()} products`
+                : `${stockSummary.total_units.toLocaleString()} units across ${stockSummary.total_products.toLocaleString()} products`}
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total Cost Value</CardTitle>
-            <CardDescription>Purchase cost of all stock</CardDescription>
+            <CardTitle className="text-sm font-medium">
+              {showOnlySoldProducts ? "Active Cost Value" : "Total Cost Value"}
+            </CardTitle>
+            <CardDescription>
+              {showOnlySoldProducts ? "Purchase cost of products with sales" : "Purchase cost of all stock"}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatCurrency(stockSummary.total_cost_value, currency, language)}
+              {formatCurrency(
+                showOnlySoldProducts ? stockSummary.active_cost_value : stockSummary.total_cost_value,
+                currency,
+                language,
+              )}
             </div>
             <div className="flex items-center gap-2 mt-1">
-              <Badge variant={stockSummary.total_profit_potential > 0 ? "outline" : "destructive"}>
-                {stockSummary.total_profit_potential > 0 ? (
+              <Badge
+                variant={
+                  (showOnlySoldProducts ? stockSummary.active_profit_potential : stockSummary.total_profit_potential) >
+                  0
+                    ? "outline"
+                    : "destructive"
+                }
+              >
+                {(showOnlySoldProducts ? stockSummary.active_profit_potential : stockSummary.total_profit_potential) >
+                0 ? (
                   <TrendingUp className="h-3 w-3 mr-1" />
                 ) : (
                   <TrendingDown className="h-3 w-3 mr-1" />
                 )}
-                Potential profit: {formatCurrency(stockSummary.total_profit_potential, currency, language)}
+                Potential profit:{" "}
+                {formatCurrency(
+                  showOnlySoldProducts ? stockSummary.active_profit_potential : stockSummary.total_profit_potential,
+                  currency,
+                  language,
+                )}
               </Badge>
             </div>
           </CardContent>
@@ -468,44 +366,29 @@ export default function StockValuePage() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Stock Health</CardTitle>
-            <CardDescription>Value distribution by stock status</CardDescription>
+            <CardTitle className="text-sm font-medium">Inventory Breakdown</CardTitle>
+            <CardDescription>Active vs. Inactive inventory value</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
               <div className="flex justify-between text-xs">
-                <span>Low Stock</span>
-                <span>{formatCurrency(stockSummary.low_stock_value, currency, language)}</span>
+                <span>Active Inventory (Sold Products)</span>
+                <span>{formatCurrency(stockSummary.active_inventory_value, currency, language)}</span>
               </div>
               <Progress
-                value={(stockSummary.low_stock_value / stockSummary.total_retail_value) * 100}
+                value={(stockSummary.active_inventory_value / stockSummary.total_retail_value) * 100}
+                className="h-2 bg-muted"
+                indicatorClassName="bg-green-500"
+              />
+
+              <div className="flex justify-between text-xs mt-2">
+                <span>Inactive Inventory (Never Sold)</span>
+                <span>{formatCurrency(stockSummary.inactive_inventory_value, currency, language)}</span>
+              </div>
+              <Progress
+                value={(stockSummary.inactive_inventory_value / stockSummary.total_retail_value) * 100}
                 className="h-2 bg-muted"
                 indicatorClassName="bg-amber-500"
-              />
-
-              <div className="flex justify-between text-xs mt-2">
-                <span>Overstocked</span>
-                <span>{formatCurrency(stockSummary.high_stock_value, currency, language)}</span>
-              </div>
-              <Progress
-                value={(stockSummary.high_stock_value / stockSummary.total_retail_value) * 100}
-                className="h-2 bg-muted"
-                indicatorClassName="bg-blue-500"
-              />
-
-              <div className="flex justify-between text-xs mt-2">
-                <span>Expired/Expiring</span>
-                <span>
-                  {formatCurrency(stockSummary.expired_value + stockSummary.expiring_soon_value, currency, language)}
-                </span>
-              </div>
-              <Progress
-                value={
-                  ((stockSummary.expired_value + stockSummary.expiring_soon_value) / stockSummary.total_retail_value) *
-                  100
-                }
-                className="h-2 bg-muted"
-                indicatorClassName="bg-red-500"
               />
             </div>
           </CardContent>
@@ -532,7 +415,7 @@ export default function StockValuePage() {
               />
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                 <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder="Category" />
@@ -559,6 +442,17 @@ export default function StockValuePage() {
                   <SelectItem value="low">Low Stock</SelectItem>
                   <SelectItem value="high">Overstocked</SelectItem>
                   <SelectItem value="out">Out of Stock</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={salesFilter} onValueChange={setSalesFilter}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Sales History" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Products</SelectItem>
+                  <SelectItem value="with_sales">With Sales History</SelectItem>
+                  <SelectItem value="no_sales">No Sales History</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -599,6 +493,7 @@ export default function StockValuePage() {
                         </TableHead>
                         <TableHead>Cost Value</TableHead>
                         <TableHead>Profit Margin</TableHead>
+                        <TableHead>Sales History</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -650,6 +545,19 @@ export default function StockValuePage() {
                                 </div>
                               ) : (
                                 "N/A"
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {product.has_sales ? (
+                                <Badge className="bg-green-100 text-green-800 border-green-200">
+                                  <ShoppingCart className="h-3 w-3 mr-1" />
+                                  Has Sales
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-amber-800">
+                                  <Package className="h-3 w-3 mr-1" />
+                                  No Sales
+                                </Badge>
                               )}
                             </TableCell>
                           </TableRow>
