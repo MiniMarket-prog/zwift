@@ -78,7 +78,7 @@ export default function RevenuePage() {
   const [activeTab, setActiveTab] = useState("daily")
 
   // Currency settings
-  const [currencySymbol, setCurrencySymbol] = useState<string>("$")
+  const [currencySymbol, setCurrencySymbol] = useState<string>("DH ")
 
   // Handle period change
   const handlePeriodChange = (newPeriod: PeriodOption) => {
