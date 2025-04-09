@@ -24,7 +24,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts"
-import { CircleDollarSign, DollarSign, Download, RefreshCw, TrendingDown, TrendingUp, Wallet } from "lucide-react"
+import { CircleDollarSign, DollarSign, Download, RefreshCw, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
 import { useLanguage } from "@/hooks/use-language"
 import {
   getCapitalAnalytics,
@@ -36,6 +36,8 @@ import {
 // Import formatCurrency from the correct location
 import { formatCurrency } from "@/lib/format-currency"
 import { createClient } from "@/lib/supabase-client"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
 
 // Define types
 interface CapitalAnalytics {
@@ -49,6 +51,13 @@ interface CapitalAnalytics {
   inventoryTurnover: number
   totalProducts: number
   totalStock: number
+  activeTotalCapital: number
+  activeTotalCost: number
+  activeEstimatedProfit: number
+  activeProfitMargin: number
+  activeInventoryTurnover: number
+  activeTotalProducts: number
+  activeTotalStock: number
 }
 
 interface CategoryCapital {
@@ -59,6 +68,12 @@ interface CategoryCapital {
   profit: number
   productCount: number
   totalStock: number
+  activeCapital?: number
+  activeCost?: number
+  activeProfit?: number
+  activeProductCount?: number
+  activeTotalStock?: number
+  hasSoldProducts?: boolean
 }
 
 interface HighValueProduct {
@@ -168,6 +183,7 @@ const CapitalAnalyticsPage = () => {
     from: new Date(new Date().setMonth(new Date().getMonth() - 1)),
     to: new Date(),
   })
+  const [showOnlySoldProducts, setShowOnlySoldProducts] = useState(false)
 
   // Data states
   const [capitalAnalytics, setCapitalAnalytics] = useState<CapitalAnalytics | null>(null)
@@ -211,7 +227,7 @@ const CapitalAnalyticsPage = () => {
   const fetchCapitalAnalytics = useCallback(async () => {
     try {
       setIsLoading(true)
-      const data = await getCapitalAnalytics()
+      const data = await getCapitalAnalytics(showOnlySoldProducts)
       setCapitalAnalytics(data)
     } catch (error) {
       console.error("Error fetching capital analytics:", error)
@@ -223,7 +239,7 @@ const CapitalAnalyticsPage = () => {
     } finally {
       setIsLoading(false)
     }
-  }, [toast, getAppTranslation, language])
+  }, [toast, getAppTranslation, language, showOnlySoldProducts])
 
   // Add this after the fetchCapitalAnalytics function
   useEffect(() => {
@@ -378,6 +394,11 @@ const CapitalAnalyticsPage = () => {
 
   return (
     <>
+      <div className="flex items-center space-x-2 mb-6">
+        <Switch id="active-inventory" checked={showOnlySoldProducts} onCheckedChange={setShowOnlySoldProducts} />
+        <Label htmlFor="active-inventory">Show only products with sales history (active inventory)</Label>
+      </div>
+      
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
         <h1 className="text-2xl font-bold mb-4 md:mb-0">{getAppTranslation("capital_analytics" as any, language)}</h1>
         <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
@@ -412,18 +433,24 @@ const CapitalAnalyticsPage = () => {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
-                {getAppTranslation("total_inventory_value" as any, language)}
+                {showOnlySoldProducts ? "Active Inventory Value" : getAppTranslation("total_inventory_value" as any, language)}
               </CardTitle>
               <Wallet className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {formatCurrency(capitalAnalytics.totalCapital, currentCurrency, language)}
+                {formatCurrency(
+                  showOnlySoldProducts ? capitalAnalytics.activeTotalCapital : capitalAnalytics.totalCapital,
+                  currentCurrency,
+                  language
+                )}
               </div>
               <div className="flex items-center justify-between mt-1">
                 <p className="text-xs text-muted-foreground">
-                  {capitalAnalytics.totalProducts} {getAppTranslation("products" as any, language)},{" "}
-                  {capitalAnalytics.totalStock} {getAppTranslation("units" as any, language)}
+                  {showOnlySoldProducts ? capitalAnalytics.activeTotalProducts : capitalAnalytics.totalProducts}{" "}
+                  {getAppTranslation("products" as any, language)},{" "}
+                  {showOnlySoldProducts ? capitalAnalytics.activeTotalStock : capitalAnalytics.totalStock}{" "}
+                  {getAppTranslation("units" as any, language)}
                 </p>
               </div>
             </CardContent>
@@ -438,14 +465,18 @@ const CapitalAnalyticsPage = () => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {formatCurrency(capitalAnalytics.estimatedProfit, currentCurrency, language)}
+                {formatCurrency(
+                  showOnlySoldProducts ? capitalAnalytics.activeEstimatedProfit : capitalAnalytics.estimatedProfit,
+                  currentCurrency,
+                  language
+                )}
               </div>
               <div className="flex items-center justify-between mt-1">
                 <p className="text-xs text-muted-foreground">
                   {getAppTranslation("profit_margin" as any, language)}:{" "}
-                  {formatPercentage(capitalAnalytics.profitMargin)}
+                  {formatPercentage(showOnlySoldProducts ? capitalAnalytics.activeProfitMargin : capitalAnalytics.profitMargin)}
                 </p>
-                {getGrowthIndicator(capitalAnalytics.profitMargin)}
+                {getGrowthIndicator(showOnlySoldProducts ? capitalAnalytics.activeProfitMargin : capitalAnalytics.profitMargin)}
               </div>
             </CardContent>
           </Card>
@@ -459,15 +490,21 @@ const CapitalAnalyticsPage = () => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {formatCurrency(capitalAnalytics.totalCost, currentCurrency, language)}
+                {formatCurrency(
+                  showOnlySoldProducts ? capitalAnalytics.activeTotalCost : capitalAnalytics.totalCost,
+                  currentCurrency,
+                  language
+                )}
               </div>
               <div className="flex items-center justify-between mt-1">
                 <p className="text-xs text-muted-foreground">
                   {getAppTranslation("avg_cost_per_product" as any, language)}:{" "}
                   {formatCurrency(
-                    capitalAnalytics.totalCost / capitalAnalytics.totalProducts,
+                    showOnlySoldProducts
+                      ? capitalAnalytics.activeTotalCost / capitalAnalytics.activeTotalProducts
+                      : capitalAnalytics.totalCost / capitalAnalytics.totalProducts,
                     currentCurrency,
-                    language,
+                    language
                   )}
                 </p>
               </div>
@@ -482,14 +519,16 @@ const CapitalAnalyticsPage = () => {
               <RefreshCw className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{capitalAnalytics.inventoryTurnover.toFixed(2)}x</div>
+              <div className="text-2xl font-bold">
+                {(showOnlySoldProducts ? capitalAnalytics.activeInventoryTurnover : capitalAnalytics.inventoryTurnover).toFixed(2)}x
+              </div>
               <div className="flex items-center justify-between mt-1">
                 <p className="text-xs text-muted-foreground">
                   {getAppTranslation("industry_avg" as any, language)}: 4-6x
                 </p>
                 {getGrowthIndicator(
-                  ((capitalAnalytics.inventoryTurnover - 4) / 4) * 100,
-                  capitalAnalytics.inventoryTurnover < 4,
+                  ((showOnlySoldProducts ? capitalAnalytics.activeInventoryTurnover : capitalAnalytics.inventoryTurnover - 4) / 4) * 100,
+                  (showOnlySoldProducts ? capitalAnalytics.activeInventoryTurnover : capitalAnalytics.inventoryTurnover) < 4
                 )}
               </div>
             </CardContent>
@@ -574,29 +613,50 @@ const CapitalAnalyticsPage = () => {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
-                      {capitalAnalytics.capitalByCategory.slice(0, 5).map((category, index) => (
-                        <div key={category.id} className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">{category.name}</span>
-                            <span className="text-sm text-muted-foreground">
-                              {formatCurrency(category.capital, currentCurrency, language)}
-                            </span>
+                      {capitalAnalytics.capitalByCategory
+                        .filter(category => {
+                          // If showing only sold products, filter out categories with no sold products
+                          if (showOnlySoldProducts) {
+                            return category.hasSoldProducts === true;
+                          }
+                          return true;
+                        })
+                        .slice(0, 5).map((category, index) => (
+                          <div key={category.id} className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-medium">{category.name}</span>
+                              <span className="text-sm text-muted-foreground">
+                                {formatCurrency(
+                                  showOnlySoldProducts ? category.activeCapital || 0 : category.capital,
+                                  currentCurrency,
+                                  language
+                                )}
+                              </span>
+                            </div>
+                            <Progress
+                              value={
+                                ((showOnlySoldProducts ? category.activeCapital || 0 : category.capital) /
+                                  (capitalAnalytics.capitalByCategory[0]?.capital || 1)) *
+                                100
+                              }
+                              className="h-2"
+                            />
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>
+                                {showOnlySoldProducts ? category.activeProductCount || 0 : category.productCount}{" "}
+                                {getAppTranslation("products" as any, language)}
+                              </span>
+                              <span>
+                                {getAppTranslation("est_profit" as any, language)}:{" "}
+                                {formatCurrency(
+                                  showOnlySoldProducts ? category.activeProfit || 0 : category.profit,
+                                  currentCurrency,
+                                  language
+                                )}
+                              </span>
+                            </div>
                           </div>
-                          <Progress
-                            value={(category.capital / (capitalAnalytics.capitalByCategory[0]?.capital || 1)) * 100}
-                            className="h-2"
-                          />
-                          <div className="flex justify-between text-xs text-muted-foreground">
-                            <span>
-                              {category.productCount} {getAppTranslation("products" as any, language)}
-                            </span>
-                            <span>
-                              {getAppTranslation("est_profit" as any, language)}:{" "}
-                              {formatCurrency(category.profit, currentCurrency, language)}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
+                        ))}
                     </div>
                   </CardContent>
                 </Card>
@@ -1251,4 +1311,3 @@ const CapitalAnalyticsPage = () => {
 }
 
 export default CapitalAnalyticsPage
-

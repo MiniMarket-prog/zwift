@@ -32,7 +32,7 @@ interface SaleItem {
   sale_id: string
   quantity: number
   price: number
-  sales?: { created_at: string }
+  sales?: { created_at: string } | { created_at: string }[]
 }
 
 interface Expense {
@@ -49,7 +49,7 @@ interface TimeInterval {
 }
 
 // Function to calculate detailed capital analytics
-export async function getCapitalAnalytics() {
+export async function getCapitalAnalytics(showOnlySoldProducts = false) {
   const supabase = createClient()
 
   try {
@@ -63,6 +63,30 @@ export async function getCapitalAnalytics() {
 
     if (productsError) throw productsError
     if (countError) throw countError
+
+    // Get products that have sales history
+    const { data: productsWithSales, error: salesHistoryError } = await supabase
+      .from("sale_items")
+      .select("product_id")
+      .order("product_id")
+
+    if (salesHistoryError) throw salesHistoryError
+
+    // Create a Set of product IDs that have sales for quick lookup
+    const productIdsWithSales = new Set(
+      productsWithSales ? productsWithSales.map((item: { product_id: string }) => item.product_id) : [],
+    )
+
+    // Mark products with sales history
+    const productsWithSalesHistory = (products as Product[]).map((product) => ({
+      ...product,
+      hasSales: productIdsWithSales.has(product.id),
+    }))
+
+    // Filter products if showOnlySoldProducts is true
+    const filteredProducts = showOnlySoldProducts
+      ? productsWithSalesHistory.filter((product) => product.hasSales)
+      : productsWithSalesHistory
 
     // Get categories for grouping
     const { data: categories, error: categoriesError } = await supabase.from("categories").select("*")
@@ -89,11 +113,11 @@ export async function getCapitalAnalytics() {
     if (salesError) throw salesError
 
     // Calculate capital metrics
-    const totalCapital = (products as Product[]).reduce((sum, product) => {
+    const totalCapital = filteredProducts.reduce((sum, product) => {
       return sum + (product.price || 0) * (product.stock || 0)
     }, 0)
 
-    const totalCost = (products as Product[]).reduce((sum, product) => {
+    const totalCost = filteredProducts.reduce((sum, product) => {
       const costPrice =
         product.purchase_price !== null && product.purchase_price !== undefined
           ? product.purchase_price
@@ -103,14 +127,46 @@ export async function getCapitalAnalytics() {
 
     const estimatedProfit = totalCapital - totalCost
 
+    // Calculate active inventory metrics (products with sales history)
+    const activeProducts = productsWithSalesHistory.filter((product) => product.hasSales)
+    const activeTotalCapital = activeProducts.reduce((sum, product) => {
+      return sum + (product.price || 0) * (product.stock || 0)
+    }, 0)
+
+    const activeTotalCost = activeProducts.reduce((sum, product) => {
+      const costPrice =
+        product.purchase_price !== null && product.purchase_price !== undefined
+          ? product.purchase_price
+          : (product.price || 0) * 0.7
+      return sum + costPrice * (product.stock || 0)
+    }, 0)
+
+    const activeEstimatedProfit = activeTotalCapital - activeTotalCost
+    const activeProfitMargin = (activeEstimatedProfit / activeTotalCapital) * 100
+    const activeTotalProducts = activeProducts.length
+    const activeTotalStock = activeProducts.reduce((sum, p) => sum + (p.stock || 0), 0)
+
     // Calculate capital by category
     const capitalByCategory = (categories as Category[])
       .map((category) => {
-        const categoryProducts = (products as Product[]).filter((p) => p.category_id === category.id)
+        const categoryProducts = filteredProducts.filter((p) => p.category_id === category.id)
         const categoryCapital = categoryProducts.reduce((sum, product) => {
           return sum + (product.price || 0) * (product.stock || 0)
         }, 0)
         const categoryCost = categoryProducts.reduce((sum, product) => {
+          const costPrice =
+            product.purchase_price !== null && product.purchase_price !== undefined
+              ? product.purchase_price
+              : (product.price || 0) * 0.7
+          return sum + costPrice * (product.stock || 0)
+        }, 0)
+
+        // Calculate active metrics for this category
+        const activeCategoryProducts = activeProducts.filter((p) => p.category_id === category.id)
+        const activeCapital = activeCategoryProducts.reduce((sum, product) => {
+          return sum + (product.price || 0) * (product.stock || 0)
+        }, 0)
+        const activeCost = activeCategoryProducts.reduce((sum, product) => {
           const costPrice =
             product.purchase_price !== null && product.purchase_price !== undefined
               ? product.purchase_price
@@ -126,6 +182,12 @@ export async function getCapitalAnalytics() {
           profit: categoryCapital - categoryCost,
           productCount: categoryProducts.length,
           totalStock: categoryProducts.reduce((sum, p) => sum + (p.stock || 0), 0),
+          hasSoldProducts: activeCategoryProducts.length > 0,
+          activeCapital: activeCapital,
+          activeCost: activeCost,
+          activeProfit: activeCapital - activeCost,
+          activeProductCount: activeCategoryProducts.length,
+          activeTotalStock: activeCategoryProducts.reduce((sum, p) => sum + (p.stock || 0), 0),
         }
       })
       .sort((a, b) => b.capital - a.capital)
@@ -183,11 +245,19 @@ export async function getCapitalAnalytics() {
     // Calculate inventory turnover metrics
     // This is a simplified calculation - ideally would use data over time
     const inventoryTurnover =
-      (products as Product[]).reduce((sum, product) => {
+      filteredProducts.reduce((sum, product) => {
         const salesCount = productSalesCount[product.id] || 0
         const averageInventory = product.stock || 1
         return sum + salesCount / averageInventory
-      }, 0) / ((products as Product[]).length || 1)
+      }, 0) / (filteredProducts.length || 1)
+
+    // Calculate active inventory turnover
+    const activeInventoryTurnover =
+      activeProducts.reduce((sum, product) => {
+        const salesCount = productSalesCount[product.id] || 0
+        const averageInventory = product.stock || 1
+        return sum + salesCount / averageInventory
+      }, 0) / (activeProducts.length || 1)
 
     return {
       totalCapital,
@@ -198,8 +268,16 @@ export async function getCapitalAnalytics() {
       highValueProducts,
       slowMovingInventory,
       inventoryTurnover,
-      totalProducts: totalProductCount || (products as Product[]).length,
-      totalStock: (products as Product[]).reduce((sum, p) => sum + (p.stock || 0), 0),
+      totalProducts: filteredProducts.length,
+      totalStock: filteredProducts.reduce((sum, p) => sum + (p.stock || 0), 0),
+      // Active inventory metrics
+      activeTotalCapital,
+      activeTotalCost,
+      activeEstimatedProfit,
+      activeProfitMargin,
+      activeTotalProducts,
+      activeTotalStock,
+      activeInventoryTurnover,
     }
   } catch (error) {
     console.error("Error calculating capital analytics:", error)
@@ -357,15 +435,15 @@ export async function getCapitalTrends(period = "month") {
       salesWithItems.forEach((sale) => {
         if (sale.sale_items && sale.sale_items.length > 0) {
           let saleProfit = 0
-          sale.sale_items.forEach(
-            (item: { products?: { purchase_price?: number | null }; quantity: number; price: number }) => {
-              if (item.products?.purchase_price !== null && item.products?.purchase_price !== undefined) {
-                const itemCost = item.products.purchase_price * item.quantity
-                const itemRevenue = item.price * item.quantity
-                saleProfit += itemRevenue - itemCost
-              }
-            },
-          )
+          sale.sale_items.forEach((item: any) => {
+            // Handle both array and single object cases for products
+            const product = Array.isArray(item.products) ? item.products[0] : item.products
+            if (product && product.purchase_price !== null && product.purchase_price !== undefined) {
+              const itemCost = product.purchase_price * item.quantity
+              const itemRevenue = item.price * item.quantity
+              saleProfit += itemRevenue - itemCost
+            }
+          })
           totalProfit += saleProfit
         }
       })
@@ -418,7 +496,7 @@ export async function getProductProfitability() {
     // Calculate profitability metrics for each product
     const productProfitability = (products as Product[]).map((product) => {
       // Find sales for this product
-      const productSales = salesItems ? (salesItems as SaleItem[]).filter((item) => item.product_id === product.id) : []
+      const productSales = salesItems ? (salesItems as any[]).filter((item) => item.product_id === product.id) : []
 
       // Calculate total quantity sold
       const quantitySold = productSales.reduce((sum, item) => sum + (item.quantity || 0), 0)
@@ -502,7 +580,7 @@ export async function getInventoryOptimizationRecommendations() {
     // Calculate recommendations
     const recommendations = (products as Product[]).map((product) => {
       // Find sales for this product
-      const productSales = salesItems ? (salesItems as SaleItem[]).filter((item) => item.product_id === product.id) : []
+      const productSales = salesItems ? (salesItems as any[]).filter((item) => item.product_id === product.id) : []
 
       // Calculate total quantity sold
       const quantitySold = productSales.reduce((sum, item) => sum + (item.quantity || 0), 0)
@@ -580,4 +658,3 @@ export async function getInventoryOptimizationRecommendations() {
     throw error
   }
 }
-
