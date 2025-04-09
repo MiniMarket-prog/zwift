@@ -120,7 +120,7 @@ export function PrintBarcodeDialog({
                     margin={10}
                     displayValue={true}
                   />
-                  <div className="text-sm mt-1">${product.price.toFixed(2)}</div>
+                  <div className="text-sm mt-1">DH {product.price.toFixed(2)}</div>
                 </div>
               ))}
             </div>
