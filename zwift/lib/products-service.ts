@@ -10,32 +10,57 @@ const createSupabaseClient = () => {
 // Function to get all products without any limitations
 export async function getAllProducts(searchQuery = "") {
   const supabase = createSupabaseClient()
+  const PAGE_SIZE = 1000 // Supabase's maximum limit
+  let allProducts: any[] = []
+  let hasMore = true
+  let page = 0
 
   try {
     console.log("Fetching all products from database...")
 
-    // Build the query for products
-    let query = supabase.from("products").select("*")
+    // Keep fetching pages until there are no more results
+    while (hasMore) {
+      // Build the query for products with pagination
+      let query = supabase
+        .from("products")
+        .select("*")
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
-    // If there's a search query, filter on the server side
-    if (searchQuery.trim() !== "") {
-      // Use ilike for case-insensitive search on both name and barcode
-      query = query.or(`name.ilike.%${searchQuery}%,barcode.ilike.%${searchQuery}%`)
+      // If there's a search query, filter on the server side
+      if (searchQuery.trim() !== "") {
+        // Use ilike for case-insensitive search on both name and barcode
+        query = query.or(`name.ilike.%${searchQuery}%,barcode.ilike.%${searchQuery}%`)
+      }
+
+      // Always order by name
+      query = query.order("name", { ascending: true })
+
+      // Execute the query
+      const { data, error } = await query
+
+      if (error) {
+        console.error(`Error fetching products page ${page}:`, error)
+        throw error
+      }
+
+      if (data && data.length > 0) {
+        console.log(`Fetched ${data.length} products on page ${page}`)
+        allProducts = [...allProducts, ...data]
+
+        // If we got fewer results than the page size, we've reached the end
+        if (data.length < PAGE_SIZE) {
+          hasMore = false
+        }
+      } else {
+        // No more data
+        hasMore = false
+      }
+
+      page++
     }
 
-    // Always order by name
-    query = query.order("name", { ascending: true })
-
-    // Execute the query
-    const { data, error } = await query
-
-    if (error) {
-      console.error("Error fetching products:", error)
-      throw error
-    }
-
-    console.log(`Successfully fetched ${data?.length || 0} products from database`)
-    return data || []
+    console.log(`Successfully fetched ${allProducts.length} products in total`)
+    return allProducts
   } catch (error) {
     console.error("Error in getAllProducts:", error)
     return []
@@ -46,4 +71,3 @@ export async function getAllProducts(searchQuery = "") {
 export async function refreshProducts(searchQuery = "") {
   return getAllProducts(searchQuery)
 }
-
