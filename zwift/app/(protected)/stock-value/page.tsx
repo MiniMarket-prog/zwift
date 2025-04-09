@@ -105,7 +105,7 @@ export default function StockValuePage() {
       setFilteredProducts(allProducts)
 
       // Calculate stock summary
-      const summary = calculateStockSummary(allProducts)
+      const summary = calculateStockSummary(allProducts, showOnlySoldProducts)
       setStockSummary(summary)
 
       setLoadingProgress(100)
@@ -260,6 +260,14 @@ export default function StockValuePage() {
   const toggleShowOnlySoldProducts = () => {
     setShowOnlySoldProducts(!showOnlySoldProducts)
   }
+
+  // Recalculate stock summary when toggle changes
+  useEffect(() => {
+    if (products.length > 0) {
+      const summary = calculateStockSummary(products, showOnlySoldProducts)
+      setStockSummary(summary)
+    }
+  }, [showOnlySoldProducts, products])
 
   return (
     <div className="container py-10">
@@ -617,29 +625,55 @@ export default function StockValuePage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {stockSummary.categories.map((category) => {
-                        const percentOfTotal = (category.total_value / stockSummary.total_retail_value) * 100
+                      {stockSummary.categories
+                        .filter((category) => {
+                          // If showing only sold products, filter out categories with no sold products
+                          if (showOnlySoldProducts) {
+                            return category.has_sold_products === true
+                          }
+                          return true
+                        })
+                        .map((category) => {
+                          // Use the appropriate values based on the toggle state
+                          const displayProductCount = showOnlySoldProducts
+                            ? category.active_product_count || 0
+                            : category.product_count
 
-                        return (
-                          <TableRow key={category.id}>
-                            <TableCell className="font-medium">{category.name}</TableCell>
-                            <TableCell>{category.product_count}</TableCell>
-                            <TableCell>{formatCurrency(category.total_value, currency, language)}</TableCell>
-                            <TableCell>{formatCurrency(category.total_cost, currency, language)}</TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-2">
-                                <div className="w-full bg-muted rounded-full h-2.5">
-                                  <div
-                                    className="bg-primary h-2.5 rounded-full"
-                                    style={{ width: `${percentOfTotal}%` }}
-                                  ></div>
+                          const displayValue = showOnlySoldProducts
+                            ? category.active_total_value || 0
+                            : category.total_value
+
+                          const displayCost = showOnlySoldProducts
+                            ? category.active_total_cost || 0
+                            : category.total_cost
+
+                          const percentOfTotal =
+                            (displayValue /
+                              (showOnlySoldProducts
+                                ? stockSummary.active_inventory_value
+                                : stockSummary.total_retail_value)) *
+                            100
+
+                          return (
+                            <TableRow key={category.id}>
+                              <TableCell className="font-medium">{category.name}</TableCell>
+                              <TableCell>{displayProductCount}</TableCell>
+                              <TableCell>{formatCurrency(displayValue, currency, language)}</TableCell>
+                              <TableCell>{formatCurrency(displayCost, currency, language)}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-full bg-muted rounded-full h-2.5">
+                                    <div
+                                      className="bg-primary h-2.5 rounded-full"
+                                      style={{ width: `${percentOfTotal}%` }}
+                                    ></div>
+                                  </div>
+                                  <span>{percentOfTotal.toFixed(1)}%</span>
                                 </div>
-                                <span>{percentOfTotal.toFixed(1)}%</span>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        )
-                      })}
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
                     </TableBody>
                   </Table>
                 </div>

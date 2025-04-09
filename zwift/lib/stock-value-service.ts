@@ -22,12 +22,18 @@ export interface Product {
   has_sales?: boolean // New field to track if product has sales history
 }
 
+// Update the Category interface to include active product counts
+
 export interface Category {
   id: string
   name: string
   total_value: number
   total_cost: number
   product_count: number
+  has_sold_products?: boolean // Track if category has products with sales
+  active_product_count?: number // Count of products with sales in this category
+  active_total_value?: number // Total value of products with sales in this category
+  active_total_cost?: number // Total cost of products with sales in this category
 }
 
 export interface StockSummary {
@@ -116,10 +122,10 @@ export async function fetchProductsWithSalesData(): Promise<Product[]> {
   return allProducts
 }
 
-/**
- * Calculates stock summary with separate values for active (sold) and inactive inventory
- */
-export function calculateStockSummary(products: Product[]): StockSummary {
+// Update the calculateStockSummary function to properly track products with sales in each category
+
+export function calculateStockSummary(products: Product[], showOnlySoldProducts = false): StockSummary {
+  // Initialize summary object
   const summary: StockSummary = {
     total_retail_value: 0,
     total_cost_value: 0,
@@ -139,87 +145,96 @@ export function calculateStockSummary(products: Product[]): StockSummary {
     active_profit_potential: 0,
   }
 
-  // Add these counters to track active products
-  let activeProductCount = 0
-  let activeUnitCount = 0
-  let activeCostValue = 0
-  let activeRetailValue = 0
-
-  // Category map to aggregate values
+  // Create a map to store category data
   const categoryMap = new Map<string, Category>()
 
-  // Current date for expiry calculations
-  const currentDate = new Date()
-  const thirtyDaysFromNow = new Date()
-  thirtyDaysFromNow.setDate(currentDate.getDate() + 30)
-
+  // First, initialize all categories with zero counts
+  const uniqueCategories = new Set<string>()
   products.forEach((product) => {
-    // Calculate product values
-    const retailValue = product.price * product.stock
-    const costValue = (product.purchase_price || 0) * product.stock
-    const profitPotential = retailValue - costValue
-
-    // Add to totals
-    summary.total_retail_value += retailValue
-    summary.total_cost_value += costValue
-    summary.total_profit_potential += profitPotential
-    summary.total_units += product.stock
-
-    // Track active vs inactive inventory value
-    if (product.has_sales) {
-      summary.active_inventory_value += retailValue
-      summary.active_cost_value += costValue
-      summary.active_profit_potential += profitPotential
-      activeProductCount++
-      activeUnitCount += product.stock
-      activeRetailValue += retailValue
-      activeCostValue += costValue
-    } else {
-      summary.inactive_inventory_value += retailValue
-    }
-
-    // Check stock levels
-    if (product.stock <= product.min_stock) {
-      summary.low_stock_value += retailValue
-    } else if (product.stock > product.min_stock * 3) {
-      summary.high_stock_value += retailValue
-    }
-
-    // Check expiry
-    if (product.expiry_date) {
-      const expiryDate = new Date(product.expiry_date)
-      if (expiryDate < currentDate) {
-        summary.expired_value += retailValue
-      } else if (expiryDate <= thirtyDaysFromNow) {
-        summary.expiring_soon_value += retailValue
-      }
-    }
-
-    // Aggregate by category
     const categoryId = product.category_id || "uncategorized"
     const categoryName = product.category_name || "Uncategorized"
+    uniqueCategories.add(categoryId)
 
     if (!categoryMap.has(categoryId)) {
       categoryMap.set(categoryId, {
         id: categoryId,
         name: categoryName,
+        product_count: 0,
         total_value: 0,
         total_cost: 0,
-        product_count: 0,
+        has_sold_products: false,
+        active_product_count: 0,
+        active_total_value: 0,
+        active_total_cost: 0,
       })
     }
-
-    const category = categoryMap.get(categoryId)!
-    category.total_value += retailValue
-    category.total_cost += costValue
-    category.product_count += 1
   })
 
-  // Add these properties to the summary
-  summary.active_product_count = activeProductCount
-  summary.active_unit_count = activeUnitCount
+  // Process each product
+  products.forEach((product) => {
+    const retailValue = product.price * product.stock
+    const costValue = (product.purchase_price || 0) * product.stock
+    const profitPotential = retailValue - costValue
 
-  // Convert category map to array
+    // Add to total units
+    summary.total_units += product.stock
+
+    // Add to retail and cost values
+    summary.total_retail_value += retailValue
+    summary.total_cost_value += costValue
+    summary.total_profit_potential += profitPotential
+
+    // Track active (sold) vs inactive (never sold) inventory
+    if (product.has_sales) {
+      summary.active_inventory_value += retailValue
+      summary.active_cost_value += costValue
+      summary.active_profit_potential += profitPotential
+      summary.active_product_count++
+      summary.active_unit_count += product.stock
+    } else {
+      summary.inactive_inventory_value += retailValue
+    }
+
+    // Track low and high stock values
+    if (product.stock <= product.min_stock && product.stock > 0) {
+      summary.low_stock_value += retailValue
+    } else if (product.stock > product.min_stock * 3) {
+      summary.high_stock_value += retailValue
+    }
+
+    // Track expired and expiring soon values
+    if (product.expiry_date) {
+      const expiryDate = new Date(product.expiry_date)
+      const now = new Date()
+      if (expiryDate < now) {
+        summary.expired_value += retailValue
+      } else {
+        const daysUntilExpiry = Math.floor((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+        if (daysUntilExpiry <= 30) {
+          summary.expiring_soon_value += retailValue
+        }
+      }
+    }
+
+    // Process category data
+    const categoryId = product.category_id || "uncategorized"
+    const category = categoryMap.get(categoryId)!
+
+    // Always update the total counts
+    category.product_count++
+    category.total_value += retailValue
+    category.total_cost += costValue
+
+    // Update active counts only for products with sales
+    if (product.has_sales) {
+      category.has_sold_products = true
+      category.active_product_count = (category.active_product_count || 0) + 1
+      category.active_total_value = (category.active_total_value || 0) + retailValue
+      category.active_total_cost = (category.active_total_cost || 0) + costValue
+    }
+  })
+
+  // Convert category map to array and sort by total value
   summary.categories = Array.from(categoryMap.values()).sort((a, b) => b.total_value - a.total_value)
 
   return summary
