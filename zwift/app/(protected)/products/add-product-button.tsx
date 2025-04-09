@@ -1,28 +1,28 @@
-"use client"
+  "use client"
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { PlusIcon } from "lucide-react"
-// Change the import to use the global component
-import { AddProductDialog } from "@/components/add-product-dialog"
+  import { useState } from "react"
+  import { Button } from "@/components/ui/button"
+  import { PlusIcon } from "lucide-react"
+  // Change the import to use the global component
+  import { AddProductDialog } from "@/components/add-product-dialog"
 
-interface Category {
-  id: string
-  name: string
-}
+  interface Category {
+    id: string
+    name: string
+  }
 
-export function AddProductButton({ categories }: { categories: Category[] }) {
-  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  export function AddProductButton({ categories }: { categories: Category[] }) {
+    const [isDialogOpen, setIsDialogOpen] = useState(false)
 
-  return (
-    <>
-      <Button onClick={() => setIsDialogOpen(true)}>
-        <PlusIcon className="h-4 w-4 mr-2" />
-        Add Product
-      </Button>
+    return (
+      <>
+        <Button onClick={() => setIsDialogOpen(true)}>
+          <PlusIcon className="h-4 w-4 mr-2" />
+          Add Product
+        </Button>
 
-      {isDialogOpen && <AddProductDialog categories={categories} onClose={() => setIsDialogOpen(false)} />}
-    </>
-  )
-}
+        {isDialogOpen && <AddProductDialog categories={categories} onClose={() => setIsDialogOpen(false)} />}
+      </>
+    )
+  }
 

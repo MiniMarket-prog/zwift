@@ -1,28 +1,32 @@
 "use client"
 
-import { DialogFooter } from "@/components/ui/dialog"
-import { TableHead } from "@/components/ui/table"
 import type React from "react"
 
-import { useEffect, useState, useCallback } from "react"
-import { useToast } from "@/components/ui/use-toast"
+import { useState, useEffect, useCallback } from "react"
 import { createClient } from "@/lib/supabase-client"
-import { getLowStockProducts } from "@/lib/supabase" // Import the same function used in the POS page
-import { useLanguage } from "@/hooks/use-language"
+import { getLowStockProducts } from "@/lib/supabase"
 import { formatCurrency } from "@/lib/format-currency"
 import { jsPDF } from "jspdf"
 import "jspdf-autotable"
-import { Minus, Plus, Loader2, Save } from "lucide-react" // Import missing icons
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Minus, Plus, Loader2, Save } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-// Add the import for PaginationControl at the top of the file with the other imports
 import { PaginationControl } from "@/components/pagination-control"
+import { useToast } from "@/components/ui/use-toast"
+import { useLanguage } from "@/hooks/use-language"
 
-// Add these types at the top of the file, after the imports
+// Define types
 type Product = {
   id: string
   name: string
@@ -126,6 +130,9 @@ const AlertsPage = () => {
   // Add a new state for edited product name after the other state variables
   const [editedProductName, setEditedProductName] = useState<string>("")
 
+  // Add a new state for edited min stock
+  const [editedMinStock, setEditedMinStock] = useState<number | null>(null)
+
   // Fetch currency setting
   const fetchCurrency = useCallback(async () => {
     try {
@@ -195,7 +202,7 @@ const AlertsPage = () => {
 
       // Clean up category names if they have encoding issues
       const cleanedCategories =
-        data?.map((category) => {
+        data?.map((category: any) => {
           if (/[ð¾§ðµ¸ðŸ¶]/.test(category.name)) {
             return {
               ...category,
@@ -235,7 +242,13 @@ const AlertsPage = () => {
 
   // Filter products based on search term and category
   useEffect(() => {
-    let filtered = lowStockProducts.filter((product) => product.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    let filtered = lowStockProducts.filter((product) => {
+      const nameMatch = product.name.toLowerCase().includes(searchTerm.toLowerCase())
+      const barcodeMatch = product.barcode && product.barcode.toLowerCase().includes(searchTerm.toLowerCase())
+
+      // Return true if either name or barcode matches
+      return nameMatch || barcodeMatch
+    })
 
     if (categoryFilter && categoryFilter !== "all") {
       filtered = filtered.filter((product) => product.category_id === categoryFilter)
@@ -267,7 +280,7 @@ const AlertsPage = () => {
     setIsBarcodeDialogOpen(true)
   }
 
-  // Update the handleAdjustClick function to initialize the barcode value
+  // Update the handleAdjustClick function to initialize the min stock value
   const handleAdjustClick = (product: Product) => {
     setSelectedProduct(product)
     setAdjustedStock(product.stock)
@@ -277,6 +290,7 @@ const AlertsPage = () => {
     setEditedImageUrl(product.image || null)
     setEditedBarcode(product.barcode || null)
     setEditedProductName(product.name)
+    setEditedMinStock(product.min_stock) // Initialize the min stock value
     setIsAdjustDialogOpen(true)
   }
 
@@ -299,7 +313,7 @@ const AlertsPage = () => {
 
       toast({
         title: getAppTranslation("success", language),
-        description: `${product.name} ${getAppTranslation("has_been_restocked", language)} ${newStock} ${getAppTranslation("units", language)}.`,
+        description: `${product.name} ${getTranslation("has_been_restocked")} ${newStock} ${getTranslation("units")}.`,
       })
 
       // Refresh the product list
@@ -316,7 +330,7 @@ const AlertsPage = () => {
     }
   }
 
-  // Update the handleStockAdjustment function to include barcode in the update data
+  // Update the handleStockAdjustment function to include min_stock in the update data
   const handleStockAdjustment = async () => {
     if (!selectedProduct) return
 
@@ -353,6 +367,11 @@ const AlertsPage = () => {
       // Add product name update
       if (editedProductName !== selectedProduct.name) {
         updateData.name = editedProductName
+      }
+
+      // Add min stock update
+      if (editedMinStock !== null && editedMinStock !== selectedProduct.min_stock) {
+        updateData.min_stock = editedMinStock
       }
 
       const { error } = await supabase.from("products").update(updateData).eq("id", selectedProduct.id)
@@ -967,19 +986,28 @@ const AlertsPage = () => {
               </div>
             </div>
 
-            {selectedProduct && (
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label className="text-right">{getAppTranslation("min_stock", language)}</Label>
-                <div className="col-span-3">
-                  <span className="text-sm font-medium">{selectedProduct.min_stock}</span>
-                  {adjustedStock < selectedProduct.min_stock && (
-                    <p className="text-xs text-amber-500 mt-1">
-                      {getAppTranslation("warning", language)}: {getAppTranslation("stock_below_min", language)}
-                    </p>
-                  )}
-                </div>
+            {/* Min Stock adjustment - ADDED THIS SECTION */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="min-stock" className="text-right font-medium text-foreground">
+                {getAppTranslation("min_stock", language)}
+              </Label>
+              <div className="col-span-3">
+                <Input
+                  id="min-stock"
+                  type="number"
+                  min="0"
+                  value={editedMinStock !== null ? editedMinStock : ""}
+                  onChange={(e) => setEditedMinStock(e.target.value ? Number.parseInt(e.target.value) : null)}
+                  className="w-full"
+                  placeholder="Enter minimum stock level"
+                />
+                {adjustedStock < (editedMinStock || 0) && (
+                  <p className="text-xs text-amber-500 mt-1">
+                    {getAppTranslation("warning", language)}: {getAppTranslation("stock_below_min", language)}
+                  </p>
+                )}
               </div>
-            )}
+            </div>
 
             {/* Profit margin calculation */}
             {editedPrice !== null && editedPurchasePrice !== null && editedPurchasePrice > 0 && (
@@ -1163,7 +1191,7 @@ const AlertsPage = () => {
                       {getTranslation("stock_needed")}
                     </th>
                     <th scope="col" className="relative py-3.5 pl-3 pr-4 sm:pr-6 text-right">
-                      <TableHead className="text-right">{getAppTranslation("actions", language)}</TableHead>
+                      {getAppTranslation("actions", language)}
                     </th>
                   </tr>
                 </thead>
