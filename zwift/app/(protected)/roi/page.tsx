@@ -433,7 +433,7 @@ export default function ROIPage() {
                 )}
               </div>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">Ratio of profit to investment (`{'>'}`1 is good)</p>
+            <p className="text-xs text-muted-foreground mt-1">Ratio of profit to investment ({">"}1 is good)</p>
           </CardContent>
         </Card>
       </div>

@@ -382,7 +382,7 @@ export function ProductList({
                         <span>{product.name}</span>
                       </div>
                     </TableCell>
-                    <TableCell>${product.price.toFixed(2)}</TableCell>
+                    <TableCell>DH {product.price.toFixed(2)}</TableCell>
                     <TableCell>
                       {product.barcode ? (
                         product.barcode
