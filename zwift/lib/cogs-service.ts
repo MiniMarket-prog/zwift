@@ -39,42 +39,63 @@ export async function fetchCOGSData(from: Date, to: Date): Promise<COGSData> {
   const toDate = to.toISOString().split("T")[0] + " 23:59:59"
 
   try {
-    // Fetch sales with items and products for the current period
-    const { data: rawSalesData, error: salesError } = await supabase
-      .from("sales")
-      .select(`
-        id,
-        total,
-        tax,
-        payment_method,
-        user_id,
-        created_at,
-        updated_at,
-        sale_items (
-          id, 
-          sale_id, 
-          product_id, 
-          quantity, 
-          price, 
-          discount,
-          created_at,
-          products:product_id (
-            id, 
-            name, 
-            price, 
-            purchase_price, 
-            category_id
-          )
-        )
-      `)
-      .gte("created_at", fromDate)
-      .lte("created_at", toDate)
-      .order("created_at", { ascending: false })
+    // Implement pagination to fetch all sales data
+    let allRawSalesData: any[] = []
+    let hasMore = true
+    let page = 0
+    const PAGE_SIZE = 1000 // Supabase's maximum limit
 
-    if (salesError) {
-      console.error("Error fetching sales:", salesError)
-      throw salesError
+    console.log("Fetching sales data with pagination...")
+
+    while (hasMore) {
+      const { data: pageData, error: pageError } = await supabase
+        .from("sales")
+        .select(`
+          id,
+          total,
+          tax,
+          payment_method,
+          user_id,
+          created_at,
+          updated_at,
+          sale_items (
+            id, 
+            sale_id, 
+            product_id, 
+            quantity, 
+            price, 
+            discount,
+            created_at,
+            products:product_id (
+              id, 
+              name, 
+              price, 
+              purchase_price, 
+              category_id
+            )
+          )
+        `)
+        .gte("created_at", fromDate)
+        .lte("created_at", toDate)
+        .order("created_at", { ascending: false })
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+
+      if (pageError) {
+        console.error(`Error fetching sales page ${page}:`, pageError)
+        throw pageError
+      }
+
+      if (pageData && pageData.length > 0) {
+        allRawSalesData = [...allRawSalesData, ...pageData]
+        console.log(`Fetched ${pageData.length} sales records (page ${page + 1})`)
+        page++
+        hasMore = pageData.length === PAGE_SIZE
+      } else {
+        hasMore = false
+      }
     }
+
+    console.log(`Total sales records fetched: ${allRawSalesData.length}`)
 
     // Fetch categories for category names
     const { data: categoriesData, error: categoriesError } = await supabase.from("categories").select("id, name")
@@ -91,7 +112,7 @@ export async function fetchCOGSData(from: Date, to: Date): Promise<COGSData> {
     })
 
     // Process sales data
-    const processedSales: Sale[] = (rawSalesData || []).map((rawSale: any) => {
+    const processedSales: Sale[] = (allRawSalesData || []).map((rawSale: any) => {
       // Transform sale_items to items with product property
       const items: SaleItem[] = (rawSale.sale_items || []).map((rawItem: any) => {
         // Handle both cases: when products is an array or a single object

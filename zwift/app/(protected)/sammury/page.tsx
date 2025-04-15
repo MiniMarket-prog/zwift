@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Download, Calendar, RefreshCw, Loader2, DollarSign, CreditCard, TrendingUp } from "lucide-react"
+import { Download, Calendar, RefreshCw, Loader2, DollarSign, CreditCard, TrendingUp } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -139,7 +139,7 @@ export default function ReportsPage() {
     }
   }
 
-  // Function to fetch sales data
+  // Function to fetch sales data with pagination
   const fetchSalesData = useCallback(async () => {
     try {
       setIsLoading(true)
@@ -154,37 +154,54 @@ export default function ReportsPage() {
       const fromDate = format(dateRange.from, "yyyy-MM-dd")
       const toDate = format(dateRange.to, "yyyy-MM-dd 23:59:59")
 
-      // Modified query to include sale_items and products
-      let query = supabase
-        .from("sales")
-        .select(`
-        *,
-        sale_items (
-          id, 
-          product_id, 
-          quantity,
-          price,
-          discount,
-          products (
-            id, 
-            name,
-            purchase_price
-          )
-        )
-      `)
-        .gte("created_at", fromDate)
-        .lte("created_at", toDate)
-        .order("created_at", { ascending: false })
+      const PAGE_SIZE = 500 // Adjust page size as needed
+      let allSalesData: SaleData[] = []
+      let hasMore = true
+      let page = 0
 
-      if (paymentMethodFilter !== "all") {
-        query = query.eq("payment_method", paymentMethodFilter)
+      while (hasMore) {
+        let query = supabase
+          .from("sales")
+          .select(
+            `
+            *,
+            sale_items (
+              id, 
+              product_id, 
+              quantity,
+              price,
+              discount,
+              products (
+                id, 
+                name,
+                purchase_price
+              )
+            )
+          `,
+          )
+          .gte("created_at", fromDate)
+          .lte("created_at", toDate)
+          .order("created_at", { ascending: false })
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+
+        if (paymentMethodFilter !== "all") {
+          query = query.eq("payment_method", paymentMethodFilter)
+        }
+
+        const { data, error } = await query
+
+        if (error) throw error
+
+        if (data && data.length > 0) {
+          allSalesData = [...allSalesData, ...data]
+          page++
+          hasMore = data.length === PAGE_SIZE
+        } else {
+          hasMore = false
+        }
       }
 
-      const { data, error } = await query
-
-      if (error) throw error
-
-      setSalesData(data || [])
+      setSalesData(allSalesData)
     } catch (error) {
       console.error("Error fetching sales data:", error)
       toast({
@@ -790,6 +807,7 @@ export default function ReportsPage() {
               else if (activeTab === "expenses") fetchExpenseData()
               else if (activeTab === "inventory") fetchInventoryData()
             }}
+            disabled={isLoading}
           >
             <RefreshCw className="mr-2 h-4 w-4" />
             {getAppTranslation("refresh", language)}
@@ -1042,4 +1060,3 @@ export default function ReportsPage() {
     </div>
   )
 }
-

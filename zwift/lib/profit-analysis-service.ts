@@ -188,23 +188,16 @@ export const formatPercent = (value: number) => {
   return `${value.toFixed(2)}%`
 }
 
-// Function to fetch profit analysis data
-export async function fetchProfitAnalysisData(
-  period: PeriodOption,
-  customDateRange?: DateRange,
-): Promise<ProfitAnalysisData> {
-  try {
-    const supabase = createClient()
-    const range = getDateRange(period, customDateRange)
-    const previousRange = getPreviousPeriodRange(range)
+// Function to fetch sales data with pagination
+async function fetchAllSalesData(supabase: any, fromDate: string, toDate: string) {
+  let allSalesData: any[] = []
+  let hasMore = true
+  let page = 0
+  const PAGE_SIZE = 1000 // Supabase's maximum limit
 
-    // Format dates for Supabase query
-    const fromDate = range.from.toISOString()
-    const toDate = range.to.toISOString()
-    const prevFromDate = previousRange.from.toISOString()
-    const prevToDate = previousRange.to.toISOString()
+  console.log("Fetching sales data with pagination...")
 
-    // Fetch sales data for current period
+  while (hasMore) {
     const { data: salesData, error: salesError } = await supabase
       .from("sales")
       .select(`
@@ -232,13 +225,37 @@ export async function fetchProfitAnalysisData(
       .gte("created_at", fromDate)
       .lte("created_at", toDate)
       .order("created_at", { ascending: true })
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
     if (salesError) {
-      console.error("Error fetching sales:", salesError)
+      console.error(`Error fetching sales page ${page}:`, salesError)
       throw salesError
     }
 
-    // Fetch sales data for previous period (for comparison)
+    if (salesData && salesData.length > 0) {
+      allSalesData = [...allSalesData, ...salesData]
+      console.log(`Fetched ${salesData.length} sales records (page ${page + 1})`)
+      page++
+      hasMore = salesData.length === PAGE_SIZE
+    } else {
+      hasMore = false
+    }
+  }
+
+  console.log(`Total sales records fetched: ${allSalesData.length}`)
+  return allSalesData
+}
+
+// Function to fetch previous period sales data with pagination
+async function fetchAllPrevSalesData(supabase: any, prevFromDate: string, prevToDate: string) {
+  let allPrevSalesData: any[] = []
+  let hasMore = true
+  let page = 0
+  const PAGE_SIZE = 1000 // Supabase's maximum limit
+
+  console.log("Fetching previous period sales data with pagination...")
+
+  while (hasMore) {
     const { data: prevSalesData, error: prevSalesError } = await supabase
       .from("sales")
       .select(`
@@ -258,11 +275,48 @@ export async function fetchProfitAnalysisData(
       `)
       .gte("created_at", prevFromDate)
       .lte("created_at", prevToDate)
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
     if (prevSalesError) {
-      console.error("Error fetching previous sales:", prevSalesError)
+      console.error(`Error fetching previous sales page ${page}:`, prevSalesError)
       throw prevSalesError
     }
+
+    if (prevSalesData && prevSalesData.length > 0) {
+      allPrevSalesData = [...allPrevSalesData, ...prevSalesData]
+      console.log(`Fetched ${prevSalesData.length} previous period sales records (page ${page + 1})`)
+      page++
+      hasMore = prevSalesData.length === PAGE_SIZE
+    } else {
+      hasMore = false
+    }
+  }
+
+  console.log(`Total previous period sales records fetched: ${allPrevSalesData.length}`)
+  return allPrevSalesData
+}
+
+// Function to fetch profit analysis data
+export async function fetchProfitAnalysisData(
+  period: PeriodOption,
+  customDateRange?: DateRange,
+): Promise<ProfitAnalysisData> {
+  try {
+    const supabase = createClient()
+    const range = getDateRange(period, customDateRange)
+    const previousRange = getPreviousPeriodRange(range)
+
+    // Format dates for Supabase query
+    const fromDate = range.from.toISOString()
+    const toDate = range.to.toISOString()
+    const prevFromDate = previousRange.from.toISOString()
+    const prevToDate = previousRange.to.toISOString()
+
+    // Fetch sales data for current period with pagination
+    const salesData = await fetchAllSalesData(supabase, fromDate, toDate)
+
+    // Fetch sales data for previous period with pagination
+    const prevSalesData = await fetchAllPrevSalesData(supabase, prevFromDate, prevToDate)
 
     // Fetch categories
     const { data: categoriesData, error: categoriesError } = await supabase.from("categories").select("id, name")
@@ -474,6 +528,15 @@ export async function fetchProfitAnalysisData(
       .slice(0, 10)
 
     const categoryData = Array.from(categoryDataMap.values()).sort((a, b) => b.profit - a.profit)
+
+    // Log summary of data used for insights
+    console.log(`=== PROFIT ANALYSIS SUMMARY ===`)
+    console.log(`Total sales records processed: ${salesData?.length || 0}`)
+    console.log(`Total previous period sales records processed: ${prevSalesData?.length || 0}`)
+    console.log(`Total products analyzed: ${productList.length}`)
+    console.log(`Total categories analyzed: ${categoryData.length}`)
+    console.log(`Daily data points: ${dailyData.length}`)
+    console.log(`=== END SUMMARY ===`)
 
     // Return the data
     return {

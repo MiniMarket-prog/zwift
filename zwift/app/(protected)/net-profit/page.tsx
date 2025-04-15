@@ -13,7 +13,7 @@ import { format, subDays, startOfMonth, endOfMonth, startOfYear, endOfYear, star
 import { fetchNetProfitData, type NetProfitData } from "@/lib/net-profit-service"
 import type { PeriodOption, DateRange } from "@/lib/types"
 import { formatCurrency, getCurrentCurrency, type SupportedCurrency } from "@/lib/format-currency"
-import { createClient } from "@/lib/supabase-client3"
+import { createClient } from "@/lib/supabase-client"
 
 import {
   BarChart,

@@ -304,6 +304,11 @@ export function AppSidebar() {
           label: "Stock Value",
           icon: <Package className="h-4 w-4" />,
         },
+        {
+          href: "/products2/history",
+          label: "Products History",
+          icon: <Package className="h-4 w-4" />,
+        },
       ],
     },
     { href: "/settings", label: "settings" as AppTranslationKey, icon: <Settings className="h-5 w-5" /> },
