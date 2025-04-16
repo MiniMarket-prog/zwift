@@ -33,6 +33,10 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { toast } from "@/components/ui/use-toast"
 
 // Define types for our product history data
 type ProductHistoryItem = {
@@ -59,6 +63,31 @@ type ProductData = {
         name: string
       }
     | Array<{ name: string }>
+}
+
+// Add types for stock and price history
+type StockHistoryEntry = {
+  id: string
+  product_id: string
+  previous_stock: number
+  new_stock: number
+  change_amount: number
+  change_type: string
+  reference_id?: string
+  created_at: string
+  user_id?: string
+}
+
+type PriceHistoryEntry = {
+  id: string
+  product_id: string
+  previous_price: number
+  new_price: number
+  change_amount: number
+  change_percentage: number
+  reason?: string
+  created_at: string
+  user_id?: string
 }
 
 type PeriodOption = "last7days" | "last30days" | "thisMonth" | "lastMonth" | "thisYear" | "lastYear" | "custom"
@@ -106,6 +135,20 @@ export default function ProductDetailHistoryPage({ params }: { params: { product
   // State for chart data
   const [dailySalesData, setDailySalesData] = useState<DailySalesData[]>([])
   const [hourlySalesData, setHourlySalesData] = useState<HourlySalesData[]>([])
+
+  // Add state for stock history
+  const [stockHistory, setStockHistory] = useState<StockHistoryEntry[]>([])
+  const [isUpdatingStock, setIsUpdatingStock] = useState<boolean>(false)
+  const [newStock, setNewStock] = useState<string>("")
+  const [stockChangeType, setStockChangeType] = useState<string>("adjustment")
+  const [isSubmittingStock, setIsSubmittingStock] = useState<boolean>(false)
+
+  // Add state for price history
+  const [priceHistory, setPriceHistory] = useState<PriceHistoryEntry[]>([])
+  const [isUpdatingPrice, setIsUpdatingPrice] = useState<boolean>(false)
+  const [newPrice, setNewPrice] = useState<string>("")
+  const [priceChangeReason, setPriceChangeReason] = useState<string>("")
+  const [isSubmittingPrice, setIsSubmittingPrice] = useState<boolean>(false)
 
   // Function to get date range based on period
   const getDateRange = (selectedPeriod: PeriodOption): DateRange => {
@@ -230,6 +273,36 @@ export default function ProductDetailHistoryPage({ params }: { params: { product
 
       // Process data for charts
       processChartData(allProductHistory, processedProduct as ProductData)
+
+      // Fetch stock history
+      const { data: stockHistoryData, error: stockHistoryError } = await supabase
+        .from("stock_history")
+        .select("*")
+        .eq("product_id", productId)
+        .gte("created_at", fromDate)
+        .lte("created_at", toDate)
+        .order("created_at", { ascending: true })
+
+      if (stockHistoryError) {
+        console.error("Error fetching stock history:", stockHistoryError)
+      } else {
+        setStockHistory(stockHistoryData || [])
+      }
+
+      // Fetch price history
+      const { data: priceHistoryData, error: priceHistoryError } = await supabase
+        .from("price_history")
+        .select("*")
+        .eq("product_id", productId)
+        .gte("created_at", fromDate)
+        .lte("created_at", toDate)
+        .order("created_at", { ascending: true })
+
+      if (priceHistoryError) {
+        console.error("Error fetching price history:", priceHistoryError)
+      } else {
+        setPriceHistory(priceHistoryData || [])
+      }
 
       // Fetch currency setting
       const { data: settingsData } = await supabase.from("settings").select("currency").eq("type", "global").single()
@@ -373,6 +446,171 @@ export default function ProductDetailHistoryPage({ params }: { params: { product
     document.body.removeChild(link)
   }
 
+  // Handle update stock
+  const handleUpdateStock = async () => {
+    if (!productId || productId === "undefined") return
+
+    setIsSubmittingStock(true)
+    try {
+      const supabase = createClient()
+
+      // Validate new stock
+      const newStockValue = Number.parseInt(newStock)
+      if (isNaN(newStockValue) || newStockValue < 0) {
+        toast({
+          title: "Invalid stock value",
+          description: "Please enter a valid stock quantity (0 or greater).",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Calculate change amount
+      const previousStock = productData?.stock || 0
+      const changeAmount = newStockValue - previousStock
+
+      // Insert into stock history
+      const { error: insertError } = await supabase.from("stock_history").insert({
+        product_id: productId,
+        previous_stock: previousStock,
+        new_stock: newStockValue,
+        change_amount: changeAmount,
+        change_type: stockChangeType,
+      })
+
+      if (insertError) {
+        console.error("Error inserting stock history:", insertError)
+        toast({
+          title: "Error",
+          description: "Failed to update stock history.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Update product stock
+      const { error: updateError } = await supabase
+        .from("products")
+        .update({ stock: newStockValue })
+        .eq("id", productId)
+
+      if (updateError) {
+        console.error("Error updating product stock:", updateError)
+        toast({
+          title: "Error",
+          description: "Failed to update product stock.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      toast({
+        title: "Stock updated",
+        description: "The product stock has been updated successfully.",
+      })
+
+      // Refresh data
+      await fetchProductData()
+
+      // Reset state
+      setIsUpdatingStock(false)
+      setNewStock("")
+    } catch (error) {
+      console.error("Error updating stock:", error)
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmittingStock(false)
+    }
+  }
+
+  // Handle update price
+  const handleUpdatePrice = async () => {
+    if (!productId || productId === "undefined") return
+
+    setIsSubmittingPrice(true)
+    try {
+      const supabase = createClient()
+
+      // Validate new price
+      const newPriceValue = Number.parseFloat(newPrice)
+      if (isNaN(newPriceValue) || newPriceValue <= 0) {
+        toast({
+          title: "Invalid price value",
+          description: "Please enter a valid price greater than 0.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Calculate change amount and percentage
+      const previousPrice = productData?.price || 0
+      const changeAmount = newPriceValue - previousPrice
+      const changePercentage = previousPrice > 0 ? (changeAmount / previousPrice) * 100 : 0
+
+      // Insert into price history
+      const { error: insertError } = await supabase.from("price_history").insert({
+        product_id: productId,
+        previous_price: previousPrice,
+        new_price: newPriceValue,
+        change_amount: changeAmount,
+        change_percentage: changePercentage,
+        reason: priceChangeReason,
+      })
+
+      if (insertError) {
+        console.error("Error inserting price history:", insertError)
+        toast({
+          title: "Error",
+          description: "Failed to update price history.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Update product price
+      const { error: updateError } = await supabase
+        .from("products")
+        .update({ price: newPriceValue })
+        .eq("id", productId)
+
+      if (updateError) {
+        console.error("Error updating product price:", updateError)
+        toast({
+          title: "Error",
+          description: "Failed to update product price.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      toast({
+        title: "Price updated",
+        description: "The product price has been updated successfully.",
+      })
+
+      // Refresh data
+      await fetchProductData()
+
+      // Reset state
+      setIsUpdatingPrice(false)
+      setNewPrice("")
+      setPriceChangeReason("")
+    } catch (error) {
+      console.error("Error updating price:", error)
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmittingPrice(false)
+    }
+  }
+
   // Fetch data when period changes
   useEffect(() => {
     fetchProductData()
@@ -447,6 +685,9 @@ export default function ProductDetailHistoryPage({ params }: { params: { product
     if (hourlySalesData.length === 0) return null
     return hourlySalesData.reduce((max, hour) => (hour.quantity > max.quantity ? hour : max), hourlySalesData[0])
   }, [hourlySalesData])
+
+  // Add this right before the return statement
+  // If productId is invalid, show a loading state or redirect
 
   return (
     <div className="container mx-auto p-4 space-y-6">
@@ -823,28 +1064,283 @@ export default function ProductDetailHistoryPage({ params }: { params: { product
           </Card>
         </TabsContent>
 
-        {/* Stock History Tab - Placeholder for future implementation */}
+        {/* Stock History Tab - Implement functionality */}
         <TabsContent value="stockHistory">
           <Card>
-            <CardHeader>
-              <CardTitle>Stock History</CardTitle>
-              <CardDescription>Stock level changes over time</CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Stock History</CardTitle>
+                <CardDescription>Stock level changes over time</CardDescription>
+              </div>
+              <Button onClick={() => setIsUpdatingStock(!isUpdatingStock)}>
+                {isUpdatingStock ? "Cancel" : "Update Stock"}
+              </Button>
             </CardHeader>
-            <CardContent className="h-80 flex justify-center items-center">
-              <p className="text-muted-foreground">Stock history tracking will be available in a future update.</p>
+            <CardContent>
+              {loading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+              ) : (
+                <>
+                  {isUpdatingStock && (
+                    <Card className="mb-6">
+                      <CardHeader>
+                        <CardTitle>Update Stock</CardTitle>
+                        <CardDescription>Current stock: {productData?.stock || 0}</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid gap-4">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="new-stock">New Stock</Label>
+                              <Input
+                                id="new-stock"
+                                type="number"
+                                value={newStock}
+                                onChange={(e) => setNewStock(e.target.value)}
+                                placeholder="Enter new stock amount"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="change-type">Change Type</Label>
+                              <Select value={stockChangeType} onValueChange={setStockChangeType}>
+                                <SelectTrigger id="change-type">
+                                  <SelectValue placeholder="Select change type" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="adjustment">Adjustment</SelectItem>
+                                  <SelectItem value="purchase">Purchase</SelectItem>
+                                  <SelectItem value="return">Return</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          <Button onClick={handleUpdateStock} disabled={isSubmittingStock}>
+                            {isSubmittingStock ? "Updating..." : "Save Changes"}
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {stockHistory.length > 0 ? (
+                    <>
+                      <div className="h-80 mb-6">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart
+                            data={stockHistory.map((entry) => ({
+                              date: format(new Date(entry.created_at), "MMM dd"),
+                              stock: entry.new_stock,
+                              change: entry.change_amount,
+                            }))}
+                            margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="date" />
+                            <YAxis />
+                            <Tooltip />
+                            <Legend />
+                            <Line type="monotone" dataKey="stock" name="Stock Level" stroke="#8884d8" strokeWidth={2} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+
+                      <div className="rounded-md border overflow-x-auto">
+                        <table className="min-w-full divide-y divide-border">
+                          <thead>
+                            <tr className="bg-muted/50">
+                              <th className="px-4 py-3 text-left text-sm font-medium">Date</th>
+                              <th className="px-4 py-3 text-right text-sm font-medium">Previous</th>
+                              <th className="px-4 py-3 text-right text-sm font-medium">New</th>
+                              <th className="px-4 py-3 text-right text-sm font-medium">Change</th>
+                              <th className="px-4 py-3 text-left text-sm font-medium">Type</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {stockHistory.map((entry) => (
+                              <tr key={entry.id} className="hover:bg-muted/50">
+                                <td className="px-4 py-3 text-sm">
+                                  {format(new Date(entry.created_at), "MMM d, yyyy h:mm a")}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-right">{entry.previous_stock}</td>
+                                <td className="px-4 py-3 text-sm text-right">{entry.new_stock}</td>
+                                <td
+                                  className={`px-4 py-3 text-sm text-right font-medium ${
+                                    entry.change_amount > 0
+                                      ? "text-green-500"
+                                      : entry.change_amount < 0
+                                        ? "text-red-500"
+                                        : ""
+                                  }`}
+                                >
+                                  {entry.change_amount > 0 ? "+" : ""}
+                                  {entry.change_amount}
+                                </td>
+                                <td className="px-4 py-3 text-sm capitalize">{entry.change_type}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center py-8">
+                      <p className="text-muted-foreground">
+                        No stock history found for this product in the selected period.
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Price History Tab - Placeholder for future implementation */}
+        {/* Price History Tab - Implement functionality */}
         <TabsContent value="priceHistory">
           <Card>
-            <CardHeader>
-              <CardTitle>Price History</CardTitle>
-              <CardDescription>Price changes over time</CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Price History</CardTitle>
+                <CardDescription>Price changes over time</CardDescription>
+              </div>
+              <Button onClick={() => setIsUpdatingPrice(!isUpdatingPrice)}>
+                {isUpdatingPrice ? "Cancel" : "Update Price"}
+              </Button>
             </CardHeader>
-            <CardContent className="h-80 flex justify-center items-center">
-              <p className="text-muted-foreground">Price history tracking will be available in a future update.</p>
+            <CardContent>
+              {loading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+              ) : (
+                <>
+                  {isUpdatingPrice && (
+                    <Card className="mb-6">
+                      <CardHeader>
+                        <CardTitle>Update Price</CardTitle>
+                        <CardDescription>
+                          Current price: {formatCurrency(productData?.price || 0, currency)}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="new-price">New Price</Label>
+                            <Input
+                              id="new-price"
+                              type="number"
+                              step="0.01"
+                              value={newPrice}
+                              onChange={(e) => setNewPrice(e.target.value)}
+                              placeholder="Enter new price"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="reason">Reason for Change (Optional)</Label>
+                            <Textarea
+                              id="reason"
+                              value={priceChangeReason}
+                              onChange={(e) => setPriceChangeReason(e.target.value)}
+                              placeholder="Explain why the price is changing"
+                              rows={3}
+                            />
+                          </div>
+                          <Button onClick={handleUpdatePrice} disabled={isSubmittingPrice}>
+                            {isSubmittingPrice ? "Updating..." : "Save Changes"}
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {priceHistory.length > 0 ? (
+                    <>
+                      <div className="h-80 mb-6">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart
+                            data={priceHistory.map((entry) => ({
+                              date: format(new Date(entry.created_at), "MMM dd"),
+                              price: entry.new_price,
+                              change: entry.change_amount,
+                            }))}
+                            margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="date" />
+                            <YAxis />
+                            <Tooltip formatter={(value) => [formatCurrency(Number(value), currency), ""]} />
+                            <Legend />
+                            <Line type="monotone" dataKey="price" name="Price" stroke="#2563eb" strokeWidth={2} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+
+                      <div className="rounded-md border overflow-x-auto">
+                        <table className="min-w-full divide-y divide-border">
+                          <thead>
+                            <tr className="bg-muted/50">
+                              <th className="px-4 py-3 text-left text-sm font-medium">Date</th>
+                              <th className="px-4 py-3 text-right text-sm font-medium">Previous</th>
+                              <th className="px-4 py-3 text-right text-sm font-medium">New</th>
+                              <th className="px-4 py-3 text-right text-sm font-medium">Change</th>
+                              <th className="px-4 py-3 text-right text-sm font-medium">% Change</th>
+                              <th className="px-4 py-3 text-left text-sm font-medium">Reason</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {priceHistory.map((entry) => (
+                              <tr key={entry.id} className="hover:bg-muted/50">
+                                <td className="px-4 py-3 text-sm">
+                                  {format(new Date(entry.created_at), "MMM d, yyyy h:mm a")}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-right">
+                                  {formatCurrency(entry.previous_price, currency)}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-right">
+                                  {formatCurrency(entry.new_price, currency)}
+                                </td>
+                                <td
+                                  className={`px-4 py-3 text-sm text-right font-medium ${
+                                    entry.change_amount > 0
+                                      ? "text-green-500"
+                                      : entry.change_amount < 0
+                                        ? "text-red-500"
+                                        : ""
+                                  }`}
+                                >
+                                  {entry.change_amount > 0 ? "+" : ""}
+                                  {formatCurrency(entry.change_amount, currency)}
+                                </td>
+                                <td
+                                  className={`px-4 py-3 text-sm text-right font-medium ${
+                                    entry.change_percentage > 0
+                                      ? "text-green-500"
+                                      : entry.change_percentage < 0
+                                        ? "text-red-500"
+                                        : ""
+                                  }`}
+                                >
+                                  {entry.change_percentage > 0 ? "+" : ""}
+                                  {entry.change_percentage.toFixed(2)}%
+                                </td>
+                                <td className="px-4 py-3 text-sm">{entry.reason || "-"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center py-8">
+                      <p className="text-muted-foreground">
+                        No price history found for this product in the selected period.
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
