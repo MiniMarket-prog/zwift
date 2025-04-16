@@ -9,20 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { format, subDays } from "date-fns"
-import {
-  CalendarIcon,
-  DollarSign,
-  Package,
-  ShoppingCart,
-  CreditCard,
-  TrendingUp,
-  TrendingDown,
-  AlertTriangle,
-  Loader2,
-  RefreshCw,
-  Search,
-  Filter,
-} from "lucide-react"
+import { CalendarIcon, DollarSign, Package, ShoppingCart, CreditCard, TrendingUp, TrendingDown, AlertTriangle, Loader2, RefreshCw, Search, Filter } from 'lucide-react'
 import { cn } from "@/lib/utils"
 import { useToast } from "@/components/ui/use-toast"
 import { getDashboardStats, getProducts, getLowStockProducts } from "@/lib/supabase"

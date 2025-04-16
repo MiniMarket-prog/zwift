@@ -2,17 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useToast } from "@/hooks/use-toast"
-import {
-  Lightbulb,
-  Clock,
-  Calendar,
-  ShoppingCart,
-  Package,
-  ArrowUpRight,
-  ArrowDownRight,
-  AlertTriangle,
-  Percent,
-} from "lucide-react"
+import { Lightbulb, Clock, Calendar, ShoppingCart, Package, ArrowUpRight, ArrowDownRight, AlertTriangle, Percent } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -794,7 +784,321 @@ export default function ProfitAdvicePage() {
               </Card>
             </TabsContent>
 
-            {/* Rest of the tabs content... */}
+            {/* Product Insights Tab */}
+            <TabsContent value="products" className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Product Opportunities Card */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center">
+                      <Package className="h-5 w-5 mr-2 text-blue-500" />
+                      Product Opportunities
+                    </CardTitle>
+                    <CardDescription>Products with potential for improvement</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {insights.productOpportunities.length > 0 ? (
+                      <div className="space-y-4">
+                        {insights.productOpportunities.map((product) => (
+                          <div key={product.id} className="border-b pb-4 last:border-0 last:pb-0">
+                            <div className="flex justify-between items-start">
+                              <h4 className="font-medium">{product.name}</h4>
+                              <span className="text-sm bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                                {product.metric}: {formatPercent(product.value)}
+                              </span>
+                            </div>
+                            <p className="text-sm text-muted-foreground mt-1">{product.recommendation}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-muted-foreground">No product opportunities identified in this period.</p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Product Combinations Card */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center">
+                      <Package className="h-5 w-5 mr-2 text-purple-500" />
+                      Popular Product Combinations
+                    </CardTitle>
+                    <CardDescription>Products frequently purchased together</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {insights.topProductCombinations.length > 0 ? (
+                      <div className="space-y-4">
+                        {insights.topProductCombinations.map((combo, index) => (
+                          <div key={index} className="border-b pb-4 last:border-0 last:pb-0">
+                            <h4 className="font-medium">{combo.products.join(" + ")}</h4>
+                            <div className="grid grid-cols-3 gap-2 mt-2">
+                              <div>
+                                <p className="text-xs text-muted-foreground">Occurrences</p>
+                                <p className="font-medium">{combo.occurrences}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Revenue</p>
+                                <p className="font-medium">{formatCurrency(combo.revenue, currentCurrency)}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Profit</p>
+                                <p className="font-medium">{formatCurrency(combo.profit, currentCurrency)}</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-muted-foreground">No significant product combinations found in this period.</p>
+                    )}
+                  </CardContent>
+                  <CardFooter>
+                    <p className="text-sm text-muted-foreground">
+                      Consider creating bundles or placing these products near each other to increase sales
+                    </p>
+                  </CardFooter>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Product Recommendations</CardTitle>
+                  <CardDescription>Actionable insights to improve product performance</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-start">
+                    <div className="bg-green-100 p-2 rounded-full mr-3">
+                      <Lightbulb className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-medium">Create product bundles</h4>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {insights.topProductCombinations.length > 0
+                          ? `Bundle "${insights.topProductCombinations[0].products.join(
+                              " + ",
+                            )}" together at a slight discount to increase average order value.`
+                          : "Create bundles of frequently purchased products to increase average order value."}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start">
+                    <div className="bg-green-100 p-2 rounded-full mr-3">
+                      <Lightbulb className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-medium">Promote high-margin products</h4>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {insights.productOpportunities.length > 0 &&
+                        insights.productOpportunities.some((p) => p.value > 40)
+                          ? `Feature "${
+                              insights.productOpportunities.find((p) => p.value > 40)?.name
+                            }" more prominently to increase its sales volume while maintaining high margins.`
+                          : "Identify and promote high-margin products to improve overall profitability."}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start">
+                    <div className="bg-green-100 p-2 rounded-full mr-3">
+                      <Lightbulb className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-medium">Optimize product placement</h4>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Place frequently purchased products in different areas of the store to increase exposure to other
+                        merchandise and encourage additional purchases.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Pricing Opportunities Tab */}
+            <TabsContent value="pricing" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center">
+                    <Percent className="h-5 w-5 mr-2 text-green-500" />
+                    Price Optimization Opportunities
+                  </CardTitle>
+                  <CardDescription>Products with potential for price adjustments</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {insights.pricingOpportunities.length > 0 ? (
+                    <div className="space-y-4">
+                      {insights.pricingOpportunities.map((product) => (
+                        <div key={product.id} className="border-b pb-4 last:border-0 last:pb-0">
+                          <div className="flex justify-between items-start">
+                            <h4 className="font-medium">{product.name}</h4>
+                            <span className="text-sm bg-green-100 text-green-800 px-2 py-0.5 rounded-full">
+                              +{formatCurrency(product.potentialProfit, currentCurrency)} potential profit
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4 mt-2">
+                            <div>
+                              <p className="text-xs text-muted-foreground">Current Price</p>
+                              <p className="font-medium">{formatCurrency(product.currentPrice, currentCurrency)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Suggested Price</p>
+                              <p className="font-medium">{formatCurrency(product.suggestedPrice, currentCurrency)}</p>
+                            </div>
+                          </div>
+                          <p className="text-sm text-muted-foreground mt-2">Reason: {product.reason}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground">No pricing opportunities identified in this period.</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Pricing Recommendations</CardTitle>
+                  <CardDescription>Actionable insights to optimize your pricing strategy</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-start">
+                    <div className="bg-green-100 p-2 rounded-full mr-3">
+                      <Lightbulb className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-medium">Implement gradual price increases</h4>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {insights.pricingOpportunities.length > 0
+                          ? `Gradually increase the price of "${insights.pricingOpportunities[0].name}" by 3-5% increments to test customer sensitivity.`
+                          : "Test small price increases (3-5%) on popular products to improve margins without affecting demand."}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start">
+                    <div className="bg-green-100 p-2 rounded-full mr-3">
+                      <Lightbulb className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-medium">Create premium versions</h4>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Develop premium versions of your best-selling products with enhanced features or quality to
+                        capture higher price points and improve overall margins.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start">
+                    <div className="bg-green-100 p-2 rounded-full mr-3">
+                      <Lightbulb className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-medium">Implement dynamic pricing</h4>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Consider adjusting prices based on demand patterns, with higher prices during peak hours/days
+                        ({insights.bestDay.day}, {insights.bestHour.hour}) and promotional pricing during slower periods.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Inventory Insights Tab */}
+            <TabsContent value="inventory" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center">
+                    <ShoppingCart className="h-5 w-5 mr-2 text-blue-500" />
+                    Inventory Insights
+                  </CardTitle>
+                  <CardDescription>Opportunities to optimize your inventory management</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {insights.inventoryInsights.length > 0 ? (
+                    <div className="space-y-4">
+                      {insights.inventoryInsights.map((insight) => (
+                        <div key={insight.id} className="border-b pb-4 last:border-0 last:pb-0">
+                          <div className="flex justify-between items-start">
+                            <h4 className="font-medium">{insight.name}</h4>
+                            <span
+                              className={`text-sm px-2 py-0.5 rounded-full ${
+                                insight.impact === "high"
+                                  ? "bg-green-100 text-green-800"
+                                  : insight.impact === "medium"
+                                  ? "bg-yellow-100 text-yellow-800"
+                                  : "bg-blue-100 text-blue-800"
+                              }`}
+                            >
+                              {insight.impact.charAt(0).toUpperCase() + insight.impact.slice(1)} Impact
+                            </span>
+                          </div>
+                          <p className="text-sm mt-1">{insight.insight}</p>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Recommendation: {insight.recommendation}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground">No inventory insights identified in this period.</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Inventory Recommendations</CardTitle>
+                  <CardDescription>Actionable insights to improve inventory management</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-start">
+                    <div className="bg-green-100 p-2 rounded-full mr-3">
+                      <Lightbulb className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-medium">Optimize category allocation</h4>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {insights.inventoryInsights.length > 0 &&
+                        insights.inventoryInsights.some((i) => i.id.startsWith("cat-"))
+                          ? insights.inventoryInsights.find((i) => i.id.startsWith("cat-"))?.recommendation
+                          : "Analyze category performance and adjust inventory allocation to favor higher-margin categories."}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start">
+                    <div className="bg-green-100 p-2 rounded-full mr-3">
+                      <Lightbulb className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-medium">Implement just-in-time inventory</h4>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Adjust ordering patterns based on sales trends by day of week. Increase stock levels before{" "}
+                        {insights.bestDay.day} and reduce before {insights.worstDay.day} to optimize inventory costs.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start">
+                    <div className="bg-green-100 p-2 rounded-full mr-3">
+                      <Lightbulb className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-medium">Review supplier relationships</h4>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {insights.inventoryInsights.length > 0 &&
+                        insights.inventoryInsights.some((i) => i.id.startsWith("prod-"))
+                          ? insights.inventoryInsights.find((i) => i.id.startsWith("prod-"))?.recommendation
+                          : "Evaluate supplier costs for low-margin products and negotiate better terms or find alternative suppliers."}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
           </Tabs>
         </>
       )}
