@@ -601,7 +601,7 @@ export default function ProductHistoryPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => (window.location.href = `/products2/history/${product.id}`)}
+                            onClick={() => window.open(`/products2/history/${product.id}`, "_blank")}
                           >
                             View History
                           </Button>
