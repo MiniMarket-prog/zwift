@@ -2,6 +2,7 @@
 
 // Define types for our translations
 export type POSTranslationKey =
+  
   | "shoppingCart"
   | "items"
   | "emptyCart"
@@ -54,6 +55,8 @@ export type POSTranslationKey =
   | "expiring_products_description"
   | "edit"
   // Add the missing translation keys
+  | "page_size"
+  | "last_sale_date"
   | "discountUpdated"
   | "confirmSale"
   | "confirmSaleDescription"
@@ -70,10 +73,14 @@ export type POSTranslationKey =
   | "mobilePayment"
   | "favoriteProducts"
   | "allProducts"
+    
+    
 
 // Define translations for each supported language
 export const posTranslations: Record<string, Record<POSTranslationKey, string>> = {
   en: {
+    page_size:"page size",
+    last_sale_date:"last sale date",
     shoppingCart: "Shopping Cart",
     items: "items",
     emptyCart: "Your cart is empty",
@@ -145,6 +152,8 @@ export const posTranslations: Record<string, Record<POSTranslationKey, string>> 
     allProducts: "All Products",
   },
   es: {
+    page_size:"tamaño de página",
+    last_sale_date:"última fecha de venta",
     shoppingCart: "Carrito de Compras",
     items: "artículos",
     emptyCart: "Tu carrito está vacío",
@@ -216,6 +225,8 @@ export const posTranslations: Record<string, Record<POSTranslationKey, string>> 
     allProducts: "Todos los Productos",
   },
   fr: {
+    page_size:"taille des pages",
+    last_sale_date:"date de la dernière vente",
     shoppingCart: "Panier d'Achat",
     items: "articles",
     emptyCart: "Votre panier est vide",
@@ -287,6 +298,8 @@ export const posTranslations: Record<string, Record<POSTranslationKey, string>> 
     allProducts: "Tous les Produits",
   },
   ar: {
+    page_size:"حجم الصفحة",
+    last_sale_date:"تاريخ البيع الأخير",
     shoppingCart: "عربة التسوق",
     items: "عناصر",
     emptyCart: "عربة التسوق فارغة",

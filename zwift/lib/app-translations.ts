@@ -606,6 +606,8 @@ export type AppTranslationKey =
 | "common.network_authentication_required"
 
 // Add these translation keys to the AppTranslationKey type:
+| "last_sale_date"
+| "page_size"
 
 // Inventory Forecasting page keys
 | "inventory_forecasting"
@@ -695,6 +697,7 @@ export type AppTranslationKey =
 // Define translations for each supported language
 export const appTranslations: Record<string, Record<AppTranslationKey, string>> = {
   en: {
+    last_sale_date:"last sale date",
     more_than_days_stock:"more than days stock",
     less_than_days_stock:"less than days stock",
     purchaseOrders: "purchase Orders",
@@ -1104,7 +1107,7 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     user: "User",
   },
   es: {
-    
+    last_sale_date:"última fecha de venta",    
     more_than_days_stock: "más de días de stock",
     alerts: "Alertas",
     dashboard: "Tablero",
@@ -1514,6 +1517,7 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     user: "Usuario",
   },
   fr: {
+    last_sale_date:"date de la dernière vente", 
     more_than_days_stock: "plus de jours de stock",
     alerts: "Alertes",
     purchaseOrders: "Ordres d'achat",
@@ -1921,6 +1925,7 @@ export const appTranslations: Record<string, Record<AppTranslationKey, string>> 
     user: "Utilisateur",
   },
   ar: {
+    last_sale_date:"تاريخ البيع الأخير",
     category_deleted_successfully: "تم حذف الفئة بنجاح.",
     failed_to_delete_category: "فشل في حذف الفئة. حاول مرة أخرى.",
     category_updated_successfully: "تم تحديث الفئة بنجاح.",
