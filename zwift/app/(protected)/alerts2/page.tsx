@@ -9,7 +9,8 @@ import { formatCurrency } from "@/lib/format-currency"
 import { jsPDF } from "jspdf"
 // Add the autoTable plugin to jsPDF
 import "jspdf-autotable"
-import { Minus, Plus, Loader2, Save } from "lucide-react"
+import { Minus, Plus, Save } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -1280,47 +1281,40 @@ const AlertsPage = () => {
 
         {/* Export options */}
         <div className="flex flex-col items-center mt-6 space-y-4 sm:space-y-0 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center space-x-4">
-            <Button variant="secondary" onClick={exportToCSV} disabled={isExporting}>
-              {isExporting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {getTranslation("exporting")}...
-                </>
-              ) : (
-                getTranslation("export_to_csv")
-              )}
-            </Button>
+  <div className="flex items-center space-x-4">
+  <Button variant="secondary" onClick={exportToCSV} disabled={isExporting}>
+  {isExporting ? (
+    <>
+      <Loader2 className="mr-2 h-6 w-6 animate-spin" />
+      Exporting...
+    </>
+  ) : (
+    <>
+      <Minus className="h-6 w-6 text-blue-500" />
+      Export to CSV
+    </>
+  )}
+</Button>
 
-            <div className="flex items-center space-x-2">
-              <Label htmlFor="export-page-count">{getTranslation("pages")}:</Label>
-              <Select value={exportPageCount} onValueChange={handleExportPageCountChange}>
-                <SelectTrigger className="w-[120px]">
-                  <SelectValue placeholder={exportPageCount} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="auto">{getTranslation("auto")}</SelectItem>
-                  <SelectItem value="1">1 {getTranslation("page")}</SelectItem>
-                  <SelectItem value="2">2 {getTranslation("pages")}</SelectItem>
-                  <SelectItem value="3">3 {getTranslation("pages")}</SelectItem>
-                  <SelectItem value="4">4 {getTranslation("pages")}</SelectItem>
-                  <SelectItem value="5">5 {getTranslation("pages")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
 
-            <Button variant="secondary" onClick={exportToPDF} disabled={isExportingPDF}>
-              {isExportingPDF ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {getTranslation("exporting")}...
-                </>
-              ) : (
-                getTranslation("export_to_pdf")
-              )}
-            </Button>
-          </div>
-        </div>
+
+    <Button variant="secondary" onClick={exportToPDF} disabled={isExportingPDF}>
+  {isExportingPDF ? (
+    <>
+      <Loader2 className="mr-2 h-6 w-6 animate-spin" />
+      Exporting...
+    </>
+  ) : (
+    <>
+      <Plus className="h-6 w-6 text-green-500" />
+      Export to PDF
+    </>
+  )}
+</Button>
+    
+  </div>
+</div>
+
       </div>
     </>
   )
