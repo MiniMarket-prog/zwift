@@ -4,13 +4,22 @@ import type React from "react"
 
 import { useState, useEffect, useCallback } from "react"
 import { createClient } from "@/lib/supabase-client"
-import { getLowStockProducts } from "@/lib/supabase"
 import { formatCurrency } from "@/lib/format-currency"
 import { jsPDF } from "jspdf"
-// Add the autoTable plugin to jsPDF
-import "jspdf-autotable"
-import { Minus, Plus, Save } from "lucide-react"
-import { Loader2 } from "lucide-react"
+import autoTable from "jspdf-autotable"
+
+// Properly extend the jsPDF types to include autoTable
+// This needs to be before any usage of jsPDF
+declare module "jspdf" {
+  interface jsPDF {
+    autoTable: typeof autoTable
+    lastAutoTable: {
+      finalY: number
+    }
+  }
+}
+
+import { Minus, Plus, Loader2, Save } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -24,12 +33,17 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { PaginationControl } from "@/components/pagination-control"
 import { useToast } from "@/components/ui/use-toast"
 import { useLanguage } from "@/hooks/use-language"
 
 // Import the optimized last sale date hook
 import { useLastSaleDates } from "@/app/(protected)/alerts2/optimized-last-sale-date"
+
+// Add this import at the top of the file
+import { ExportSettingsDialog } from "./export-settings-dialog"
+
+// Import the image utility functions at the top of the file
+import { preloadImage, createFixedSizeImageForPDF, getProxiedImageUrl } from "./image-utils"
 
 // Define types
 type Product = {
@@ -51,10 +65,6 @@ type Category = {
 
 // Add this type for jsPDF with autotable extensions
 interface JsPDFWithAutoTable extends jsPDF {
-  autoTable: (options: any) => any
-  lastAutoTable: {
-    finalY: number
-  }
   internal: {
     events: any
     scaleFactor: number
@@ -73,7 +83,7 @@ interface JsPDFWithAutoTable extends jsPDF {
   }
 }
 
-const AlertsPage = () => {
+const AlertsPage: React.FC = () => {
   const [lowStockProducts, setLowStockProducts] = useState<Product[]>([])
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([])
   const [searchTerm, setSearchTerm] = useState("")
@@ -147,6 +157,30 @@ const AlertsPage = () => {
   // Add a new state for edited min stock
   const [editedMinStock, setEditedMinStock] = useState<number | null>(null)
 
+  // Add these new state variables after the other state declarations
+  const [isExportSettingsOpen, setIsExportSettingsOpen] = useState(false)
+  const [exportSettings, setExportSettings] = useState({
+    columns: {
+      name: true,
+      category: true,
+      barcode: true,
+      price: true,
+      purchasePrice: true,
+      currentStock: true,
+      minStock: true,
+      stockNeeded: true,
+      lastSaleDate: true,
+    },
+    includeImages: false,
+    groupByCategory: false,
+    imageSize: 15, // Size in mm for PDF exports and table view
+    includeHeader: true,
+    includeFooter: true,
+  })
+
+  // Add a new state to track the export type
+  const [exportType, setExportType] = useState<"csv" | "pdf">("csv")
+
   // Fetch currency setting
   const fetchCurrency = useCallback(async () => {
     try {
@@ -164,30 +198,97 @@ const AlertsPage = () => {
     }
   }, [supabase])
 
-  // Fetch low stock products using the same function as the POS page
+  // Modify the fetchLowStockProducts function to handle pagination properly
+  // Replace the existing fetchLowStockProducts function with this implementation:
+
   const fetchLowStockProducts = useCallback(async () => {
     try {
       setIsLoading(true)
 
-      // First, get the total count of products for reference
-      const { count: totalCount } = await supabase.from("products").select("*", { count: "exact", head: true })
+      // First, try to use the PostgreSQL function via RPC
+      try {
+        console.log("Attempting to fetch low stock products via RPC...")
+        const { data: rpcData, error: rpcError } = await supabase.rpc("get_low_stock_products")
 
+        if (!rpcError && rpcData) {
+          console.log(`Successfully fetched ${rpcData.length} low stock products via RPC`)
+
+          // Set the products directly from the RPC result
+          setLowStockProducts(rpcData)
+          setFilteredProducts(rpcData)
+
+          // Calculate total pages
+          setTotalPages(Math.max(1, Math.ceil(rpcData.length / pageSize)))
+
+          // Initialize edited stock levels
+          const initialStockLevels: Record<string, number> = {}
+          rpcData.forEach((product: Product) => {
+            initialStockLevels[product.id] = product.stock
+          })
+          setEditedStockLevels(initialStockLevels)
+
+          return
+        } else if (rpcError) {
+          console.error("RPC error:", rpcError)
+        }
+      } catch (rpcErr) {
+        console.error("RPC method failed, falling back to direct query:", rpcErr)
+      }
+
+      // Fallback: Get the total count of products for reference
+      const { count: totalCount } = await supabase.from("products").select("*", { count: "exact", head: true })
       setTotalProductCount(totalCount || 0)
       console.log(`Total products in database: ${totalCount}`)
 
-      // Use the same function as the POS page to get low stock products
-      const lowStock = await getLowStockProducts()
-      console.log(`Found ${lowStock.length} low stock products using getLowStockProducts()`)
+      // We need to fetch all products and filter client-side
+      // since Supabase doesn't support column-to-column comparison in filters
+      let allProducts: Product[] = []
+      let hasMore = true
+      let page = 0
+      const PAGE_SIZE = 1000 // Supabase's maximum limit
 
-      setLowStockProducts(lowStock as Product[])
-      setFilteredProducts(lowStock as Product[])
+      while (hasMore) {
+        console.log(
+          `Fetching products page ${page + 1} with range ${page * PAGE_SIZE} to ${(page + 1) * PAGE_SIZE - 1}`,
+        )
+
+        const { data, error } = await supabase
+          .from("products")
+          .select("*")
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+
+        if (error) {
+          console.error("Error fetching products:", error)
+          throw error
+        }
+
+        if (data && data.length > 0) {
+          console.log(`Received ${data.length} products for page ${page + 1}`)
+          allProducts = [...allProducts, ...data]
+          page++
+          hasMore = data.length === PAGE_SIZE // If we got a full page, there might be more
+        } else {
+          console.log("No more products to fetch")
+          hasMore = false
+        }
+      }
+
+      console.log(`Total products fetched: ${allProducts.length}`)
+
+      // Filter low stock products client-side
+      const lowStockProducts = allProducts.filter((product) => product.stock <= product.min_stock)
+
+      console.log(`Filtered ${lowStockProducts.length} low stock products client-side`)
+
+      setLowStockProducts(lowStockProducts)
+      setFilteredProducts(lowStockProducts)
 
       // Calculate total pages
-      setTotalPages(Math.max(1, Math.ceil(lowStock.length / pageSize)))
+      setTotalPages(Math.max(1, Math.ceil(lowStockProducts.length / pageSize)))
 
       // Initialize edited stock levels
       const initialStockLevels: Record<string, number> = {}
-      lowStock.forEach((product: Product) => {
+      lowStockProducts.forEach((product: Product) => {
         initialStockLevels[product.id] = product.stock
       })
       setEditedStockLevels(initialStockLevels)
@@ -315,6 +416,27 @@ const AlertsPage = () => {
       title: getAppTranslation("product_added", language),
       description: `${product.name} ${getAppTranslation("product_added", language).toLowerCase()}.`,
     })
+  }
+
+  // Add this function to handle translation keys safely:
+  // This will help us avoid TypeScript errors with undefined translation keys
+  const getTranslation = (key: string): string => {
+    try {
+      // Try to get the translation using the app's translation system
+      // @ts-ignore - Ignore TypeScript errors for keys not in AppTranslationKey
+      const translated = getAppTranslation(key, language)
+
+      // If the translation is the same as the key, it means no translation was found
+      if (translated === key) {
+        // Return a formatted version of the key as fallback
+        return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase())
+      }
+
+      return translated
+    } catch (error) {
+      // If there's an error, return a formatted version of the key
+      return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase())
+    }
   }
 
   const handleRestock = async (product: Product) => {
@@ -447,27 +569,6 @@ const AlertsPage = () => {
     return "Uncategorized"
   }
 
-  // Add this function to handle translation keys safely:
-  // This will help us avoid TypeScript errors with undefined translation keys
-  const getTranslation = (key: string): string => {
-    try {
-      // Try to get the translation using the app's translation system
-      // @ts-ignore - Ignore TypeScript errors for keys not in AppTranslationKey
-      const translated = getAppTranslation(key, language)
-
-      // If the translation is the same as the key, it means no translation was found
-      if (translated === key) {
-        // Return a formatted version of the key as fallback
-        return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase())
-      }
-
-      return translated
-    } catch (error) {
-      // If there's an error, return a formatted version of the key
-      return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase())
-    }
-  }
-
   // Handle page size change
   const handlePageSizeChange = (value: string) => {
     setPageSize(Number.parseInt(value))
@@ -543,40 +644,79 @@ const AlertsPage = () => {
     setExportPageCount(value)
   }
 
-  // Export to CSV function
+  // Add this function to handle export settings changes
+  const handleExportSettingChange = (setting: string, value: boolean | number) => {
+    setExportSettings((prev) => ({
+      ...prev,
+      [setting]: value,
+    }))
+  }
+
+  // Add this function to handle column selection changes
+  const handleColumnChange = (column: string, checked: boolean) => {
+    setExportSettings((prev) => ({
+      ...prev,
+      columns: {
+        ...prev.columns,
+        [column]: checked,
+      },
+    }))
+  }
+
+  // Add this function to open export settings dialog
+  const openExportSettings = (exportType: "csv" | "pdf") => {
+    setExportType(exportType)
+    setIsExportSettingsOpen(true)
+  }
+
+  // Modify the exportToCSV function to use the selected columns
   const exportToCSV = async () => {
     setIsExporting(true)
     try {
-      // Create CSV content
-      const headers = [
-        "Name",
-        "Category",
-        "Barcode",
-        "Price",
-        "Purchase Price",
-        "Current Stock",
-        "Min Stock",
-        "Stock Needed",
-        "Last Sale Date", // Added last sale date column
-      ]
+      // Get selected columns
+      const selectedColumns = Object.entries(exportSettings.columns)
+        .filter(([_, selected]) => selected)
+        .map(([column]) => column)
+
+      // Create headers based on selected columns
+      const headers: string[] = []
+      if (selectedColumns.includes("name")) headers.push("Name")
+      if (selectedColumns.includes("category")) headers.push("Category")
+      if (selectedColumns.includes("barcode")) headers.push("Barcode")
+      if (selectedColumns.includes("price")) headers.push("Price")
+      if (selectedColumns.includes("purchasePrice")) headers.push("Purchase Price")
+      if (selectedColumns.includes("currentStock")) headers.push("Current Stock")
+      if (selectedColumns.includes("minStock")) headers.push("Min Stock")
+      if (selectedColumns.includes("stockNeeded")) headers.push("Stock Needed")
+      if (selectedColumns.includes("lastSaleDate")) headers.push("Last Sale Date")
 
       const csvRows = [headers]
 
-      filteredProducts.forEach((product) => {
+      // Sort products by category if groupByCategory is enabled
+      const productsToExport = [...filteredProducts]
+      if (exportSettings.groupByCategory) {
+        productsToExport.sort((a, b) => {
+          const catA = getCategoryName(a.category_id).toLowerCase()
+          const catB = getCategoryName(b.category_id).toLowerCase()
+          return catA.localeCompare(catB)
+        })
+      }
+
+      productsToExport.forEach((product) => {
         const stockNeeded = product.min_stock - product.stock
         const categoryName = getCategoryName(product.category_id)
 
-        const row = [
-          product.name,
-          categoryName,
-          product.barcode || "N/A",
-          product.price.toString(),
-          product.purchase_price?.toString() || "N/A",
-          product.stock.toString(),
-          product.min_stock.toString(),
-          stockNeeded.toString(),
-          formatLastSaleDate(lastSaleDates[product.id]), // Added last sale date
-        ]
+        const row: string[] = []
+        if (selectedColumns.includes("name")) row.push(product.name)
+        if (selectedColumns.includes("category")) row.push(categoryName)
+        if (selectedColumns.includes("barcode")) row.push(product.barcode || "N/A")
+        if (selectedColumns.includes("price")) row.push(product.price.toString())
+        if (selectedColumns.includes("purchasePrice")) row.push(product.purchase_price?.toString() || "N/A")
+        if (selectedColumns.includes("currentStock")) row.push(product.stock.toString())
+        if (selectedColumns.includes("minStock")) row.push(product.min_stock.toString())
+        if (selectedColumns.includes("stockNeeded")) row.push(stockNeeded.toString())
+        if (selectedColumns.includes("lastSaleDate")) row.push(formatLastSaleDate(lastSaleDates[product.id]))
+
         csvRows.push(row)
       })
 
@@ -595,7 +735,7 @@ const AlertsPage = () => {
 
       toast({
         title: "Export Successful",
-        description: `${filteredProducts.length} products exported`,
+        description: `${productsToExport.length} products exported`,
       })
     } catch (error) {
       console.error("Error exporting data:", error)
@@ -609,7 +749,7 @@ const AlertsPage = () => {
     }
   }
 
-  // Simple PDF export function without using autoTable
+  // Modify the exportToPDF function to use the selected columns and include images if selected
   const exportToPDF = async () => {
     setIsExportingPDF(true)
     try {
@@ -618,7 +758,7 @@ const AlertsPage = () => {
         orientation: "landscape", // Use landscape for more space
         unit: "mm",
         format: "a4",
-      })
+      }) as JsPDFWithAutoTable
 
       // Set RTL mode if using Arabic
       if (isRTL || language.startsWith("ar")) {
@@ -628,137 +768,219 @@ const AlertsPage = () => {
       // Use standard font
       doc.setFont("helvetica")
 
-      // Add title
-      doc.setFontSize(18)
-      doc.text("Low Stock Products Report", 14, 15)
+      // Add title if header is enabled
+      if (exportSettings.includeHeader) {
+        doc.setFontSize(18)
+        doc.text("Low Stock Products Report", 14, 15)
 
-      // Add date
-      doc.setFontSize(10)
-      doc.text(`Generated: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, 14, 22)
-      doc.text(`Total Products: ${filteredProducts.length}`, 14, 28)
+        // Add date
+        doc.setFontSize(10)
+        doc.text(`Generated: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, 14, 22)
+        doc.text(`Total Products: ${filteredProducts.length}`, 14, 28)
+      }
 
-      // Set up table headers
-      const headers = ["Name", "Category", "Barcode", "Price", "Stock", "Min Stock", "Needed", "Last Sale"]
+      // Get selected columns
+      const selectedColumns = Object.entries(exportSettings.columns)
+        .filter(([_, selected]) => selected)
+        .map(([column]) => column)
 
-      // Set up column widths (total width = 280mm for landscape A4)
-      const colWidths = [60, 40, 30, 25, 20, 20, 20, 40]
-      const startX = 14
-      let startY = 35
-      const rowHeight = 8
+      // Set up table headers based on selected columns
+      const headers: string[] = []
+      if (selectedColumns.includes("name")) headers.push("Name")
+      if (selectedColumns.includes("category")) headers.push("Category")
+      if (selectedColumns.includes("barcode")) headers.push("Barcode")
+      if (selectedColumns.includes("price")) headers.push("Price")
+      if (selectedColumns.includes("purchasePrice")) headers.push("Purchase Price")
+      if (selectedColumns.includes("currentStock")) headers.push("Current Stock")
+      if (selectedColumns.includes("minStock")) headers.push("Min Stock")
+      if (selectedColumns.includes("stockNeeded")) headers.push("Stock Needed")
+      if (selectedColumns.includes("lastSaleDate")) headers.push("Last Sale Date")
 
-      // Calculate total width
-      const totalWidth = colWidths.reduce((sum, width) => sum + width, 0)
-
-      // Draw header background
-      doc.setFillColor(41, 128, 185) // Blue header background
-      doc.rect(startX, startY, totalWidth, rowHeight, "F")
-
-      // Draw header text
-      doc.setTextColor(255, 255, 255) // White text for header
-      doc.setFontSize(10)
-      doc.setFont("helvetica", "bold")
-
-      let currentX = startX
-      headers.forEach((header, i) => {
-        doc.text(header, currentX + 2, startY + 5) // Add padding
-        currentX += colWidths[i]
-      })
-
-      // Reset text color for data rows
-      doc.setTextColor(0, 0, 0)
-      doc.setFont("helvetica", "normal")
-
-      // Draw data rows
-      startY += rowHeight
+      // Sort products by category if groupByCategory is enabled
+      let productsToInclude = [...filteredProducts]
+      if (exportSettings.groupByCategory) {
+        productsToInclude.sort((a, b) => {
+          const catA = getCategoryName(a.category_id).toLowerCase()
+          const catB = getCategoryName(b.category_id).toLowerCase()
+          return catA.localeCompare(catB)
+        })
+      }
 
       // Determine how many products to include based on exportPageCount
-      let productsToInclude = filteredProducts
       if (exportPageCount !== "auto" && exportPageCount !== "1") {
         const pageCount = Number.parseInt(exportPageCount, 10)
         if (!isNaN(pageCount) && pageCount > 0) {
-          // Calculate how many products per page
-          const rowsPerPage = Math.floor((297 - startY) / rowHeight) // 297mm is A4 height
+          // Calculate how many products per page (rough estimate)
+          const rowsPerPage = Math.floor((297 - 40) / 10) // 297mm is A4 height, 40mm for headers, 10mm per row
           const totalRowsAllowed = rowsPerPage * pageCount
 
-          if (filteredProducts.length > totalRowsAllowed) {
-            productsToInclude = filteredProducts.slice(0, totalRowsAllowed)
+          if (productsToInclude.length > totalRowsAllowed) {
+            productsToInclude = productsToInclude.slice(0, totalRowsAllowed)
           }
         }
       }
 
-      // Draw alternating row backgrounds
-      productsToInclude.forEach((product, index) => {
-        // Draw alternating row background
-        if (index % 2 === 0) {
-          doc.setFillColor(245, 245, 245) // Light gray for even rows
-        } else {
-          doc.setFillColor(255, 255, 255) // White for odd rows
-        }
-        doc.rect(startX, startY, totalWidth, rowHeight, "F")
-
-        // Check if we need a new page
-        if (startY > 280) {
-          // Near bottom of page (297mm is A4 height)
-          doc.addPage()
-          startY = 15 // Reset Y position on new page
-
-          // Add page header
-          doc.setFontSize(10)
-          doc.text(`Low Stock Report - Page ${doc.getNumberOfPages()}`, 14, 10)
-        }
-
-        // Get data for this row
+      // Prepare table rows with product data
+      const tableRows = productsToInclude.map((product) => {
         const stockNeeded = product.min_stock - product.stock
-        const categoryName = getCategoryName(product.category_id)
         const price = formatCurrency(product.price, currentCurrency, language)
+        const purchasePrice = product.purchase_price
+          ? formatCurrency(product.purchase_price, currentCurrency, language)
+          : "N/A"
+        const categoryName = getCategoryName(product.category_id)
         const lastSaleDate = formatLastSaleDate(lastSaleDates[product.id])
 
-        // Draw row data
-        doc.setFontSize(8)
+        const row: any[] = []
 
-        currentX = startX
+        // Add image placeholder if includeImages is true
+        if (exportSettings.includeImages) {
+          row.push("") // Empty string instead of URL
+        }
 
-        // Name column
-        doc.text(product.name.substring(0, 28), currentX + 2, startY + 5)
-        currentX += colWidths[0]
+        // Add other columns based on selection
+        if (selectedColumns.includes("name")) row.push(product.name)
+        if (selectedColumns.includes("category")) row.push(categoryName)
+        if (selectedColumns.includes("barcode")) row.push(product.barcode || "N/A")
+        if (selectedColumns.includes("price")) row.push(price)
+        if (selectedColumns.includes("purchasePrice")) row.push(purchasePrice)
+        if (selectedColumns.includes("currentStock")) row.push(product.stock.toString())
+        if (selectedColumns.includes("minStock")) row.push(product.min_stock.toString())
+        if (selectedColumns.includes("stockNeeded")) row.push(stockNeeded.toString())
+        if (selectedColumns.includes("lastSaleDate")) row.push(lastSaleDate)
 
-        // Category column
-        doc.text(categoryName.substring(0, 18), currentX + 2, startY + 5)
-        currentX += colWidths[1]
-
-        // Barcode column
-        doc.text(product.barcode?.substring(0, 13) || "N/A", currentX + 2, startY + 5)
-        currentX += colWidths[2]
-
-        // Price column
-        doc.text(price, currentX + 2, startY + 5)
-        currentX += colWidths[3]
-
-        // Stock column
-        doc.text(product.stock.toString(), currentX + 2, startY + 5)
-        currentX += colWidths[4]
-
-        // Min Stock column
-        doc.text(product.min_stock.toString(), currentX + 2, startY + 5)
-        currentX += colWidths[5]
-
-        // Stock Needed column
-        doc.text(stockNeeded.toString(), currentX + 2, startY + 5)
-        currentX += colWidths[6]
-
-        // Last Sale Date column
-        doc.text(lastSaleDate, currentX + 2, startY + 5)
-
-        // Move to next row
-        startY += rowHeight
+        return row
       })
 
-      // Add page numbers at the bottom of each page
-      const pageCount = doc.getNumberOfPages()
-      for (let i = 1; i <= pageCount; i++) {
-        doc.setPage(i)
-        doc.setFontSize(8)
-        doc.text(`Page ${i} of ${pageCount}`, 140, 290) // Center bottom of page
+      // Add image column if includeImages is true
+      if (exportSettings.includeImages) {
+        headers.unshift("Image")
+      }
+
+      // Function to preload images and convert to base64
+      const preloadImages = async (products: Product[]) => {
+        const imagePromises = products
+          .filter((product) => product.image && exportSettings.includeImages)
+          .map(async (product) => {
+            if (!product.image) return
+
+            try {
+              // Use our utility function to preload the image
+              const img = await preloadImage(product.image)
+
+              // Use the new function to create a properly sized and centered image
+              const scaleFactor = 4 // Higher resolution for better quality
+              const imageSize = exportSettings.imageSize * scaleFactor
+              const base64 = createFixedSizeImageForPDF(img, imageSize)
+
+              // Store base64 data in the product object for later use
+              // @ts-ignore - Add a temporary property
+              product._imageBase64 = base64
+            } catch (error) {
+              console.error(`Error processing image for product ${product.name}:`, error)
+            }
+          })
+
+        // Wait for all images to be processed
+        await Promise.all(imagePromises)
+      }
+
+      // Preload images if needed
+      if (exportSettings.includeImages) {
+        await preloadImages(productsToInclude)
+      }
+
+      // Setting up the table with images in the PDF
+      const tableOptions = {
+        head: [headers],
+        body: tableRows,
+        startY: exportSettings.includeHeader ? 35 : 15,
+        theme: "striped" as const,
+        headStyles: {
+          fillColor: [41, 128, 185] as [number, number, number], // Fix: explicitly type as tuple
+          textColor: [255, 255, 255] as [number, number, number], // Fix: explicitly type as tuple
+          fontStyle: "bold" as const,
+        },
+        alternateRowStyles: {
+          fillColor: [245, 245, 245] as [number, number, number], // Fix: explicitly type as tuple
+        },
+        // Fix: Remove the async keyword to resolve the TypeScript error
+        didDrawCell: (data: any) => {
+          // Only process image column (first column when images are included)
+          if (
+            exportSettings.includeImages &&
+            data.column.index === 0 &&
+            data.row.index >= 0 &&
+            data.section === "body"
+          ) {
+            const product = productsToInclude[data.row.index]
+
+            // Check if we have a base64 image
+            // @ts-ignore - Access the temporary property
+            if (product && product._imageBase64) {
+              try {
+                // Calculate cell dimensions
+                const cellWidth = data.cell.width
+                const cellHeight = data.cell.height
+
+                // Calculate image dimensions (slightly smaller than cell to add padding)
+                const padding = 2 // 2mm padding
+                const imageSize = Math.min(cellWidth, cellHeight) - padding * 2
+
+                // Calculate position to center the image in the cell
+                const xPos = data.cell.x + (cellWidth - imageSize) / 2
+                const yPos = data.cell.y + (cellHeight - imageSize) / 2
+
+                // Add image to the cell
+                doc.addImage(
+                  // @ts-ignore - Access the temporary
+                  product._imageBase64,
+                  "JPEG",
+                  xPos,
+                  yPos,
+                  imageSize,
+                  imageSize,
+                )
+              } catch (err) {
+                console.error("Error adding image to PDF:", err)
+              }
+            } else if (product && product.image) {
+              // Draw a placeholder rectangle if we couldn't load the image
+              doc.setFillColor(200, 200, 200)
+
+              // Calculate position for placeholder
+              const padding = 2 // 2mm padding
+              const placeholderSize = Math.min(data.cell.width, data.cell.height) - padding * 2
+              const xPos = data.cell.x + (data.cell.width - placeholderSize) / 2
+              const yPos = data.cell.y + (data.cell.height - placeholderSize) / 2
+
+              doc.rect(xPos, yPos, placeholderSize, placeholderSize, "F")
+
+              doc.setFontSize(6)
+              doc.text("No image", data.cell.x + data.cell.width / 2, data.cell.y + data.cell.height / 2, {
+                align: "center",
+                baseline: "middle",
+              })
+            }
+          }
+        },
+        margin: { top: 20 },
+        columnStyles: {
+          // Set width for image column
+          0: exportSettings.includeImages ? { cellWidth: exportSettings.imageSize } : {},
+        },
+      }
+
+      // Create the table with autoTable
+      autoTable(doc, tableOptions)
+
+      // Add page numbers at the bottom of each page if footer is enabled
+      if (exportSettings.includeFooter) {
+        const pageCount = doc.getNumberOfPages()
+        for (let i = 1; i <= pageCount; i++) {
+          doc.setPage(i)
+          doc.setFontSize(8)
+          doc.text(`Page ${i} of ${pageCount}`, 140, 290) // Center bottom of page
+        }
       }
 
       // Save the PDF
@@ -804,7 +1026,7 @@ const AlertsPage = () => {
                   id="product-name"
                   type="text"
                   value={editedProductName}
-                  onChange={(e) => setEditedProductName(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditedProductName(e.target.value)}
                   className="w-full font-medium"
                   placeholder="Enter product name"
                   autoFocus={false}
@@ -868,9 +1090,13 @@ const AlertsPage = () => {
                   {editedImageUrl && (
                     <div className="relative w-16 h-16 mb-2 mx-auto">
                       <img
-                        src={editedImageUrl || "/placeholder.svg"}
+                        src={editedImageUrl || "/placeholder.svg?height=200&width=200"}
                         alt="Product preview"
                         className="w-full h-full object-cover rounded-md"
+                        onError={(e) => {
+                          e.currentTarget.src = "/placeholder.svg?height=200&width=200"
+                          e.currentTarget.onerror = null
+                        }}
                       />
                     </div>
                   )}
@@ -999,6 +1225,23 @@ const AlertsPage = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Export Settings Dialog */}
+      <ExportSettingsDialog
+        open={isExportSettingsOpen}
+        onOpenChange={setIsExportSettingsOpen}
+        settings={exportSettings}
+        onSettingsChange={setExportSettings}
+        onExport={(type) => {
+          if (type === "csv") {
+            exportToCSV()
+          } else {
+            exportToPDF()
+          }
+        }}
+        isExporting={isExporting}
+        isExportingPDF={isExportingPDF}
+      />
+
       {/* Barcode Dialog */}
       <Dialog open={isBarcodeDialogOpen} onOpenChange={setIsBarcodeDialogOpen}>
         <DialogContent className="sm:max-w-[425px] max-w-[95vw]">
@@ -1057,6 +1300,50 @@ const AlertsPage = () => {
                 </option>
               ))}
             </select>
+          </div>
+        </div>
+
+        {/* Export options */}
+        <div className="flex flex-col items-center mt-6 space-y-4 sm:space-y-0 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center space-x-4">
+            <Button variant="secondary" onClick={() => openExportSettings("csv")} disabled={isExporting}>
+              {isExporting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {getTranslation("exporting")}...
+                </>
+              ) : (
+                getTranslation("export_to_csv")
+              )}
+            </Button>
+
+            <div className="flex items-center space-x-2">
+              <Label htmlFor="export-page-count">{getTranslation("pages")}:</Label>
+              <Select value={exportPageCount} onValueChange={handleExportPageCountChange}>
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue placeholder={exportPageCount} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">{getTranslation("auto")}</SelectItem>
+                  <SelectItem value="1">1 {getTranslation("page")}</SelectItem>
+                  <SelectItem value="2">2 {getTranslation("pages")}</SelectItem>
+                  <SelectItem value="3">3 {getTranslation("pages")}</SelectItem>
+                  <SelectItem value="4">4 {getTranslation("pages")}</SelectItem>
+                  <SelectItem value="5">5 {getTranslation("pages")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Button variant="secondary" onClick={() => openExportSettings("pdf")} disabled={isExportingPDF}>
+              {isExportingPDF ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {getTranslation("exporting")}...
+                </>
+              ) : (
+                getTranslation("export_to_pdf")
+              )}
+            </Button>
           </div>
         </div>
 
@@ -1152,7 +1439,7 @@ const AlertsPage = () => {
                       onClick={() => handleSort("lastSaleDate")}
                     >
                       <div className="flex items-center">
-                        {getAppTranslation("last_sale_date", language)}
+                        {getTranslation("last_sale_date")}
                         {sortField === "lastSaleDate" && (
                           <span className="ml-1">{sortDirection === "asc" ? "↑" : "↓"}</span>
                         )}
@@ -1187,13 +1474,21 @@ const AlertsPage = () => {
                           <td className="py-4 pl-4 pr-3 text-sm sm:pl-6">
                             <div className="flex items-center">
                               <div
-                                className="h-10 w-10 flex-shrink-0 cursor-pointer md:cursor-default"
+                                className="flex-shrink-0 cursor-pointer md:cursor-default"
                                 onClick={() => handleShowBarcode(product)}
                               >
                                 <img
-                                  className="h-10 w-10 rounded-full object-cover"
-                                  src={product.image || "/placeholder.jpg"}
+                                  className="w-12 h-12 rounded-md object-contain bg-white p-1"
+                                  src={
+                                    product.image
+                                      ? getProxiedImageUrl(product.image)
+                                      : "/placeholder.svg?height=200&width=200"
+                                  }
                                   alt={product.name}
+                                  onError={(e) => {
+                                    e.currentTarget.src = "/placeholder.svg?height=200&width=200"
+                                    e.currentTarget.onerror = null
+                                  }}
                                 />
                                 <span className="md:hidden block text-[8px] text-center mt-1 text-muted-foreground">
                                   {getTranslation("view_barcode")}
@@ -1242,7 +1537,7 @@ const AlertsPage = () => {
                           <td className="py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
                             <div className="flex justify-end gap-2">
                               <Button variant="outline" size="sm" onClick={() => handleAdjustClick(product)}>
-                                {getAppTranslation("edit", language)}
+                                {getAppTranslation("adjust", language)}
                               </Button>
                               <Button variant="secondary" size="sm" onClick={() => handleRestock(product)}>
                                 {getTranslation("restock")}
@@ -1276,45 +1571,28 @@ const AlertsPage = () => {
             </Select>
           </div>
 
-          <PaginationControl currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
+          <div className="flex items-center space-x-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+              disabled={currentPage === 1}
+            >
+              {getAppTranslation("previous", language)}
+            </Button>
+            <span className="text-sm">
+              {getAppTranslation("page", language)} {currentPage} {getAppTranslation("of", language)} {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+              disabled={currentPage === totalPages}
+            >
+              {getAppTranslation("next", language)}
+            </Button>
+          </div>
         </div>
-
-        {/* Export options */}
-        <div className="flex flex-col items-center mt-6 space-y-4 sm:space-y-0 sm:flex-row sm:items-center sm:justify-between">
-  <div className="flex items-center space-x-4">
-  <Button variant="secondary" onClick={exportToCSV} disabled={isExporting}>
-  {isExporting ? (
-    <>
-      <Loader2 className="mr-2 h-6 w-6 animate-spin" />
-      Exporting...
-    </>
-  ) : (
-    <>
-      <Minus className="h-6 w-6 text-blue-500" />
-      Export to CSV
-    </>
-  )}
-</Button>
-
-
-
-    <Button variant="secondary" onClick={exportToPDF} disabled={isExportingPDF}>
-  {isExportingPDF ? (
-    <>
-      <Loader2 className="mr-2 h-6 w-6 animate-spin" />
-      Exporting...
-    </>
-  ) : (
-    <>
-      <Plus className="h-6 w-6 text-green-500" />
-      Export to PDF
-    </>
-  )}
-</Button>
-    
-  </div>
-</div>
-
       </div>
     </>
   )

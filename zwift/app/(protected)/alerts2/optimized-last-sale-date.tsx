@@ -64,43 +64,69 @@ export const useLastSaleDates = (): UseLastSaleDatesReturn => {
         return
       }
 
-      // Fallback to optimized query if RPC isn't available
-      // IMPORTANT: Changed to order by sales.created_at instead of sale_id
-      const { data, error } = await supabase
-        .from("sale_items")
-        .select(
-          `
+      // Fallback to paginated query if RPC isn't available
+      // Implement pagination to fetch all data
+      let allSaleItems: any[] = []
+      let hasMore = true
+      let page = 0
+      const PAGE_SIZE = 1000 // Supabase's maximum limit
+
+      while (hasMore) {
+        console.log(
+          `Fetching sale items page ${page + 1} with range ${page * PAGE_SIZE} to ${(page + 1) * PAGE_SIZE - 1}`,
+        )
+
+        // IMPORTANT: Changed to order by sales.created_at instead of sale_id
+        const { data, error } = await supabase
+          .from("sale_items")
+          .select(
+            `
           product_id,
           sales:sale_id(created_at),
           product:product_id(name, barcode)
         `,
-        )
-        .order("sales.created_at", { ascending: false })
+          )
+          .order("sales.created_at", { ascending: false })
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
-      if (error) throw error
+        if (error) {
+          console.error("Error fetching sale items:", error)
+          throw error
+        }
+
+        if (data && data.length > 0) {
+          console.log(`Received ${data.length} sale items for page ${page + 1}`)
+          allSaleItems = [...allSaleItems, ...data]
+          page++
+          hasMore = data.length === PAGE_SIZE // If we got a full page, there might be more
+        } else {
+          console.log("No more sale items to fetch")
+          hasMore = false
+        }
+      }
+
+      console.log(`Total sale items fetched: ${allSaleItems.length}`)
 
       // Process the results using a Map for better performance
       const productDateMap = new Map<string, string>()
       const productDetailsMap = new Map<string, { name: string; barcode?: string }>()
 
-      if (data) {
-        data.forEach((item: any) => {
-          const productId = item.product_id
-          const saleDate = Array.isArray(item.sales) ? item.sales[0]?.created_at : item.sales?.created_at
-          const productInfo = getProductInfo(item.product)
+      allSaleItems.forEach((item: any) => {
+        const productId = item.product_id
+        const saleDate = Array.isArray(item.sales) ? item.sales[0]?.created_at : item.sales?.created_at
+        const productInfo = getProductInfo(item.product)
 
-          if (productId && saleDate && !productDateMap.has(productId)) {
-            productDateMap.set(productId, saleDate)
+        if (productId && saleDate && !productDateMap.has(productId)) {
+          productDateMap.set(productId, saleDate)
 
-            if (productInfo) {
-              productDetailsMap.set(productId, {
-                name: productInfo.name || "Unknown",
-                barcode: productInfo.barcode,
-              })
-            }
+          if (productInfo) {
+            productDetailsMap.set(productId, {
+              name: productInfo.name || "Unknown",
+              barcode: productInfo.barcode,
+            })
           }
-        })
-      }
+        }
+      })
 
       // Convert Maps to records
       const lastSaleDates: Record<string, string> = {}
