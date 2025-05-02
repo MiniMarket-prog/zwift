@@ -608,6 +608,9 @@ export type AppTranslationKey =
 // Add these translation keys to the AppTranslationKey type:
 | "last_sale_date"
 | "page_size"
+| "export_to_csv"
+| "export_to_pdf"
+| "auto"
 
 // Inventory Forecasting page keys
 | "inventory_forecasting"
@@ -697,6 +700,9 @@ export type AppTranslationKey =
 // Define translations for each supported language
 export const appTranslations: Record<string, Record<AppTranslationKey, string>> = {
   en: {
+    auto: "Auto",
+    export_to_pdf:"PDF",
+    export_to_csv: "CSV",
     last_sale_date:"last sale date",
     more_than_days_stock:"more than days stock",
     less_than_days_stock:"less than days stock",

@@ -280,11 +280,14 @@ export function ExportSettingsDialog({
                     <Slider
                       id="image-size"
                       min={10}
-                      max={50}
+                      max={60} // Increase max size to 60mm
                       step={5}
                       value={[settings.imageSize]}
                       onValueChange={(value) => handleSettingChange("imageSize", value[0])}
                     />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Larger sizes will produce higher quality images in the PDF
+                    </p>
                   </div>
                 )}
               </>

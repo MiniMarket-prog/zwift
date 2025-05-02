@@ -1318,7 +1318,7 @@ const AlertsPage: React.FC = () => {
             </Button>
 
             <div className="flex items-center space-x-2">
-              <Label htmlFor="export-page-count">{getTranslation("pages")}:</Label>
+              <Label htmlFor="export-page-count">{getTranslation("page")}:</Label>
               <Select value={exportPageCount} onValueChange={handleExportPageCountChange}>
                 <SelectTrigger className="w-[120px]">
                   <SelectValue placeholder={exportPageCount} />
@@ -1539,7 +1539,7 @@ const AlertsPage: React.FC = () => {
                               <Button variant="outline" size="sm" onClick={() => handleAdjustClick(product)}>
                                 {getAppTranslation("adjust", language)}
                               </Button>
-                              { /*Hid restock option no need for now*/}
+                              { /*Hide restock option no need for now*/}
                               { /* <Button variant="secondary" size="sm" onClick={() => handleRestock(product)}>
                                 {getTranslation("restock")}
                               </Button>*/}
