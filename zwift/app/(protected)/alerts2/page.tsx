@@ -1539,9 +1539,10 @@ const AlertsPage: React.FC = () => {
                               <Button variant="outline" size="sm" onClick={() => handleAdjustClick(product)}>
                                 {getAppTranslation("adjust", language)}
                               </Button>
-                              <Button variant="secondary" size="sm" onClick={() => handleRestock(product)}>
+                              { /*Hid restock option no need for now*/}
+                              { /* <Button variant="secondary" size="sm" onClick={() => handleRestock(product)}>
                                 {getTranslation("restock")}
-                              </Button>
+                              </Button>*/}
                             </div>
                           </td>
                         </tr>
