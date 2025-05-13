@@ -10,8 +10,6 @@ import {
   Tag,
   Scan,
   X,
-  Plus,
-  Minus,
   Trash2,
   CreditCard,
   Clock,
@@ -35,6 +33,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
+import { LowStockAlert } from "@/components/low-stock-alert"
+import { StockHealthMonitor } from "@/components/stock-health-monitor"
 import {
   createSale,
   getSettings,
@@ -43,12 +43,14 @@ import {
   getUserFavorites,
   addToFavorites,
   removeFromFavorites,
+  getLowStockProducts,
+  getProducts,
   type Product,
   type CartItem,
   type Sale,
   type SaleItem,
   createClient,
-} from "@/lib/supabase-client2"
+} from "@/lib/supabase-client4"
 import { useEffect as useEffectOriginal } from "react"
 
 interface PosCartItem extends Omit<CartItem, "product"> {
@@ -89,6 +91,15 @@ export default function POSPage() {
   const [productFavorites, setProductFavorites] = useState<Record<string, boolean>>({})
   const [lastSearchLength, setLastSearchLength] = useState(0)
   const [globalDiscount, setGlobalDiscount] = useState<number>(0)
+  const [lowStockItems, setLowStockItems] = useState<
+    Array<{ id: string; name: string; stock: number; min_stock: number }>
+  >([])
+  const [showLowStockAlert, setShowLowStockAlert] = useState(false)
+  const [hasCheckedStock, setHasCheckedStock] = useState(false)
+  // New state for the stock health monitor
+  const [showStockMonitor, setShowStockMonitor] = useState(false)
+  // Store all products in a map for quick lookup by ID
+  const [productMap, setProductMap] = useState<Map<string, Product>>(new Map())
 
   // Checkout dialog state
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false)
@@ -143,6 +154,34 @@ export default function POSPage() {
     }
   }, [])
 
+  // Fetch low stock products
+  useEffect(() => {
+    async function fetchLowStockProducts() {
+      try {
+        // Only check once per session to avoid annoying the user
+        if (hasCheckedStock) return
+
+        const lowStockData = await getLowStockProducts()
+
+        if (lowStockData && lowStockData.length > 0) {
+          setLowStockItems(lowStockData)
+
+          // Only show the alert if there are actually low stock items
+          // Delay showing the alert to avoid overwhelming the user when the page first loads
+          setTimeout(() => {
+            // Show the more impressive stock monitor instead of the simple alert
+            setShowStockMonitor(true)
+            setHasCheckedStock(true)
+          }, 2000)
+        }
+      } catch (error) {
+        console.error("Error fetching low stock products:", error)
+      }
+    }
+
+    fetchLowStockProducts()
+  }, [hasCheckedStock])
+
   // Fetch products, settings, and recent sales from Supabase
   useEffect(() => {
     async function fetchData() {
@@ -153,6 +192,14 @@ export default function POSPage() {
         // Fetch settings
         const settingsData = await getSettings()
         setSettings(settingsData)
+
+        // Fetch all products to build the product map
+        const allProducts = await getProducts()
+        const newProductMap = new Map<string, Product>()
+        allProducts.forEach((product) => {
+          newProductMap.set(product.id, product)
+        })
+        setProductMap(newProductMap)
 
         // Fetch recent sales
         const recentSalesData = await getRecentSales(10)
@@ -261,6 +308,39 @@ export default function POSPage() {
     } catch (error) {
       console.error("Error toggling favorite:", error)
     }
+  }
+
+  // Function to update product stock in all relevant state variables
+  const updateProductStockInState = (productId: string, newStock: number) => {
+    // Update in product map
+    setProductMap((prevMap) => {
+      const newMap = new Map(prevMap)
+      const product = newMap.get(productId)
+      if (product) {
+        newMap.set(productId, { ...product, stock: newStock })
+      }
+      return newMap
+    })
+
+    // Update in products list (search results)
+    setProducts((prevProducts) =>
+      prevProducts.map((product) => (product.id === productId ? { ...product, stock: newStock } : product)),
+    )
+
+    // Update in recently scanned products
+    setRecentlyScannedProducts((prevProducts) =>
+      prevProducts.map((product) => (product.id === productId ? { ...product, stock: newStock } : product)),
+    )
+
+    // Update in recently sold products
+    setRecentlySoldProducts((prevProducts) =>
+      prevProducts.map((product) => (product.id === productId ? { ...product, stock: newStock } : product)),
+    )
+
+    // Update in favorite products
+    setFavoriteProducts((prevProducts) =>
+      prevProducts.map((product) => (product.id === productId ? { ...product, stock: newStock } : product)),
+    )
   }
 
   // Refresh recent sales after a new sale
@@ -548,11 +628,38 @@ export default function POSPage() {
         throw error
       }
 
+      // Update local product stock levels immediately
+      cart.forEach((item) => {
+        const currentStock = item.product.stock
+        const newStock = Math.max(0, currentStock - item.quantity)
+
+        // Update stock in all relevant state variables
+        updateProductStockInState(item.product_id, newStock)
+      })
+
       // Clear cart after successful sale
       clearCart()
 
+      // Show success message
+      toast({
+        title: "Sale completed",
+        description: `Sale of ${formatCurrency(total)} has been processed successfully.`,
+        variant: "default",
+      })
+
       // Refresh recent sales
       await refreshRecentSales()
+
+      // After a successful sale, check if we need to show the stock monitor again
+      // This is important because the sale might have reduced stock levels
+      const lowStockData = await getLowStockProducts()
+      if (lowStockData && lowStockData.length > 0) {
+        setLowStockItems(lowStockData)
+        // Only show if there are new items that are low in stock
+        if (lowStockData.some((item) => item.stock === 0)) {
+          setShowStockMonitor(true)
+        }
+      }
 
       // Handle printing if needed
       if (shouldPrint) {
@@ -560,6 +667,11 @@ export default function POSPage() {
       }
     } catch (error) {
       console.error("Error processing sale:", error)
+      toast({
+        title: "Error processing sale",
+        description: "There was an error processing your sale. Please try again.",
+        variant: "destructive",
+      })
     } finally {
       setIsProcessing(false)
       setIsCheckoutOpen(false)
@@ -734,6 +846,21 @@ export default function POSPage() {
   return (
     <TooltipProvider>
       <div className="flex flex-col md:flex-row h-screen bg-gradient-to-br from-background to-background/90">
+        {/* Stock Health Monitor - more impressive than the simple alert */}
+        {showStockMonitor && lowStockItems.length > 0 && (
+          <StockHealthMonitor
+            lowStockItems={lowStockItems}
+            onClose={() => setShowStockMonitor(false)}
+            formatCurrency={formatCurrency}
+            position="left" // Add this prop to position it on the left
+          />
+        )}
+
+        {/* Low Stock Alert - keep as fallback */}
+        {showLowStockAlert && !showStockMonitor && lowStockItems.length > 0 && (
+          <LowStockAlert lowStockItems={lowStockItems} onClose={() => setShowLowStockAlert(false)} />
+        )}
+
         {/* Products Section */}
         <div className="w-full md:w-2/3 p-4 overflow-auto">
           <div className="mb-4">
@@ -1375,7 +1502,7 @@ export default function POSPage() {
                                 {/* Stock display */}
                                 <div className="text-xs mt-0.5">
                                   Stock:{" "}
-                                  <span className={item.product.stock <= 0 ? "text-red-500 font-bold" : ""}>
+                                  <span className={item.product.stock <= 0 ? "text-destructive" : "text-green-500"}>
                                     {item.product.stock}
                                   </span>
                                 </div>
@@ -1428,58 +1555,18 @@ export default function POSPage() {
                                     </TooltipContent>
                                   </Tooltip>
 
-                                  <div className="flex items-center gap-1 ml-auto">
-                                    <Button
-                                      variant="outline"
-                                      size="icon"
-                                      className="h-6 w-6"
-                                      onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                                    >
-                                      <Minus className="h-2.5 w-2.5" />
-                                    </Button>
-                                    <span className="w-5 text-center text-xs">{item.quantity}</span>
-                                    <Button
-                                      variant="outline"
-                                      size="icon"
-                                      className="h-6 w-6"
-                                      onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                                    >
-                                      <Plus className="h-2.5 w-2.5" />
-                                    </Button>
-                                  </div>
-                                </div>
-
-                                {/* Discount progress bar */}
-                                {maxDiscount > 0 && (
-                                  <div className="mt-1">
-                                    <Progress
-                                      value={discountPercentOfMax}
-                                      className={cn("h-1", discountPercentOfMax < 75 ? "bg-blue-100" : "bg-red-100")}
-                                      indicatorClassName={cn(
-                                        discountPercentOfMax < 75
-                                          ? "bg-blue-500"
-                                          : discountPercentOfMax < 100
-                                            ? "bg-yellow-500"
-                                            : "bg-red-500",
-                                      )}
-                                    />
-                                  </div>
-                                )}
-
-                                <div className="flex justify-end mt-1">
-                                  {item.discount > 0 && (
-                                    <span className="text-xs line-through text-muted-foreground mr-2">
-                                      {formatCurrency(item.price * item.quantity)}
-                                    </span>
-                                  )}
-                                  <span
-                                    className={cn("text-sm font-medium", item.discount > 0 ? "text-green-600" : "")}
-                                  >
-                                    {formatCurrency(item.subtotal)}
-                                  </span>
+                                  {isDiscountTooHigh && <AlertCircle className="h-4 w-4 text-red-500" />}
                                 </div>
                               </div>
                             </div>
+
+                            {isDiscountTooHigh && (
+                              <div className="absolute inset-0 flex items-center justify-center bg-red-500/10 rounded-md">
+                                <Badge variant="destructive" className="text-xs">
+                                  Discount too high
+                                </Badge>
+                              </div>
+                            )}
                           </CardContent>
                         </Card>
                       </motion.div>
@@ -1490,101 +1577,81 @@ export default function POSPage() {
             </AnimatePresence>
           </ScrollArea>
 
-          <div className="border-t p-4 bg-card">
-            <div className="space-y-2 mb-4">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Subtotal</span>
-                <span>{formatCurrency(subtotal)}</span>
-              </div>
-
-              {/* Global Discount Input */}
+          <div className="p-4 border-t">
+            {/* Global Discount */}
+            <div className="mb-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">Global Discount</span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <AlertCircle className="h-3 w-3 text-muted-foreground" />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Applies to all items in cart</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-                <div className="flex items-center">
-                  <Input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={globalDiscount}
-                    onChange={(e) => applyGlobalDiscount(Number(e.target.value) || 0)}
-                    className={cn(
-                      "w-16 h-7 text-sm px-2 text-right",
-                      checkGlobalDiscountImpact(globalDiscount) && "border-red-500 text-red-500",
-                    )}
-                    placeholder="0%"
-                  />
-                  <span className="ml-1 text-sm text-muted-foreground">%</span>
-                  {globalDiscount > 0 && (
-                    <Button variant="ghost" size="icon" className="h-6 w-6 ml-1" onClick={() => applyGlobalDiscount(0)}>
-                      <X className="h-3 w-3" />
-                    </Button>
-                  )}
-                </div>
+                <h3 className="text-sm font-medium">Global Discount</h3>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center">
+                      <Tag className="h-3 w-3 text-muted-foreground" />
+                      <div className="flex items-center">
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={globalDiscount}
+                          onChange={(e) => applyGlobalDiscount(Number(e.target.value) || 0)}
+                          className={cn("w-12 h-8 text-sm px-1")}
+                          placeholder="0%"
+                        />
+                        <span className="ml-0.5 text-sm text-muted-foreground">%</span>
+                      </div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Apply discount to all items</p>
+                  </TooltipContent>
+                </Tooltip>
               </div>
-
-              {totalDiscount > 0 && (
-                <div className="flex justify-between text-green-600">
-                  <span>Discount</span>
-                  <span>-{formatCurrency(totalDiscount)}</span>
+              {checkGlobalDiscountImpact(globalDiscount) && (
+                <div className="text-xs text-red-500 mt-1">
+                  <AlertCircle className="inline-block h-3 w-3 mr-1 align-middle" />
+                  Warning: This discount may cause some items to be sold at a loss.
                 </div>
               )}
+            </div>
+
+            {/* Cart Summary */}
+            <div className="space-y-2">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Tax ({(settings.tax_rate * 100).toFixed(0)}%)</span>
-                <span>{formatCurrency(tax)}</span>
+                <p className="text-sm">Subtotal</p>
+                <p className="font-medium text-sm">{formatCurrency(subtotal)}</p>
               </div>
               <div className="flex justify-between">
-                <span className="text-blue-600 flex items-center">
-                  Profit
-                  {profitAfterDiscount < 0 && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <AlertCircle className="h-3 w-3 ml-1 text-red-500" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Warning: You're selling at a loss!</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                </span>
-                <div>
-                  {originalProfit !== profitAfterDiscount && (
-                    <span className="text-xs line-through text-muted-foreground mr-2">
-                      {formatCurrency(originalProfit)}
-                    </span>
-                  )}
-                  <span className={cn(profitAfterDiscount < 0 ? "text-red-500 font-bold" : "text-blue-600")}>
-                    {formatCurrency(profitAfterDiscount)}
-                  </span>
-                </div>
+                <p className="text-sm">Discount</p>
+                <p className="font-medium text-sm">- {formatCurrency(totalDiscount)}</p>
               </div>
-              <Separator className="my-2" />
-              <div className="flex justify-between font-bold text-lg">
-                <span>Total</span>
-                <span>{formatCurrency(total)}</span>
+              <div className="flex justify-between">
+                <p className="text-sm">Tax ({settings.tax_rate * 100}%)</p>
+                <p className="font-medium text-sm">{formatCurrency(tax)}</p>
+              </div>
+              <Separator />
+              <div className="flex justify-between font-medium">
+                <p className="text-sm">Total</p>
+                <p className="text-lg">{formatCurrency(total)}</p>
               </div>
             </div>
 
+            {/* Checkout Button */}
             <Button
-              className="w-full relative overflow-hidden group"
+              className="w-full mt-4"
               size="lg"
-              disabled={cart.length === 0}
               onClick={handleCheckout}
+              disabled={cart.length === 0 || isLoading}
             >
-              <span className="relative z-10 flex items-center">
-                Checkout
-                <ChevronRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
-              </span>
-              <span className="absolute inset-0 bg-gradient-to-r from-primary to-primary-foreground/20 opacity-0 group-hover:opacity-100 transition-opacity" />
+              {isLoading ? (
+                <>
+                  Processing...
+                  <Progress className="w-5/6 mx-auto mt-2" value={80} />
+                </>
+              ) : (
+                <>
+                  Checkout
+                  <ChevronRight className="ml-2 h-4 w-4" />
+                </>
+              )}
             </Button>
           </div>
         </div>
@@ -1593,14 +1660,14 @@ export default function POSPage() {
         <SaleConfirmationDialog
           isOpen={isCheckoutOpen}
           onClose={() => setIsCheckoutOpen(false)}
-          onConfirm={handleConfirmSale}
           cartItems={cart}
+          onConfirm={handleConfirmSale}
           subtotal={subtotal}
           tax={tax}
           total={total}
           paymentMethod={paymentMethod}
           currency={settings.currency}
-          language="en-US"
+          language="en"
           isProcessing={isProcessing}
           onCancel={() => setIsCheckoutOpen(false)}
         />
