@@ -52,6 +52,7 @@ import {
   createClient,
 } from "@/lib/supabase-client4"
 import { useEffect as useEffectOriginal } from "react"
+import { CartItemQuantity } from "@/components/cart-item-quantity"
 
 interface PosCartItem extends Omit<CartItem, "product"> {
   product: Product & { purchase_price?: number }
@@ -1501,8 +1502,16 @@ export default function POSPage() {
                                   </Button>
                                 </div>
 
-                                <div className="text-xs text-muted-foreground mt-0.5">
-                                  {formatCurrency(item.price)} × {item.quantity}
+                                <div className="flex justify-between items-center mt-0.5">
+                                  <div className="text-xs text-muted-foreground">
+                                    {formatCurrency(item.price)} × {item.quantity}
+                                  </div>
+                                  <CartItemQuantity
+                                    itemId={item.id}
+                                    quantity={item.quantity}
+                                    onQuantityChange={updateQuantity}
+                                    maxQuantity={item.product.stock}
+                                  />
                                 </div>
 
                                 {/* Stock display */}
