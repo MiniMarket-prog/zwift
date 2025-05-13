@@ -176,7 +176,7 @@ export function StockHealthMonitor({
 
   return (
     <div className={`fixed ${positionClasses} z-50`}>
-      <AnimatePresence>
+      <AnimatePresence mode="sync">
         {!isMinimized ? (
           <motion.div
             initial={{ opacity: 0, y: 50, scale: 0.9 }}
@@ -236,7 +236,7 @@ export function StockHealthMonitor({
 
             {/* Content */}
             <div className="p-4">
-              <AnimatePresence mode="wait">
+              <AnimatePresence mode="sync">
                 {/* Step 1: Health Score */}
                 {currentStep >= 0 && (
                   <motion.div
@@ -432,7 +432,7 @@ export function StockHealthMonitor({
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3 }}
                   >
-                    <Link     href="/alerts2" target="_blank" rel="noopener noreferrer">
+                    <Link href="/inventory" passHref>
                       <Button
                         className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white border-0 group"
                         onClick={handleInventoryUpdate}

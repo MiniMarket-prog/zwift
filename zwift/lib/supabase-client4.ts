@@ -524,23 +524,25 @@ export async function getLowStockProducts(): Promise<Array<Product & { min_stock
       throw zeroStockError
     }
 
-    // Get products with stock below min_stock (where min_stock is set and > 0)
-    const { data: lowStockProducts, error: lowStockError } = await supabase
+    // For low stock products, fetch all products with min_stock > 0 and filter in JavaScript
+    const { data: productsWithMinStock, error: minStockError } = await supabase
       .from("products")
       .select("*")
       .gt("stock", 0) // Stock greater than 0
       .gt("min_stock", 0) // Only include products with min_stock > 0
-      .lt("stock", "min_stock") // Stock less than min_stock
       .order("name")
 
-    if (lowStockError) {
-      console.error("Error fetching low stock products:", lowStockError)
+    if (minStockError) {
+      console.error("Error fetching products with min_stock:", minStockError)
       // Just use zero stock products if all else fails
       return (zeroStockProducts || []).map((product) => ({
         ...product,
         min_stock: product.min_stock ?? 5, // Provide default value if undefined
       }))
     }
+
+    // Filter in JavaScript to find products where stock < min_stock
+    const lowStockProducts = productsWithMinStock.filter((product) => product.stock < product.min_stock)
 
     // Combine both results and ensure min_stock is defined
     const allLowStockProducts = [

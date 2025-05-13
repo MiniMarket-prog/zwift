@@ -956,72 +956,78 @@ export default function POSPage() {
                     </h3>
 
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                      {products.map((product) => (
-                        <motion.div
-                          key={product.id}
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.3 }}
-                        >
-                          <Card
-                            className={cn(
-                              "cursor-pointer hover:border-primary hover:shadow-md transition-all duration-300 relative",
-                              lastAddedProduct === product.id && "border-primary ring-2 ring-primary/30",
-                              product.stock <= 0 && "opacity-60 cursor-not-allowed hover:border-destructive",
-                            )}
-                            onClick={() => (product.stock > 0 ? addToCart(product) : null)}
-                          >
-                            {userId && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="absolute top-1 right-1 h-7 w-7 z-10 bg-background/80 hover:bg-background"
-                                onClick={(e) => toggleFavorite(product, e)}
+                      {products && products.length > 0
+                        ? products.map((product) => (
+                            <motion.div
+                              key={product.id}
+                              initial={{ opacity: 0, y: 20 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ duration: 0.3 }}
+                            >
+                              <Card
+                                className={cn(
+                                  "cursor-pointer hover:border-primary hover:shadow-md transition-all duration-300 relative",
+                                  lastAddedProduct === product.id && "border-primary ring-2 ring-primary/30",
+                                  product.stock <= 0 && "opacity-60 cursor-not-allowed hover:border-destructive",
+                                )}
+                                onClick={() => (product.stock > 0 ? addToCart(product) : null)}
                               >
-                                {productFavorites[product.id] ? (
-                                  <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-                                ) : (
-                                  <StarOff className="h-4 w-4 text-muted-foreground" />
+                                {userId && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="absolute top-1 right-1 h-7 w-7 z-10 bg-background/80 hover:bg-background"
+                                    onClick={(e) => toggleFavorite(product, e)}
+                                  >
+                                    {productFavorites[product.id] ? (
+                                      <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
+                                    ) : (
+                                      <StarOff className="h-4 w-4 text-muted-foreground" />
+                                    )}
+                                  </Button>
                                 )}
-                              </Button>
-                            )}
-                            <CardContent className="p-2">
-                              <div className="aspect-square bg-muted rounded-md mb-2 overflow-hidden">
-                                {product.image ? (
-                                  <img
-                                    src={product.image || "/placeholder.svg"}
-                                    alt={product.name}
-                                    className="h-full w-full object-cover transition-transform hover:scale-105"
-                                  />
-                                ) : (
-                                  <div className="h-full w-full flex items-center justify-center text-muted-foreground">
-                                    <span className="text-lg font-bold text-primary/40">{product.name.charAt(0)}</span>
+                                <CardContent className="p-2">
+                                  <div className="aspect-square bg-muted rounded-md mb-2 overflow-hidden">
+                                    {product.image ? (
+                                      <img
+                                        src={product.image || "/placeholder.svg"}
+                                        alt={product.name}
+                                        className="h-full w-full object-cover transition-transform hover:scale-105"
+                                      />
+                                    ) : (
+                                      <div className="h-full w-full flex items-center justify-center text-muted-foreground">
+                                        <span className="text-lg font-bold text-primary/40">
+                                          {product.name.charAt(0)}
+                                        </span>
+                                      </div>
+                                    )}
                                   </div>
-                                )}
-                              </div>
-                              <div className="font-medium text-sm line-clamp-1">{product.name}</div>
-                              <div className="flex justify-between items-center mt-1">
-                                <div className="font-bold text-primary text-sm">{formatCurrency(product.price)}</div>
-                                <Badge variant={product.stock > 0 ? "outline" : "destructive"} className="text-xs">
-                                  Stock: {product.stock}
-                                </Badge>
-                              </div>
-                              {product.purchase_price && (
-                                <div className="mt-1 text-xs text-blue-600">
-                                  Profit: {formatCurrency(product.price - product.purchase_price)}
-                                </div>
-                              )}
-                              {product.stock <= 0 && (
-                                <div className="absolute inset-0 flex items-center justify-center bg-background/60 rounded-md">
-                                  <Badge variant="destructive" className="text-xs">
-                                    Out of Stock
-                                  </Badge>
-                                </div>
-                              )}
-                            </CardContent>
-                          </Card>
-                        </motion.div>
-                      ))}
+                                  <div className="font-medium text-sm line-clamp-1">{product.name}</div>
+                                  <div className="flex justify-between items-center mt-1">
+                                    <div className="font-bold text-primary text-sm">
+                                      {formatCurrency(product.price)}
+                                    </div>
+                                    <Badge variant={product.stock > 0 ? "outline" : "destructive"} className="text-xs">
+                                      Stock: {product.stock}
+                                    </Badge>
+                                  </div>
+                                  {product.purchase_price && (
+                                    <div className="mt-1 text-xs text-blue-600">
+                                      Profit: {formatCurrency(product.price - product.purchase_price)}
+                                    </div>
+                                  )}
+                                  {product.stock <= 0 && (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-background/60 rounded-md">
+                                      <Badge variant="destructive" className="text-xs">
+                                        Out of Stock
+                                      </Badge>
+                                    </div>
+                                  )}
+                                </CardContent>
+                              </Card>
+                            </motion.div>
+                          ))
+                        : null}
                     </div>
                     <Separator className="my-4" />
                   </>
@@ -1116,7 +1122,7 @@ export default function POSPage() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                    {recentlySoldProducts.length > 0 ? (
+                    {recentlySoldProducts && recentlySoldProducts.length > 0 ? (
                       recentlySoldProducts.map((product) => (
                         <motion.div
                           key={product.id}
@@ -1196,7 +1202,7 @@ export default function POSPage() {
 
                 <ScrollArea className="h-[300px] rounded-lg border p-4">
                   <div className="space-y-4">
-                    {recentSales.length > 0 ? (
+                    {recentSales && recentSales.length > 0 ? (
                       recentSales.map((sale) => (
                         <motion.div
                           key={sale.id}
@@ -1266,7 +1272,7 @@ export default function POSPage() {
 
             <TabsContent value="scanned" className="mt-0">
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                {recentlyScannedProducts.length > 0 ? (
+                {recentlyScannedProducts && recentlyScannedProducts.length > 0 ? (
                   recentlyScannedProducts.map((product) => (
                     <motion.div
                       key={product.id}
@@ -1337,7 +1343,7 @@ export default function POSPage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                  {products.length > 0 ? (
+                  {products && products.length > 0 ? (
                     products.map((product) => (
                       <motion.div
                         key={product.id}
@@ -1429,7 +1435,7 @@ export default function POSPage() {
           </div>
 
           <ScrollArea className="flex-1 p-4">
-            <AnimatePresence>
+            <AnimatePresence mode="sync">
               {cart.length === 0 ? (
                 <motion.div
                   initial={{ opacity: 0 }}
