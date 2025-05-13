@@ -157,7 +157,7 @@ export function StockHealthMonitor({
 
   // Get health status text and color
   const getHealthStatus = () => {
-    if (healthScore < 30) return { text: "Critical", color: "text-red-500" }
+    if (healthScore < 30) return { text: "شديد الأهمية", color: "text-red-500" }
     if (healthScore < 60) return { text: "Poor", color: "text-orange-500" }
     if (healthScore < 80) return { text: "Fair", color: "text-yellow-500" }
     return { text: "Good", color: "text-green-500" }
@@ -212,7 +212,7 @@ export function StockHealthMonitor({
             <div className="bg-gradient-to-r from-amber-500 to-orange-600 p-3 text-white flex justify-between items-center">
               <div className="flex items-center">
                 <BarChart4 className="h-5 w-5 mr-2" />
-                <h2 className="text-lg font-bold">Stock Health Monitor</h2>
+                <h2 className="text-lg font-bold">مراقبة صحة المخزون</h2>
               </div>
               <div className="flex items-center space-x-1">
                 <Button
@@ -252,7 +252,7 @@ export function StockHealthMonitor({
                         <AlertTriangle
                           className={cn("mr-2 h-4 w-4", healthScore < 60 ? "text-red-500" : "text-amber-500")}
                         />
-                        Inventory Health Score
+                        درجة صحة المخزون
                       </h3>
                       <Badge
                         className={cn(
@@ -300,7 +300,7 @@ export function StockHealthMonitor({
                           <p className="text-sm text-red-700 dark:text-red-300 font-medium">
                             {zeroStockCount} products
                           </p>
-                          <p className="text-xs text-red-600 dark:text-red-400">Out of stock</p>
+                          <p className="text-xs text-red-600 dark:text-red-400">إنتهى من المخزن</p>
                         </div>
                       </div>
 
@@ -313,7 +313,7 @@ export function StockHealthMonitor({
                             <p className="text-sm text-amber-700 dark:text-amber-300 font-medium">
                               {criticalStockCount} products
                             </p>
-                            <p className="text-xs text-amber-600 dark:text-amber-400">Critically low</p>
+                            <p className="text-xs text-amber-600 dark:text-amber-400">منخفضة للغاية</p>
                           </div>
                         </div>
                       ) : (
@@ -323,7 +323,7 @@ export function StockHealthMonitor({
                           </div>
                           <div>
                             <p className="text-sm text-amber-700 dark:text-amber-300 font-medium">0 products</p>
-                            <p className="text-xs text-amber-600 dark:text-amber-400">Critically low</p>
+                            <p className="text-xs text-amber-600 dark:text-amber-400">منخفضة للغاية</p>
                           </div>
                         </div>
                       )}
@@ -343,7 +343,7 @@ export function StockHealthMonitor({
                   >
                     <h3 className="text-base font-medium flex items-center mb-2">
                       <DollarSign className="mr-2 h-4 w-4 text-red-500" />
-                      Estimated Revenue at Risk
+                      الإيرادات المقدرة المعرضة للخطر
                     </h3>
 
                     <div className="bg-red-50 dark:bg-red-950/30 p-3 rounded-lg border border-red-200 dark:border-red-900">
@@ -351,7 +351,7 @@ export function StockHealthMonitor({
                         <div className="text-xl font-bold text-red-600 dark:text-red-400 min-w-[120px]">
                           {formatCurrency(potentialLoss)}
                         </div>
-                        <div className="ml-2 text-xs text-red-700 dark:text-red-300">potential revenue loss</div>
+                        <div className="ml-2 text-xs text-red-700 dark:text-red-300">خسارة الإيرادات المحتملة</div>
                       </div>
 
                       {/* Progress indicator for revenue animation */}
@@ -367,7 +367,7 @@ export function StockHealthMonitor({
                       )}
 
                       <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                        Based on minimum stock levels and current inventory
+                        بناءً على مستويات المخزون الأدنى والمخزون الحالي
                       </p>
                     </div>
                   </motion.div>
@@ -385,7 +385,7 @@ export function StockHealthMonitor({
                   >
                     <h3 className="text-base font-medium flex items-center mb-2">
                       <Package className="mr-2 h-4 w-4 text-amber-500" />
-                      Most Critical Items
+                      العناصر الأكثر أهمية
                     </h3>
 
                     <div className="bg-white dark:bg-gray-800 border rounded-lg overflow-hidden">
@@ -413,7 +413,7 @@ export function StockHealthMonitor({
                               </div>
                               <Badge variant={item.stock === 0 ? "destructive" : "outline"}>
                                 {item.stock === 0
-                                  ? "Out of stock"
+                                  ? "إنتهى من المخزن"
                                   : `${Math.round((item.stock / item.min_stock) * 100)}%`}
                               </Badge>
                             </div>
@@ -438,13 +438,13 @@ export function StockHealthMonitor({
                         onClick={handleInventoryUpdate}
                       >
                         <Package className="mr-2 h-4 w-4" />
-                        Update Inventory Now
+                        تحديث المخزون الآن
                         <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
                       </Button>
                     </Link>
 
                     <p className="text-center text-xs text-gray-500 dark:text-gray-400 mt-2">
-                      Maintaining healthy inventory levels can increase sales by up to 25%
+                      %إن الحفاظ على مستويات المخزون الصحية يمكن أن يزيد المبيعات بما يصل إلى 25
                     </p>
                   </motion.div>
                 )}
