@@ -236,7 +236,7 @@ export function AppSidebar() {
   // Map the original labels to translation keys
   const navItems: NavItem[] = [
     { href: "/dashboard", label: "dashboard" as AppTranslationKey, icon: <LayoutDashboard className="h-5 w-5" /> },
-    { href: "/pos2", label: "pointOfSale" as AppTranslationKey, icon: <ShoppingCart className="h-5 w-5" /> },
+    { href: "/pos3", label: "pointOfSale" as AppTranslationKey, icon: <ShoppingCart className="h-5 w-5" /> },
     {
       href: "/alerts2",
       label: "alerts" as AppTranslationKey,
