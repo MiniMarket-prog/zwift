@@ -72,6 +72,22 @@ const playAlertSound = () => {
   })
 }
 
+// Add the updateProductStock function to the file, right after the playAlertSound function:
+
+// Function to update product stock in the database
+const updateProductStock = async (productId: string, newStock: number): Promise<void> => {
+  const supabase = createClient()
+
+  const { error } = await supabase.from("products").update({ stock: newStock }).eq("id", productId)
+
+  if (error) {
+    console.error("Error updating product stock:", error)
+    throw error
+  }
+
+  return
+}
+
 // Move the calculateSubtotal function above the addToCart function
 // Add this function before the addToCart function:
 
@@ -89,6 +105,10 @@ const addToCart = (
   product: Product,
   setCart: React.Dispatch<React.SetStateAction<PosCartItem[]>>,
   setLastAddedProduct: React.Dispatch<React.SetStateAction<string | null>>,
+  setProducts: React.Dispatch<React.SetStateAction<Product[]>>,
+  setRecentlyScannedProducts: React.Dispatch<React.SetStateAction<Product[]>>,
+  setRecentlySoldProducts: React.Dispatch<React.SetStateAction<Product[]>>,
+  setFavoriteProducts: React.Dispatch<React.SetStateAction<Product[]>>,
 ) => {
   // Check if product has 0 stock and show alert
   if (product.stock <= 0) {
@@ -98,33 +118,161 @@ const addToCart = (
     // Create and show alert that stays until manually closed
     const alertDiv = document.createElement("div")
     alertDiv.className =
-      "fixed top-1/4 left-1/2 transform -translate-x-1/2 bg-red-500 text-white px-6 py-4 rounded-lg shadow-lg z-50 flex items-center"
+      "fixed top-1/4 left-1/2 transform -translate-x-1/2 bg-red-500 text-white px-6 py-4 rounded-lg shadow-lg z-50 flex flex-col"
 
-    // Add close button and message
+    // Add close button, message, and stock adjustment controls
     alertDiv.innerHTML = `
+    <div class="flex items-center justify-between mb-2">
       <div class="flex items-center">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-5 w-5 mr-2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
         <span>Cannot sell product with 0 stock!</span>
       </div>
-      <button class="ml-4 bg-white/20 hover:bg-white/30 rounded-full p-1 transition-colors">
+      <button class="close-btn bg-white/20 hover:bg-white/30 rounded-full p-1 transition-colors">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-4 w-4"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
       </button>
-    `
+    </div>
+    <div class="flex items-center mt-2">
+      <span class="mr-2">Adjust Stock:</span>
+      <div class="flex items-center bg-white/20 rounded-md">
+        <button class="decrement-btn px-2 py-1 hover:bg-white/10 rounded-l-md transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-4 w-4"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+        <input type="number" min="1" value="1" class="stock-input w-12 text-center bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-white/50 px-1" />
+        <button class="increment-btn px-2 py-1 hover:bg-white/10 rounded-r-md transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-4 w-4"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+      </div>
+      <button class="update-stock-btn ml-2 bg-green-600 hover:bg-green-700 px-3 py-1 rounded-md transition-colors">
+        Update Stock
+      </button>
+    </div>
+  `
     document.body.appendChild(alertDiv)
 
     // Add animation classes
     setTimeout(() => {
       alertDiv.classList.add("animate-bounce")
+      // Stop bouncing after a few iterations
+      setTimeout(() => {
+        alertDiv.classList.remove("animate-bounce")
+      }, 1000)
     }, 100)
 
-    // Add event listener to close button
-    const closeButton = alertDiv.querySelector("button")
+    // Add event listeners
+    const closeButton = alertDiv.querySelector(".close-btn")
+    const decrementButton = alertDiv.querySelector(".decrement-btn")
+    const incrementButton = alertDiv.querySelector(".increment-btn")
+    const stockInput = alertDiv.querySelector(".stock-input") as HTMLInputElement
+    const updateStockButton = alertDiv.querySelector(".update-stock-btn")
+
     if (closeButton) {
       closeButton.addEventListener("click", () => {
         alertDiv.classList.add("transition-opacity", "duration-500", "opacity-0")
         setTimeout(() => {
           document.body.removeChild(alertDiv)
         }, 500)
+      })
+    }
+
+    if (decrementButton && stockInput) {
+      decrementButton.addEventListener("click", () => {
+        const currentValue = Number.parseInt(stockInput.value) || 1
+        stockInput.value = Math.max(1, currentValue - 1).toString()
+      })
+    }
+
+    if (incrementButton && stockInput) {
+      incrementButton.addEventListener("click", () => {
+        const currentValue = Number.parseInt(stockInput.value) || 1
+        stockInput.value = (currentValue + 1).toString()
+      })
+    }
+
+    if (updateStockButton && stockInput) {
+      updateStockButton.addEventListener("click", async () => {
+        const newStock = Number.parseInt(stockInput.value) || 1
+
+        // Show loading state
+    const updateStockButton = document.getElementById("updateStockButton")
+    if (updateStockButton) {
+      updateStockButton.innerHTML = `
+        <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+      `
+      ;(updateStockButton as HTMLButtonElement).disabled = true
+    }
+
+        try {
+          // Call the updateProductStock function (we'll define this next)
+          await updateProductStock(product.id, newStock)
+
+          // Update local state
+          const updatedProduct = { ...product, stock: newStock }
+
+          // Update products list if it contains this product
+          setProducts((prevProducts) => prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)))
+
+          // Update recently scanned products if it contains this product
+          setRecentlyScannedProducts((prevProducts) =>
+            prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)),
+          )
+
+          // Update recently sold products if it contains this product
+          setRecentlySoldProducts((prevProducts) => prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)))
+
+          // Update favorites if it contains this product
+          setFavoriteProducts((prevProducts) => prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)))
+
+          // Close the alert with success message
+          alertDiv.innerHTML = `
+          <div class="flex items-center justify-between">
+            <div class="flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-5 w-5 mr-2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+              <span>Stock updated successfully! Adding product to cart...</span>
+            </div>
+          </div>
+        `
+          alertDiv.classList.remove("bg-red-500")
+          alertDiv.classList.add("bg-green-600")
+
+          // Close the alert after 2 seconds and add the product to cart
+          setTimeout(() => {
+            document.body.removeChild(alertDiv)
+            // Now add the product to cart since it has stock
+            addToCart(
+              updatedProduct,
+              setCart,
+              setLastAddedProduct,
+              setProducts,
+              setRecentlyScannedProducts,
+              setRecentlySoldProducts,
+              setFavoriteProducts,
+            )
+          }, 2000)
+        } catch (error) {
+          console.error("Error updating stock:", error)
+
+          // Show error message
+                if (updateStockButton) {
+        updateStockButton.innerHTML = "Update Stock"
+        ;(updateStockButton as HTMLButtonElement).disabled = false
+      }
+
+          // Add error message
+          const errorMsg = document.createElement("div")
+          errorMsg.className = "text-xs mt-2 bg-white/20 p-1 rounded"
+          errorMsg.textContent = "Failed to update stock. Please try again."
+          alertDiv.appendChild(errorMsg)
+
+          // Remove error message after 3 seconds
+          setTimeout(() => {
+            if (alertDiv.contains(errorMsg)) {
+              alertDiv.removeChild(errorMsg)
+            }
+          }, 3000)
+        }
       })
     }
 
@@ -643,7 +791,15 @@ export default function POSPage() {
 
           if (results.length === 1) {
             // If exactly one product found, add it to cart
-            addToCart(results[0], setCart, setLastAddedProduct)
+            addToCart(
+              results[0],
+              setCart,
+              setLastAddedProduct,
+              setProducts,
+              setRecentlyScannedProducts,
+              setRecentlySoldProducts,
+              setFavoriteProducts,
+            )
             setBarcodeSearchTerm("") // Clear search field
 
             // Play beep sound for successful scan
@@ -684,7 +840,15 @@ export default function POSPage() {
 
           if (results.length === 1) {
             // If exactly one product found, add it to cart
-            addToCart(results[0], setCart, setLastAddedProduct)
+            addToCart(
+              results[0],
+              setCart,
+              setLastAddedProduct,
+              setProducts,
+              setRecentlyScannedProducts,
+              setRecentlySoldProducts,
+              setFavoriteProducts,
+            )
             setBarcodeSearchTerm("") // Clear search field
 
             // Play beep sound for successful scan
@@ -830,7 +994,17 @@ export default function POSPage() {
                               lastAddedProduct === product.id && "border-primary ring-2 ring-primary/30",
                               product.stock <= 0 && "border-red-500", // Add red border for 0 stock products
                             )}
-                            onClick={() => addToCart(product, setCart, setLastAddedProduct)}
+                            onClick={() =>
+                              addToCart(
+                                product,
+                                setCart,
+                                setLastAddedProduct,
+                                setProducts,
+                                setRecentlyScannedProducts,
+                                setRecentlySoldProducts,
+                                setFavoriteProducts,
+                              )
+                            }
                           >
                             {userId && (
                               <Button
@@ -903,7 +1077,17 @@ export default function POSPage() {
                               lastAddedProduct === product.id && "border-primary ring-2 ring-primary/30",
                               product.stock <= 0 && "border-red-500", // Add red border for 0 stock products
                             )}
-                            onClick={() => addToCart(product, setCart, setLastAddedProduct)}
+                            onClick={() =>
+                              addToCart(
+                                product,
+                                setCart,
+                                setLastAddedProduct,
+                                setProducts,
+                                setRecentlyScannedProducts,
+                                setRecentlySoldProducts,
+                                setFavoriteProducts,
+                              )
+                            }
                           >
                             <Button
                               variant="ghost"
@@ -977,7 +1161,17 @@ export default function POSPage() {
                               lastAddedProduct === product.id && "border-primary ring-2 ring-primary/30",
                               product.stock <= 0 && "border-red-500", // Add red border for 0 stock products
                             )}
-                            onClick={() => addToCart(product, setCart, setLastAddedProduct)}
+                            onClick={() =>
+                              addToCart(
+                                product,
+                                setCart,
+                                setLastAddedProduct,
+                                setProducts,
+                                setRecentlyScannedProducts,
+                                setRecentlySoldProducts,
+                                setFavoriteProducts,
+                              )
+                            }
                           >
                             {userId && (
                               <Button
@@ -1120,7 +1314,17 @@ export default function POSPage() {
                           lastAddedProduct === product.id && "border-primary ring-2 ring-primary/30",
                           product.stock <= 0 && "border-red-500", // Add red border for 0 stock products
                         )}
-                        onClick={() => addToCart(product, setCart, setLastAddedProduct)}
+                        onClick={() =>
+                          addToCart(
+                            product,
+                            setCart,
+                            setLastAddedProduct,
+                            setProducts,
+                            setRecentlyScannedProducts,
+                            setRecentlySoldProducts,
+                            setFavoriteProducts,
+                          )
+                        }
                       >
                         <CardContent className="p-2">
                           <div className="aspect-square bg-muted rounded-md mb-2 overflow-hidden">
@@ -1184,7 +1388,17 @@ export default function POSPage() {
                             lastAddedProduct === product.id && "border-primary ring-2 ring-primary/30",
                             product.stock <= 0 && "border-red-500", // Add red border for 0 stock products
                           )}
-                          onClick={() => addToCart(product, setCart, setLastAddedProduct)}
+                          onClick={() =>
+                            addToCart(
+                              product,
+                              setCart,
+                              setLastAddedProduct,
+                              setProducts,
+                              setRecentlyScannedProducts,
+                              setRecentlySoldProducts,
+                              setFavoriteProducts,
+                            )
+                          }
                         >
                           <CardContent className="p-2">
                             <div className="aspect-square bg-muted rounded-md mb-2 overflow-hidden">
