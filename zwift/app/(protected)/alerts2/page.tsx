@@ -198,6 +198,57 @@ const AlertsPage: React.FC = () => {
     }
   }, [supabase])
 
+  // Add a new function to update a single product in the state arrays
+  const updateProductInState = useCallback((updatedProduct: Product) => {
+    // Update lowStockProducts
+    setLowStockProducts((prevProducts) =>
+      prevProducts.map((product) => (product.id === updatedProduct.id ? updatedProduct : product)),
+    )
+
+    // Update filteredProducts
+    setFilteredProducts((prevProducts) =>
+      prevProducts.map((product) => (product.id === updatedProduct.id ? updatedProduct : product)),
+    )
+
+    // Update editedStockLevels
+    setEditedStockLevels((prev) => ({
+      ...prev,
+      [updatedProduct.id]: updatedProduct.stock,
+    }))
+  }, [])
+
+  // Add a function to check if a product should still be in the low stock list
+  const shouldProductBeInLowStockList = useCallback((product: Product) => {
+    return product.stock <= product.min_stock
+  }, [])
+
+  // Add a function to remove a product from state if it no longer qualifies as low stock
+  const removeProductFromStateIfNotLowStock = useCallback(
+    (productId: string, updatedProduct: Product) => {
+      if (!shouldProductBeInLowStockList(updatedProduct)) {
+        // Remove from lowStockProducts
+        setLowStockProducts((prevProducts) => prevProducts.filter((product) => product.id !== productId))
+
+        // Remove from filteredProducts
+        setFilteredProducts((prevProducts) => prevProducts.filter((product) => product.id !== productId))
+
+        // Remove from editedStockLevels
+        setEditedStockLevels((prev) => {
+          const newLevels = { ...prev }
+          delete newLevels[productId]
+          return newLevels
+        })
+
+        // Show a success message indicating the product is no longer low stock
+        toast({
+          title: getAppTranslation("success", language),
+          description: `${updatedProduct.name} is no longer low stock and has been removed from the list.`,
+        })
+      }
+    },
+    [shouldProductBeInLowStockList, toast, getAppTranslation, language],
+  )
+
   // Modify the fetchLowStockProducts function to handle pagination properly
   // Replace the existing fetchLowStockProducts function with this implementation:
 
@@ -372,12 +423,20 @@ const AlertsPage: React.FC = () => {
 
     setFilteredProducts(filtered)
 
-    // Reset to first page when filters change
-    setCurrentPage(1)
+    // Only reset to first page when filters change, not when products are updated
+    if (searchTerm || categoryFilter) {
+      setCurrentPage(1)
+    }
 
     // Calculate total pages
-    setTotalPages(Math.max(1, Math.ceil(filtered.length / pageSize)))
-  }, [searchTerm, categoryFilter, lowStockProducts, pageSize])
+    const newTotalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+    setTotalPages(newTotalPages)
+
+    // Adjust current page if it's beyond the new total pages
+    if (currentPage > newTotalPages) {
+      setCurrentPage(newTotalPages)
+    }
+  }, [searchTerm, categoryFilter, lowStockProducts, pageSize, currentPage])
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value)
@@ -453,8 +512,15 @@ const AlertsPage: React.FC = () => {
         description: `${product.name} ${getTranslation("has_been_restocked")} ${newStock} ${getTranslation("units")}.`,
       })
 
-      // Refresh the product list
-      fetchLowStockProducts()
+      // Update the product in state instead of full refresh
+      const updatedProduct = { ...product, stock: newStock }
+
+      // Check if product should still be in low stock list
+      if (shouldProductBeInLowStockList(updatedProduct)) {
+        updateProductInState(updatedProduct)
+      } else {
+        removeProductFromStateIfNotLowStock(product.id, updatedProduct)
+      }
     } catch (error) {
       console.error("Error restocking product:", error)
       toast({
@@ -467,7 +533,7 @@ const AlertsPage: React.FC = () => {
     }
   }
 
-  // Update the handleStockAdjustment function to include min_stock in the update data
+  // Update the handleStockAdjustment function to maintain pagination state
   const handleStockAdjustment = async () => {
     if (!selectedProduct) return
 
@@ -520,9 +586,23 @@ const AlertsPage: React.FC = () => {
         description: `${selectedProduct.name} ${getTranslation("has_been_updated")}.`,
       })
 
-      // Close dialog and refresh products
+      // Create the updated product object
+      const updatedProduct: Product = {
+        ...selectedProduct,
+        ...updateData,
+      }
+
+      // Check if the updated product should still be in the low stock list
+      if (shouldProductBeInLowStockList(updatedProduct)) {
+        // Update the product in state without losing pagination
+        updateProductInState(updatedProduct)
+      } else {
+        // Remove from low stock list if it no longer qualifies
+        removeProductFromStateIfNotLowStock(selectedProduct.id, updatedProduct)
+      }
+
+      // Close dialog
       setIsAdjustDialogOpen(false)
-      fetchLowStockProducts()
     } catch (error) {
       console.error("Error updating product:", error)
       toast({
@@ -571,8 +651,14 @@ const AlertsPage: React.FC = () => {
 
   // Handle page size change
   const handlePageSizeChange = (value: string) => {
-    setPageSize(Number.parseInt(value))
-    setCurrentPage(1) // Reset to first page when changing page size
+    const newPageSize = Number.parseInt(value)
+    setPageSize(newPageSize)
+
+    // Calculate what the new current page should be to maintain roughly the same position
+    const currentFirstItemIndex = (currentPage - 1) * pageSize
+    const newCurrentPage = Math.floor(currentFirstItemIndex / newPageSize) + 1
+
+    setCurrentPage(newCurrentPage)
   }
 
   // Handle page change
@@ -1539,8 +1625,8 @@ const AlertsPage: React.FC = () => {
                               <Button variant="outline" size="sm" onClick={() => handleAdjustClick(product)}>
                                 {getAppTranslation("adjust", language)}
                               </Button>
-                              { /*Hide restock option no need for now*/}
-                              { /* <Button variant="secondary" size="sm" onClick={() => handleRestock(product)}>
+                              {/*Hide restock option no need for now*/}
+                              {/* <Button variant="secondary" size="sm" onClick={() => handleRestock(product)}>
                                 {getTranslation("restock")}
                               </Button>*/}
                             </div>

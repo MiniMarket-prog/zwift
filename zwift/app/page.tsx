@@ -15,6 +15,6 @@ export default async function HomePage() {
   }
 
   // If authenticated, redirect to dashboard
-  redirect("/dashboard")
+  redirect("/postofsale04")
 }
 
