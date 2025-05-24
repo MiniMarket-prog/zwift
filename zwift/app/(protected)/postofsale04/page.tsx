@@ -193,19 +193,19 @@ const addToCart = (
         const newStock = Number.parseInt(stockInput.value) || 1
 
         // Show loading state
-    const updateStockButton = document.getElementById("updateStockButton")
-    if (updateStockButton) {
-      updateStockButton.innerHTML = `
-        <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-      `
-      ;(updateStockButton as HTMLButtonElement).disabled = true
-    }
+        const updateStockButton = document.getElementById("updateStockButton")
+        if (updateStockButton) {
+          updateStockButton.innerHTML = `
+            <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+          `
+          ;(updateStockButton as HTMLButtonElement).disabled = true
+        }
 
         try {
-          // Call the updateProductStock function (we'll define this next)
+          // Call the updateProductStock function
           await updateProductStock(product.id, newStock)
 
           // Update local state
@@ -255,10 +255,10 @@ const addToCart = (
           console.error("Error updating stock:", error)
 
           // Show error message
-                if (updateStockButton) {
-        updateStockButton.innerHTML = "Update Stock"
-        ;(updateStockButton as HTMLButtonElement).disabled = false
-      }
+          if (updateStockButton) {
+            updateStockButton.innerHTML = "Update Stock"
+            ;(updateStockButton as HTMLButtonElement).disabled = false
+          }
 
           // Add error message
           const errorMsg = document.createElement("div")
@@ -284,8 +284,49 @@ const addToCart = (
     const purchasePrice = product.purchase_price || 0
 
     if (existingItem) {
-      // Update quantity if item already in cart
+      // Check if adding one more would exceed stock
       const newQuantity = existingItem.quantity + 1
+
+      if (newQuantity > product.stock) {
+        // Play alert sound
+        playAlertSound()
+
+        // Show stock limit alert
+        const alertDiv = document.createElement("div")
+        alertDiv.className =
+          "fixed top-1/4 left-1/2 transform -translate-x-1/2 bg-orange-500 text-white px-6 py-4 rounded-lg shadow-lg z-50 flex items-center"
+
+        alertDiv.innerHTML = `
+          <div class="flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-5 w-5 mr-2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+            <span>Cannot add more! Only ${product.stock} items available in stock.</span>
+            <button class="close-btn ml-4 bg-white/20 hover:bg-white/30 rounded-full p-1 transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-4 w-4"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+        `
+
+        document.body.appendChild(alertDiv)
+
+        // Add close button functionality
+        const closeButton = alertDiv.querySelector(".close-btn")
+        if (closeButton) {
+          closeButton.addEventListener("click", () => {
+            document.body.removeChild(alertDiv)
+          })
+        }
+
+        // Auto-remove after 3 seconds
+        setTimeout(() => {
+          if (document.body.contains(alertDiv)) {
+            document.body.removeChild(alertDiv)
+          }
+        }, 3000)
+
+        return prevCart // Don't update cart
+      }
+
+      // Update quantity if item already in cart and stock allows
       const originalProfit = (existingItem.price - purchasePrice) * newQuantity
       const profitAfterDiscount = originalProfit * (1 - existingItem.discount / 100)
 
@@ -587,6 +628,46 @@ export default function POSPage() {
     setCart((prevCart) =>
       prevCart.map((item) => {
         if (item.id === itemId) {
+          // Check if new quantity exceeds stock
+          if (newQuantity > item.product.stock) {
+            // Play alert sound
+            playAlertSound()
+
+            // Show stock limit alert
+            const alertDiv = document.createElement("div")
+            alertDiv.className =
+              "fixed top-1/4 left-1/2 transform -translate-x-1/2 bg-orange-500 text-white px-6 py-4 rounded-lg shadow-lg z-50 flex items-center"
+
+            alertDiv.innerHTML = `
+              <div class="flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-5 w-5 mr-2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                <span>Cannot set quantity to ${newQuantity}! Only ${item.product.stock} items available in stock.</span>
+                <button class="close-btn ml-4 bg-white/20 hover:bg-white/30 rounded-full p-1 transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-4 w-4"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+              </div>
+            `
+
+            document.body.appendChild(alertDiv)
+
+            // Add close button functionality
+            const closeButton = alertDiv.querySelector(".close-btn")
+            if (closeButton) {
+              closeButton.addEventListener("click", () => {
+                document.body.removeChild(alertDiv)
+              })
+            }
+
+            // Auto-remove after 3 seconds
+            setTimeout(() => {
+              if (document.body.contains(alertDiv)) {
+                document.body.removeChild(alertDiv)
+              }
+            }, 3000)
+
+            return item // Don't update quantity
+          }
+
           const purchasePrice = item.product.purchase_price || 0
           const originalProfit = (item.price - purchasePrice) * newQuantity
           const profitAfterDiscount = originalProfit * (1 - item.discount / 100)
@@ -704,6 +785,53 @@ export default function POSPage() {
         throw error
       }
 
+      // Update stock for all sold products in the database and local state
+      const stockUpdates = cart.map(async (item) => {
+        const newStock = item.product.stock - item.quantity
+
+        try {
+          // Update stock in database
+          await updateProductStock(item.product_id, newStock)
+
+          // Return the updated product info
+          return {
+            productId: item.product_id,
+            newStock: newStock,
+          }
+        } catch (error) {
+          console.error(`Error updating stock for product ${item.product_id}:`, error)
+          return null
+        }
+      })
+
+      // Wait for all stock updates to complete
+      const stockUpdateResults = await Promise.all(stockUpdates)
+
+      // Update local state for all product arrays
+      stockUpdateResults.forEach((result) => {
+        if (result) {
+          const { productId, newStock } = result
+
+          // Update products list
+          setProducts((prevProducts) => prevProducts.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)))
+
+          // Update recently scanned products
+          setRecentlyScannedProducts((prevProducts) =>
+            prevProducts.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)),
+          )
+
+          // Update recently sold products
+          setRecentlySoldProducts((prevProducts) =>
+            prevProducts.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)),
+          )
+
+          // Update favorites
+          setFavoriteProducts((prevProducts) =>
+            prevProducts.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)),
+          )
+        }
+      })
+
       // Clear cart after successful sale
       clearCart()
 
@@ -714,8 +842,61 @@ export default function POSPage() {
       if (shouldPrint) {
         console.log("Printing receipt for sale:", data)
       }
+
+      // Show success message
+      const successDiv = document.createElement("div")
+      successDiv.className =
+        "fixed top-1/4 left-1/2 transform -translate-x-1/2 bg-green-500 text-white px-6 py-4 rounded-lg shadow-lg z-50 flex items-center"
+
+      successDiv.innerHTML = `
+        <div class="flex items-center">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-5 w-5 mr-2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+          <span>Sale completed successfully! Stock updated.</span>
+        </div>
+      `
+
+      document.body.appendChild(successDiv)
+
+      // Auto-remove success message after 3 seconds
+      setTimeout(() => {
+        if (document.body.contains(successDiv)) {
+          document.body.removeChild(successDiv)
+        }
+      }, 3000)
     } catch (error) {
       console.error("Error processing sale:", error)
+
+      // Show error message
+      const errorDiv = document.createElement("div")
+      errorDiv.className =
+        "fixed top-1/4 left-1/2 transform -translate-x-1/2 bg-red-500 text-white px-6 py-4 rounded-lg shadow-lg z-50 flex items-center"
+
+      errorDiv.innerHTML = `
+        <div class="flex items-center">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-5 w-5 mr-2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+          <span>Error processing sale. Please try again.</span>
+          <button class="close-btn ml-4 bg-white/20 hover:bg-white/30 rounded-full p-1 transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-4 w-4"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
+      `
+
+      document.body.appendChild(errorDiv)
+
+      // Add close button functionality
+      const closeButton = errorDiv.querySelector(".close-btn")
+      if (closeButton) {
+        closeButton.addEventListener("click", () => {
+          document.body.removeChild(errorDiv)
+        })
+      }
+
+      // Auto-remove after 5 seconds
+      setTimeout(() => {
+        if (document.body.contains(errorDiv)) {
+          document.body.removeChild(errorDiv)
+        }
+      }, 5000)
     } finally {
       setIsProcessing(false)
       setIsCheckoutOpen(false)
