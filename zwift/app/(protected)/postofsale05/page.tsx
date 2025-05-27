@@ -378,35 +378,50 @@ export default function POSPage() {
     return total + profitPerUnit * item.quantity
   }, 0)
 
-  // Calculate today's sales and profit
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  // Calculate today's sales and profit with proper timezone handling
+  const getTodaysStats = () => {
+    // Get today's date range in local timezone
+    const now = new Date()
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
+    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
 
-  const todaysSales = recentSales
-    .filter((sale) => {
-      const saleDate = new Date(sale.created_at)
-      saleDate.setHours(0, 0, 0, 0)
-      return saleDate.getTime() === today.getTime()
-    })
-    .reduce((total, sale) => total + sale.total, 0)
+    console.log("Today range:", { todayStart, todayEnd }) // Debug log
+    console.log("Recent sales data:", recentSales) // Debug log
 
-  const todaysProfit = recentSales
-    .filter((sale) => {
+    const todaysSalesData = recentSales.filter((sale) => {
       const saleDate = new Date(sale.created_at)
-      saleDate.setHours(0, 0, 0, 0)
-      return saleDate.getTime() === today.getTime()
+      const isToday = saleDate >= todayStart && saleDate <= todayEnd
+
+      if (isToday) {
+        console.log("Today sale found:", { saleDate, sale }) // Debug log
+      }
+
+      return isToday
     })
-    .reduce((total, sale) => {
-      // Calculate profit for each sale
-      const saleProfit =
-        sale.items?.reduce((itemTotal: number, item: any) => {
-          const purchasePrice = item.product?.purchase_price || 0
-          const priceAfterDiscount = item.price * (1 - (item.discount || 0) / 100)
-          const profitPerUnit = priceAfterDiscount - purchasePrice
-          return itemTotal + profitPerUnit * item.quantity
-        }, 0) || 0
+
+    console.log("Filtered today sales:", todaysSalesData) // Debug log
+
+    const totalSales = todaysSalesData.reduce((total, sale) => total + sale.total, 0)
+
+    const totalProfit = todaysSalesData.reduce((total, sale) => {
+      // Check both possible data structures
+      const saleItems = sale.items || sale.sale_items || []
+
+      const saleProfit = saleItems.reduce((itemTotal: number, item: any) => {
+        const purchasePrice = item.product?.purchase_price || item.products?.purchase_price || 0
+        const discount = item.discount || 0
+        const priceAfterDiscount = item.price * (1 - discount / 100)
+        const profitPerUnit = priceAfterDiscount - purchasePrice
+        return itemTotal + profitPerUnit * item.quantity
+      }, 0)
+
       return total + saleProfit
     }, 0)
+
+    return { totalSales, totalProfit }
+  }
+
+  const { totalSales: todaysSales, totalProfit: todaysProfit } = getTodaysStats()
 
   // Auto-focus barcode search input on page load
   useEffect(() => {
@@ -425,7 +440,7 @@ export default function POSPage() {
         const settingsData = await getSettings()
         setSettings(settingsData)
 
-        const recentSalesData = await getRecentSales(10)
+        const recentSalesData = await getRecentSales(50)
         setRecentSales(recentSalesData)
 
         // Extract recently sold products
@@ -905,7 +920,7 @@ export default function POSPage() {
           <div className="aspect-square bg-muted rounded-lg mb-3 overflow-hidden">
             {product.image ? (
               <img
-                src={product.image || "/placeholder.svg"}
+                src={product.image || '/placeholder.svg"}.image || "/placeholder.svg'}
                 alt={product.name}
                 className="h-full w-full object-cover transition-transform group-hover:scale-105"
               />
