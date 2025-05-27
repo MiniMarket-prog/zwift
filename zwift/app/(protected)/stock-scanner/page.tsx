@@ -84,11 +84,11 @@ const BarcodeScanner = ({
         streamRef.current.getTracks().forEach((track) => track.stop())
       }
 
-      const constraints = {
+      const constraints: MediaStreamConstraints = {
         video: {
           facingMode,
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 1920, min: 1280 },
+          height: { ideal: 1080, min: 720 },
         },
       }
 
@@ -97,17 +97,80 @@ const BarcodeScanner = ({
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream
-        videoRef.current.play()
+        await videoRef.current.play()
       }
 
-      // Check if flash is available
+      // Check if flash is available and apply additional track settings
       const videoTrack = stream.getVideoTracks()[0]
       const capabilities = videoTrack.getCapabilities()
       setHasFlash(!!(capabilities as any).torch)
+
+      // Apply additional constraints for better focus (with proper type casting)
+      try {
+        await videoTrack.applyConstraints({
+          advanced: [
+            {
+              focusMode: "continuous",
+            } as any,
+          ],
+        } as any)
+      } catch (focusError) {
+        console.log("Focus constraints not supported:", focusError)
+      }
     } catch (error) {
       console.error("Error starting camera:", error)
+      // Fallback to basic constraints if advanced ones fail
+      try {
+        const basicConstraints: MediaStreamConstraints = {
+          video: {
+            facingMode,
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+        }
+        const stream = await navigator.mediaDevices.getUserMedia(basicConstraints)
+        streamRef.current = stream
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          await videoRef.current.play()
+        }
+      } catch (fallbackError) {
+        console.error("Fallback camera start failed:", fallbackError)
+      }
     }
   }, [facingMode])
+
+  // Add manual focus trigger
+  const triggerFocus = useCallback(async () => {
+    if (streamRef.current) {
+      const videoTrack = streamRef.current.getVideoTracks()[0]
+      try {
+        await videoTrack.applyConstraints({
+          advanced: [
+            {
+              focusMode: "single-shot",
+            } as any,
+          ],
+        } as any)
+        // Switch back to continuous after a moment
+        setTimeout(async () => {
+          try {
+            await videoTrack.applyConstraints({
+              advanced: [
+                {
+                  focusMode: "continuous",
+                } as any,
+              ],
+            } as any)
+          } catch (error) {
+            console.log("Could not switch back to continuous focus:", error)
+          }
+        }, 1000)
+      } catch (error) {
+        console.error("Error triggering focus:", error)
+      }
+    }
+  }, [])
 
   // Stop camera
   const stopCamera = useCallback(() => {
@@ -177,7 +240,7 @@ const BarcodeScanner = ({
       <canvas ref={canvasRef} className="hidden" />
 
       {/* Scanning overlay */}
-      <div className="absolute inset-0 flex items-center justify-center">
+      <div className="absolute inset-0 flex items-center justify-center" onClick={triggerFocus}>
         <div className="relative">
           {/* Scanning frame */}
           <div className="w-64 h-64 border-2 border-white rounded-lg relative">
@@ -201,9 +264,9 @@ const BarcodeScanner = ({
           </div>
 
           {/* Instructions */}
-          <div className="absolute -bottom-16 left-1/2 transform -translate-x-1/2 text-center">
+          <div className="absolute -bottom-20 left-1/2 transform -translate-x-1/2 text-center">
             <p className="text-white text-sm font-medium">Position barcode within frame</p>
-            <p className="text-white/70 text-xs mt-1">Tap to scan manually</p>
+            <p className="text-white/70 text-xs mt-1">Tap screen to focus • Tap button to scan</p>
           </div>
         </div>
       </div>
