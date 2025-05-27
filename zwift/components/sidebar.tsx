@@ -11,6 +11,7 @@ import {
   ShoppingCart,
   Calculator,
   Package,
+  Scan,
   Settings,
   Menu,
   Sun,
@@ -246,7 +247,7 @@ export function AppSidebar() {
     { href: "/products", label: "products" as AppTranslationKey, icon: <Package className="h-5 w-5" /> },
     { href: "/sales", label: "sales" as AppTranslationKey, icon: <DollarSign className="h-5 w-5" /> },
     { href: "/expenses02", label: "expenses" as AppTranslationKey, icon: <CircleDollarSign className="h-5 w-5" /> },
-    { href: "/stock-scanner", label: "stock-scanner" as AppTranslationKey, icon: <CircleDollarSign className="h-5 w-5" /> },
+    { href: "/stock-scanner", label: "stock-scanner" as AppTranslationKey, icon: <Scan className="h-5 w-5" /> },
     { href: "/sammury02", label: "sammury" as AppTranslationKey, icon: <TrendingUp className="h-5 w-5" /> },
     {
       key: "financial",
