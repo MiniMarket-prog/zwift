@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+
 import { useState, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
@@ -20,7 +21,6 @@ import {
   Star,
   StarOff,
   Barcode,
-  Package,
   TrendingUp,
   DollarSign,
 } from "lucide-react"
@@ -35,15 +35,6 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Progress } from "@/components/ui/progress"
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import {
   createSale,
@@ -59,6 +50,7 @@ import {
   type SaleItem,
   createClient,
 } from "@/lib/supabase-client2"
+import { useEffect as useEffectOriginal } from "react"
 
 interface PosCartItem extends Omit<CartItem, "product"> {
   product: Product & { purchase_price?: number }
@@ -66,7 +58,7 @@ interface PosCartItem extends Omit<CartItem, "product"> {
   profitAfterDiscount: number
 }
 
-// Sound functions
+// Add this function to play the beep sound after a successful scan
 const playBeepSound = () => {
   const audio = new Audio("/beep.mp3")
   audio.play().catch((error) => {
@@ -74,6 +66,7 @@ const playBeepSound = () => {
   })
 }
 
+// Add this function to play the alert sound
 const playAlertSound = () => {
   const audio = new Audio("/alert.mp3")
   audio.play().catch((error) => {
@@ -81,91 +74,18 @@ const playAlertSound = () => {
   })
 }
 
-// Stock adjustment dialog component
-const StockAdjustmentDialog = ({
-  isOpen,
-  onClose,
-  product,
-  onStockUpdate,
-  message,
-  type = "warning",
-}: {
-  isOpen: boolean
-  onClose: () => void
-  product: Product | null
-  onStockUpdate: (productId: string, newStock: number) => Promise<void>
-  message: string
-  type?: "warning" | "error"
-}) => {
-  const [newStock, setNewStock] = useState(1)
-  const [isUpdating, setIsUpdating] = useState(false)
-
-  const handleUpdateStock = async () => {
-    if (!product) return
-
-    setIsUpdating(true)
-    try {
-      await onStockUpdate(product.id, newStock)
-      onClose()
-    } catch (error) {
-      console.error("Error updating stock:", error)
-    } finally {
-      setIsUpdating(false)
-    }
-  }
-
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <AlertCircle className={`h-5 w-5 ${type === "error" ? "text-red-500" : "text-orange-500"}`} />
-            Stock Issue
-          </DialogTitle>
-          <DialogDescription>{message}</DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <div className="flex items-center justify-center space-x-4">
-            <Button variant="outline" size="icon" onClick={() => setNewStock(Math.max(1, newStock - 1))}>
-              <Minus className="h-4 w-4" />
-            </Button>
-            <Input
-              type="number"
-              min="1"
-              value={newStock}
-              onChange={(e) => setNewStock(Math.max(1, Number.parseInt(e.target.value) || 1))}
-              className="w-20 text-center"
-            />
-            <Button variant="outline" size="icon" onClick={() => setNewStock(newStock + 1)}>
-              <Plus className="h-4 w-4" />
-            </Button>
-          </div>
-
-          <div className="text-center text-sm text-muted-foreground">Current stock: {product?.stock || 0}</div>
-        </div>
-
-        <DialogFooter className="flex-col sm:flex-row gap-2">
-          <Button variant="outline" onClick={onClose} className="w-full sm:w-auto">
-            Cancel
-          </Button>
-          <Button onClick={handleUpdateStock} disabled={isUpdating} className="w-full sm:w-auto">
-            {isUpdating ? "Updating..." : "Update Stock"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 // Function to update product stock in the database
 const updateProductStock = async (productId: string, newStock: number): Promise<void> => {
   const supabase = createClient()
+
   const { error } = await supabase.from("products").update({ stock: newStock }).eq("id", productId)
+
   if (error) {
     console.error("Error updating product stock:", error)
     throw error
   }
+
+  return
 }
 
 // Calculate subtotal
@@ -173,7 +93,7 @@ const calculateSubtotal = (quantity: number, price: number, discount: number) =>
   return quantity * price * (1 - discount / 100)
 }
 
-// Add product to cart with improved stock management
+// Add product to cart
 const addToCart = (
   product: Product,
   setCart: React.Dispatch<React.SetStateAction<PosCartItem[]>>,
@@ -182,45 +102,172 @@ const addToCart = (
   setRecentlyScannedProducts: React.Dispatch<React.SetStateAction<Product[]>>,
   setRecentlySoldProducts: React.Dispatch<React.SetStateAction<Product[]>>,
   setFavoriteProducts: React.Dispatch<React.SetStateAction<Product[]>>,
-  setStockDialog: React.Dispatch<
-    React.SetStateAction<{
-      isOpen: boolean
-      product: Product | null
-      message: string
-      type: "warning" | "error"
-      onUpdate?: (productId: string, newStock: number) => Promise<void>
-    }>
-  >,
 ) => {
-  // Check if product has 0 stock
+  // Check if product has 0 stock and show alert with stock adjustment
   if (product.stock <= 0) {
+    // Play alert sound
     playAlertSound()
-    setStockDialog({
-      isOpen: true,
-      product,
-      message: `Cannot sell product with 0 stock! Product: ${product.name}`,
-      type: "error",
-      onUpdate: async (productId: string, newStock: number) => {
-        await updateProductStock(productId, newStock)
-        // Update local state
-        const updatedProduct = { ...product, stock: newStock }
-        setProducts((prev) => prev.map((p) => (p.id === productId ? updatedProduct : p)))
-        setRecentlyScannedProducts((prev) => prev.map((p) => (p.id === productId ? updatedProduct : p)))
-        setRecentlySoldProducts((prev) => prev.map((p) => (p.id === productId ? updatedProduct : p)))
-        setFavoriteProducts((prev) => prev.map((p) => (p.id === productId ? updatedProduct : p)))
-        // Add to cart after stock update
-        addToCart(
-          updatedProduct,
-          setCart,
-          setLastAddedProduct,
-          setProducts,
-          setRecentlyScannedProducts,
-          setRecentlySoldProducts,
-          setFavoriteProducts,
-          setStockDialog,
-        )
-      },
-    })
+
+    // Create and show alert that stays until manually closed
+    const alertDiv = document.createElement("div")
+    alertDiv.className =
+      "fixed top-1/4 left-1/2 transform -translate-x-1/2 bg-red-500 text-white px-6 py-4 rounded-lg shadow-lg z-50 flex flex-col"
+
+    // Add close button, message, and stock adjustment controls
+    alertDiv.innerHTML = `
+    <div class="flex items-center justify-between mb-2">
+      <div class="flex items-center">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-5 w-5 mr-2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        <span>لا يمكن بيع المنتج مع وجود 0 مخزون!</span>
+      </div>
+      <button class="close-btn bg-white/20 hover:bg-white/30 rounded-full p-1 transition-colors">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-4 w-4"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+    <div class="flex items-center mt-2">
+      <span class="mr-2">Adjust Stock:</span>
+      <div class="flex items-center bg-white/20 rounded-md">
+        <button class="decrement-btn px-2 py-1 hover:bg-white/10 rounded-l-md transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-4 w-4"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+        <input type="number" min="1" value="1" class="stock-input w-12 text-center bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-white/50 px-1 text-white" />
+        <button class="increment-btn px-2 py-1 hover:bg-white/10 rounded-r-md transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-4 w-4"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+      </div>
+      <button class="update-stock-btn ml-2 bg-green-600 hover:bg-green-700 px-3 py-1 rounded-md transition-colors">
+        Update Stock
+      </button>
+    </div>
+  `
+    document.body.appendChild(alertDiv)
+
+    // Add animation classes
+    setTimeout(() => {
+      alertDiv.classList.add("animate-bounce")
+      // Stop bouncing after a few iterations
+      setTimeout(() => {
+        alertDiv.classList.remove("animate-bounce")
+      }, 1000)
+    }, 100)
+
+    // Add event listeners
+    const closeButton = alertDiv.querySelector(".close-btn")
+    const decrementButton = alertDiv.querySelector(".decrement-btn")
+    const incrementButton = alertDiv.querySelector(".increment-btn")
+    const stockInput = alertDiv.querySelector(".stock-input") as HTMLInputElement
+    const updateStockButton = alertDiv.querySelector(".update-stock-btn") as HTMLButtonElement
+
+    if (closeButton) {
+      closeButton.addEventListener("click", () => {
+        alertDiv.classList.add("transition-opacity", "duration-500", "opacity-0")
+        setTimeout(() => {
+          if (document.body.contains(alertDiv)) {
+            document.body.removeChild(alertDiv)
+          }
+        }, 500)
+      })
+    }
+
+    if (decrementButton && stockInput) {
+      decrementButton.addEventListener("click", () => {
+        const currentValue = Number.parseInt(stockInput.value) || 1
+        stockInput.value = Math.max(1, currentValue - 1).toString()
+      })
+    }
+
+    if (incrementButton && stockInput) {
+      incrementButton.addEventListener("click", () => {
+        const currentValue = Number.parseInt(stockInput.value) || 1
+        stockInput.value = (currentValue + 1).toString()
+      })
+    }
+
+    if (updateStockButton && stockInput) {
+      updateStockButton.addEventListener("click", async () => {
+        const newStock = Number.parseInt(stockInput.value) || 1
+
+        // Show loading state
+        updateStockButton.innerHTML = `
+          <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        `
+        updateStockButton.disabled = true
+
+        try {
+          // Call the updateProductStock function
+          await updateProductStock(product.id, newStock)
+
+          // Update local state
+          const updatedProduct = { ...product, stock: newStock }
+
+          // Update products list if it contains this product
+          setProducts((prevProducts) => prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)))
+
+          // Update recently scanned products if it contains this product
+          setRecentlyScannedProducts((prevProducts) =>
+            prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)),
+          )
+
+          // Update recently sold products if it contains this product
+          setRecentlySoldProducts((prevProducts) => prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)))
+
+          // Update favorites if it contains this product
+          setFavoriteProducts((prevProducts) => prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)))
+
+          // Close the alert with success message
+          alertDiv.innerHTML = `
+          <div class="flex items-center justify-between">
+            <div class="flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-5 w-5 mr-2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+              <span>Stock updated successfully! Adding product to cart...</span>
+            </div>
+          </div>
+        `
+          alertDiv.classList.remove("bg-red-500")
+          alertDiv.classList.add("bg-green-600")
+
+          // Close the alert after 2 seconds and add the product to cart
+          setTimeout(() => {
+            if (document.body.contains(alertDiv)) {
+              document.body.removeChild(alertDiv)
+            }
+            // Now add the product to cart since it has stock
+            addToCart(
+              updatedProduct,
+              setCart,
+              setLastAddedProduct,
+              setProducts,
+              setRecentlyScannedProducts,
+              setRecentlySoldProducts,
+              setFavoriteProducts,
+            )
+          }, 2000)
+        } catch (error) {
+          console.error("Error updating stock:", error)
+
+          // Show error message
+          updateStockButton.innerHTML = "Update Stock"
+          updateStockButton.disabled = false
+
+          // Add error message
+          const errorMsg = document.createElement("div")
+          errorMsg.className = "text-xs mt-2 bg-white/20 p-1 rounded"
+          errorMsg.textContent = "Failed to update stock. Please try again."
+          alertDiv.appendChild(errorMsg)
+
+          // Remove error message after 3 seconds
+          setTimeout(() => {
+            if (alertDiv.contains(errorMsg)) {
+              alertDiv.removeChild(errorMsg)
+            }
+          }, 3000)
+        }
+      })
+    }
+
     return
   }
 
@@ -229,32 +276,179 @@ const addToCart = (
     const purchasePrice = product.purchase_price || 0
 
     if (existingItem) {
+      // Check if adding one more would exceed stock
       const newQuantity = existingItem.quantity + 1
 
-      // Check if adding one more would exceed stock
       if (newQuantity > product.stock) {
+        // Play alert sound
         playAlertSound()
-        setStockDialog({
-          isOpen: true,
-          product,
-          message: `Cannot add more! Only ${product.stock} items available in stock.`,
-          type: "warning",
-          onUpdate: async (productId: string, newStock: number) => {
-            await updateProductStock(productId, newStock)
-            // Update local state
-            const updatedProduct = { ...product, stock: newStock }
-            setProducts((prev) => prev.map((p) => (p.id === productId ? updatedProduct : p)))
-            setRecentlyScannedProducts((prev) => prev.map((p) => (p.id === productId ? updatedProduct : p)))
-            setRecentlySoldProducts((prev) => prev.map((p) => (p.id === productId ? updatedProduct : p)))
-            setFavoriteProducts((prev) => prev.map((p) => (p.id === productId ? updatedProduct : p)))
-          },
-        })
-        return prevCart
+
+        // Show stock adjustment alert with option to adjust stock
+        const alertDiv = document.createElement("div")
+        alertDiv.className =
+          "fixed top-1/4 left-1/2 transform -translate-x-1/2 bg-orange-500 text-white px-6 py-4 rounded-lg shadow-lg z-50 flex flex-col"
+
+        alertDiv.innerHTML = `
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-5 w-5 mr-2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+              <span>لا يمكن إضافة المزيد! يتوفر فقط ${product.stock} عنصر في المخزون.</span>
+            </div>
+            <button class="close-btn bg-white/20 hover:bg-white/30 rounded-full p-1 transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-4 w-4"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+          <div class="flex items-center mt-2">
+            <span class="mr-2">Adjust Stock to:</span>
+            <div class="flex items-center bg-white/20 rounded-md">
+              <button class="decrement-btn px-2 py-1 hover:bg-white/10 rounded-l-md transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-4 w-4"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+              <input type="number" min="${newQuantity}" value="${newQuantity}" class="stock-input w-16 text-center bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-white/50 px-1 text-white" />
+              <button class="increment-btn px-2 py-1 hover:bg-white/10 rounded-r-md transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-4 w-4"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+            </div>
+            <button class="update-stock-btn ml-2 bg-green-600 hover:bg-green-700 px-3 py-1 rounded-md transition-colors">
+              Update Stock
+            </button>
+          </div>
+        `
+
+        document.body.appendChild(alertDiv)
+
+        // Add event listeners
+        const closeButton = alertDiv.querySelector(".close-btn")
+        const decrementButton = alertDiv.querySelector(".decrement-btn")
+        const incrementButton = alertDiv.querySelector(".increment-btn")
+        const stockInput = alertDiv.querySelector(".stock-input") as HTMLInputElement
+        const updateStockButton = alertDiv.querySelector(".update-stock-btn") as HTMLButtonElement
+
+        if (closeButton) {
+          closeButton.addEventListener("click", () => {
+            alertDiv.classList.add("transition-opacity", "duration-500", "opacity-0")
+            setTimeout(() => {
+              if (document.body.contains(alertDiv)) {
+                document.body.removeChild(alertDiv)
+              }
+            }, 500)
+          })
+        }
+
+        if (decrementButton && stockInput) {
+          decrementButton.addEventListener("click", () => {
+            const currentValue = Number.parseInt(stockInput.value) || newQuantity
+            stockInput.value = Math.max(newQuantity, currentValue - 1).toString()
+          })
+        }
+
+        if (incrementButton && stockInput) {
+          incrementButton.addEventListener("click", () => {
+            const currentValue = Number.parseInt(stockInput.value) || newQuantity
+            stockInput.value = (currentValue + 1).toString()
+          })
+        }
+
+        if (updateStockButton && stockInput) {
+          updateStockButton.addEventListener("click", async () => {
+            const newStock = Number.parseInt(stockInput.value) || newQuantity
+
+            // Show loading state
+            updateStockButton.innerHTML = `
+              <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            `
+            updateStockButton.disabled = true
+
+            try {
+              // Call the updateProductStock function
+              await updateProductStock(product.id, newStock)
+
+              // Update local state
+              const updatedProduct = { ...product, stock: newStock }
+
+              // Update products list if it contains this product
+              setProducts((prevProducts) => prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)))
+
+              // Update recently scanned products if it contains this product
+              setRecentlyScannedProducts((prevProducts) =>
+                prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)),
+              )
+
+              // Update recently sold products if it contains this product
+              setRecentlySoldProducts((prevProducts) =>
+                prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)),
+              )
+
+              // Update favorites if it contains this product
+              setFavoriteProducts((prevProducts) => prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)))
+
+              // Close the alert with success message
+              alertDiv.innerHTML = `
+              <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-5 w-5 mr-2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                  <span>Stock updated successfully! Adding product to cart...</span>
+                </div>
+              </div>
+            `
+              alertDiv.classList.remove("bg-orange-500")
+              alertDiv.classList.add("bg-green-600")
+
+              // Close the alert after 2 seconds and add the product to cart
+              setTimeout(() => {
+                if (document.body.contains(alertDiv)) {
+                  document.body.removeChild(alertDiv)
+                }
+                // Now add the product to cart since it has sufficient stock
+                addToCart(
+                  updatedProduct,
+                  setCart,
+                  setLastAddedProduct,
+                  setProducts,
+                  setRecentlyScannedProducts,
+                  setRecentlySoldProducts,
+                  setFavoriteProducts,
+                )
+              }, 2000)
+            } catch (error) {
+              console.error("Error updating stock:", error)
+
+              // Show error message
+              updateStockButton.innerHTML = "Update Stock"
+              updateStockButton.disabled = false
+
+              // Add error message
+              const errorMsg = document.createElement("div")
+              errorMsg.className = "text-xs mt-2 bg-white/20 p-1 rounded"
+              errorMsg.textContent = "Failed to update stock. Please try again."
+              alertDiv.appendChild(errorMsg)
+
+              // Remove error message after 3 seconds
+              setTimeout(() => {
+                if (alertDiv.contains(errorMsg)) {
+                  alertDiv.removeChild(errorMsg)
+                }
+              }, 3000)
+            }
+          })
+        }
+
+        return prevCart // Don't update cart
       }
 
-      // Update quantity if stock allows
+      // Update quantity if item already in cart and stock allows
       const originalProfit = (existingItem.price - purchasePrice) * newQuantity
       const profitAfterDiscount = originalProfit * (1 - existingItem.discount / 100)
+
+      // Update product stock in all lists when adding to cart
+      const updatedProduct = { ...product, stock: product.stock - 1 }
+      setProducts((prevProducts) => prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)))
+      setRecentlyScannedProducts((prevProducts) => prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)))
+      setRecentlySoldProducts((prevProducts) => prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)))
+      setFavoriteProducts((prevProducts) => prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)))
 
       return prevCart.map((item) =>
         item.product_id === product.id
@@ -264,13 +458,21 @@ const addToCart = (
               subtotal: calculateSubtotal(newQuantity, item.price, item.discount),
               originalProfit,
               profitAfterDiscount,
+              product: { ...item.product, stock: updatedProduct.stock },
             }
           : item,
       )
     } else {
-      // Add new item to cart
-      const originalProfit = (product.price - purchasePrice) * 1
-      const profitAfterDiscount = originalProfit
+      // Add new item to cart at the beginning of the array
+      const originalProfit = (product.price - purchasePrice) * 1 // For 1 quantity
+      const profitAfterDiscount = originalProfit // No discount initially
+
+      // Update product stock in all lists when adding to cart
+      const updatedProduct = { ...product, stock: product.stock - 1 }
+      setProducts((prevProducts) => prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)))
+      setRecentlyScannedProducts((prevProducts) => prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)))
+      setRecentlySoldProducts((prevProducts) => prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)))
+      setFavoriteProducts((prevProducts) => prevProducts.map((p) => (p.id === product.id ? updatedProduct : p)))
 
       const newItem: PosCartItem = {
         id: `cart-${Date.now()}`,
@@ -278,20 +480,20 @@ const addToCart = (
         name: product.name,
         price: product.price,
         quantity: 1,
-        discount: 0,
-        subtotal: product.price,
+        discount: 0, // Initial discount is 0%
+        subtotal: product.price, // Initial subtotal is just the price
         product: {
           id: product.id,
           name: product.name,
           price: product.price,
           image: product.image,
           purchase_price: purchasePrice,
-          stock: product.stock,
+          stock: updatedProduct.stock,
         },
         originalProfit,
         profitAfterDiscount,
       }
-      return [newItem, ...prevCart]
+      return [newItem, ...prevCart] // Add new item at the beginning
     }
   })
 
@@ -302,9 +504,59 @@ const addToCart = (
 
 // Function to calculate the maximum discount percentage before selling at a loss
 const calculateMaxDiscount = (price: number, purchasePrice: number): number => {
-  if (purchasePrice >= price) return 0
+  if (purchasePrice >= price) {
+    return 0 // No discount allowed if purchase price is greater than or equal to the selling price
+  }
   const maxDiscount = ((price - purchasePrice) / price) * 100
-  return Math.max(0, Math.min(100, maxDiscount))
+  return Math.max(0, Math.min(100, maxDiscount)) // Ensure discount is within 0-100% range
+}
+
+// Function to check if global discount impacts profit
+const checkGlobalDiscountImpact = (discountPercent: number): boolean => {
+  // Implement your logic here to determine if the global discount
+  // impacts the profit negatively. This is a placeholder.
+  // You might need to access the cart items and their purchase prices
+  // to make an accurate determination.
+  return false // Placeholder: Replace with actual logic
+}
+
+// Function to calculate today's sales and profit using Morocco timezone
+const calculateTodayStats = (recentSales: any[]) => {
+  // Morocco timezone is UTC+1
+  const now = new Date()
+  const moroccoTime = new Date(now.getTime() + 1 * 60 * 60 * 1000) // Add 1 hour for Morocco timezone
+  const todayStart = new Date(moroccoTime.getFullYear(), moroccoTime.getMonth(), moroccoTime.getDate())
+  const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000) // End of today
+
+  const todaySales = recentSales.filter((sale) => {
+    const saleDate = new Date(sale.created_at)
+    const saleInMorocco = new Date(saleDate.getTime() + 1 * 60 * 60 * 1000)
+    return saleInMorocco >= todayStart && saleInMorocco < todayEnd
+  })
+
+  const todayTotal = todaySales.reduce((sum, sale) => sum + (sale.total || 0), 0)
+
+  // Calculate today's profit from sale items
+  const todayProfit = todaySales.reduce((sum, sale) => {
+    if (sale.items) {
+      const saleProfit = sale.items.reduce((itemSum: number, item: any) => {
+        const purchasePrice = item.product?.purchase_price || 0
+        const salePrice = item.price || 0
+        const quantity = item.quantity || 0
+        const discount = item.discount || 0
+
+        // Calculate profit per item after discount
+        const priceAfterDiscount = salePrice * (1 - discount / 100)
+        const profitPerItem = priceAfterDiscount - purchasePrice
+
+        return itemSum + profitPerItem * quantity
+      }, 0)
+      return sum + saleProfit
+    }
+    return sum
+  }, 0)
+
+  return { todayTotal, todayProfit }
 }
 
 export default function POSPage() {
@@ -323,28 +575,13 @@ export default function POSPage() {
   const [recentSales, setRecentSales] = useState<any[]>([])
   const [isLoadingRecentSales, setIsLoadingRecentSales] = useState(true)
   const [activeTab, setActiveTab] = useState("recent")
-  const [isSearching, setIsSearching] = useState(false)
+  const [isSearching, setIsSearching] = useState(false) // Fixed: removed circular reference
   const [lastAddedProduct, setLastAddedProduct] = useState<string | null>(null)
   const [favoriteProducts, setFavoriteProducts] = useState<Product[]>([])
   const [userId, setUserId] = useState<string | null>(null)
   const [productFavorites, setProductFavorites] = useState<Record<string, boolean>>({})
+  const [lastSearchLength, setLastSearchLength] = useState(0)
   const [globalDiscount, setGlobalDiscount] = useState<number>(0)
-  const [isCartOpen, setIsCartOpen] = useState(false)
-  const [isCartCollapsed, setIsCartCollapsed] = useState(false)
-
-  // Stock dialog state
-  const [stockDialog, setStockDialog] = useState<{
-    isOpen: boolean
-    product: Product | null
-    message: string
-    type: "warning" | "error"
-    onUpdate?: (productId: string, newStock: number) => Promise<void>
-  }>({
-    isOpen: false,
-    product: null,
-    message: "",
-    type: "warning",
-  })
 
   // Checkout dialog state
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false)
@@ -359,69 +596,41 @@ export default function POSPage() {
 
   // Calculate cart totals
   const cartItemCount = cart.reduce((total, item) => total + item.quantity, 0)
-  const uniqueItemCount = cart.length
+  const uniqueItemCount = cart.length // Number of unique items in cart
   const subtotal = cart.reduce((total, item) => total + item.subtotal, 0)
   const totalDiscount = cart.reduce((total, item) => total + (item.price * item.quantity * item.discount) / 100, 0)
-  const tax = subtotal * settings.tax_rate
-  const total = subtotal + tax
 
-  // Calculate profits
+  // Tax calculation using settings
+  const tax = subtotal * settings.tax_rate
+  const totalPurchaseCost = cart.reduce((total, item) => {
+    const purchasePrice = item.product.purchase_price || 0
+    return total + purchasePrice * item.quantity
+  }, 0)
+
+  // Calculate today's stats
+  const { todayTotal, todayProfit } = calculateTodayStats(recentSales)
+
+  // Add this function before the originalProfit and profitAfterDiscount calculations
+  const calculateItemProfit = (item: PosCartItem): number => {
+    const purchasePrice = item.product.purchase_price || 0
+    // Calculate the discounted price per unit
+    const priceAfterDiscount = item.price * (1 - item.discount / 100)
+    // Calculate profit per unit (can be negative if discount makes price lower than cost)
+    const profitPerUnit = priceAfterDiscount - purchasePrice
+    // Calculate total profit for this item quantity
+    return profitPerUnit * item.quantity
+  }
+
+  // Then use it in the calculations
   const originalProfit = cart.reduce((total, item) => {
     const purchasePrice = item.product.purchase_price || 0
     return total + (item.price - purchasePrice) * item.quantity
   }, 0)
 
   const profitAfterDiscount = cart.reduce((total, item) => {
-    const purchasePrice = item.product.purchase_price || 0
-    const priceAfterDiscount = item.price * (1 - item.discount / 100)
-    const profitPerUnit = priceAfterDiscount - purchasePrice
-    return total + profitPerUnit * item.quantity
+    return total + calculateItemProfit(item)
   }, 0)
-
-  // Calculate today's sales and profit with proper timezone handling
-  const getTodaysStats = () => {
-    // Get today's date range in local timezone
-    const now = new Date()
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
-    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
-
-    console.log("Today range:", { todayStart, todayEnd }) // Debug log
-    console.log("Recent sales data:", recentSales) // Debug log
-
-    const todaysSalesData = recentSales.filter((sale) => {
-      const saleDate = new Date(sale.created_at)
-      const isToday = saleDate >= todayStart && saleDate <= todayEnd
-
-      if (isToday) {
-        console.log("Today sale found:", { saleDate, sale }) // Debug log
-      }
-
-      return isToday
-    })
-
-    console.log("Filtered today sales:", todaysSalesData) // Debug log
-
-    const totalSales = todaysSalesData.reduce((total, sale) => total + sale.total, 0)
-
-    const totalProfit = todaysSalesData.reduce((total, sale) => {
-      // Check both possible data structures
-      const saleItems = sale.items || sale.sale_items || []
-
-      const saleProfit = saleItems.reduce((itemTotal: number, item: any) => {
-        const purchasePrice = item.product?.purchase_price || item.products?.purchase_price || 0
-        const discount = item.discount || 0
-        const priceAfterDiscount = item.price * (1 - discount / 100)
-        const profitPerUnit = priceAfterDiscount - purchasePrice
-        return itemTotal + profitPerUnit * item.quantity
-      }, 0)
-
-      return total + saleProfit
-    }, 0)
-
-    return { totalSales, totalProfit }
-  }
-
-  const { totalSales: todaysSales, totalProfit: todaysProfit } = getTodaysStats()
+  const total = subtotal + tax
 
   // Auto-focus barcode search input on page load
   useEffect(() => {
@@ -430,17 +639,19 @@ export default function POSPage() {
     }
   }, [])
 
-  // Fetch data
+  // Fetch products, settings, and recent sales from Supabase
   useEffect(() => {
     async function fetchData() {
       try {
         setIsLoading(true)
         setIsLoadingRecentSales(true)
 
+        // Fetch settings
         const settingsData = await getSettings()
         setSettings(settingsData)
 
-        const recentSalesData = await getRecentSales(50)
+        // Fetch recent sales
+        const recentSalesData = await getRecentSales(10)
         setRecentSales(recentSalesData)
 
         // Extract recently sold products
@@ -472,8 +683,7 @@ export default function POSPage() {
     fetchData()
   }, [])
 
-  // Get current user
-  useEffect(() => {
+  useEffectOriginal(() => {
     async function getCurrentUser() {
       const supabase = createClient()
       const {
@@ -483,16 +693,19 @@ export default function POSPage() {
         setUserId(user.id)
       }
     }
+
     getCurrentUser()
   }, [])
 
-  // Fetch user favorites
+  // Add this function to fetch user favorites after the getCurrentUser function
   useEffect(() => {
     async function fetchUserFavorites() {
       if (userId) {
         try {
           const favorites = await getUserFavorites(userId)
           setFavoriteProducts(favorites)
+
+          // Create a map of product IDs to favorite status
           const favMap: Record<string, boolean> = {}
           favorites.forEach((product) => {
             favMap[product.id] = true
@@ -509,9 +722,10 @@ export default function POSPage() {
     }
   }, [userId])
 
-  // Toggle favorite
+  // Add these functions to handle adding/removing favorites
   const toggleFavorite = async (product: Product, event: React.MouseEvent) => {
-    event.stopPropagation()
+    event.stopPropagation() // Prevent the card click from triggering
+
     if (!userId) return
 
     try {
@@ -519,11 +733,25 @@ export default function POSPage() {
 
       if (isFavorite) {
         await removeFromFavorites(userId, product.id)
-        setProductFavorites((prev) => ({ ...prev, [product.id]: false }))
+
+        // Update state
+        setProductFavorites((prev) => ({
+          ...prev,
+          [product.id]: false,
+        }))
+
+        // Remove from favorites list
         setFavoriteProducts((prev) => prev.filter((p) => p.id !== product.id))
       } else {
         await addToFavorites(userId, product.id)
-        setProductFavorites((prev) => ({ ...prev, [product.id]: true }))
+
+        // Update state
+        setProductFavorites((prev) => ({
+          ...prev,
+          [product.id]: true,
+        }))
+
+        // Add to favorites list
         setFavoriteProducts((prev) => [product, ...prev])
       }
     } catch (error) {
@@ -531,188 +759,14 @@ export default function POSPage() {
     }
   }
 
-  // Update item quantity with stock validation
-  const updateQuantity = (itemId: string, newQuantity: number) => {
-    if (newQuantity < 1) return
-
-    setCart((prevCart) =>
-      prevCart.map((item) => {
-        if (item.id === itemId) {
-          if (newQuantity > item.product.stock) {
-            playAlertSound()
-            setStockDialog({
-              isOpen: true,
-              product: item.product,
-              message: `Cannot set quantity to ${newQuantity}! Only ${item.product.stock} items available in stock.`,
-              type: "warning",
-              onUpdate: async (productId: string, newStock: number) => {
-                await updateProductStock(productId, newStock)
-                // Update local state
-                setProducts((prev) => prev.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)))
-                setRecentlyScannedProducts((prev) =>
-                  prev.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)),
-                )
-                setRecentlySoldProducts((prev) => prev.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)))
-                setFavoriteProducts((prev) => prev.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)))
-                // Update cart item stock
-                setCart((prevCart) =>
-                  prevCart.map((cartItem) =>
-                    cartItem.product_id === productId
-                      ? { ...cartItem, product: { ...cartItem.product, stock: newStock } }
-                      : cartItem,
-                  ),
-                )
-              },
-            })
-            return item
-          }
-
-          const purchasePrice = item.product.purchase_price || 0
-          const originalProfit = (item.price - purchasePrice) * newQuantity
-          const profitAfterDiscount = originalProfit * (1 - item.discount / 100)
-
-          return {
-            ...item,
-            quantity: newQuantity,
-            subtotal: calculateSubtotal(newQuantity, item.price, item.discount),
-            originalProfit,
-            profitAfterDiscount,
-          }
-        }
-        return item
-      }),
-    )
-  }
-
-  // Update item discount
-  const updateDiscount = (itemId: string, discount: number) => {
-    setCart((prevCart) =>
-      prevCart.map((item) => {
-        if (item.id === itemId) {
-          const purchasePrice = item.product.purchase_price || 0
-          const originalProfit = (item.price - purchasePrice) * item.quantity
-          const priceAfterDiscount = item.price * (1 - discount / 100)
-          const profitPerUnit = priceAfterDiscount - purchasePrice
-          const profitAfterDiscount = profitPerUnit * item.quantity
-
-          return {
-            ...item,
-            discount,
-            subtotal: calculateSubtotal(item.quantity, item.price, discount),
-            originalProfit,
-            profitAfterDiscount,
-          }
-        }
-        return item
-      }),
-    )
-  }
-
-  // Apply global discount
-  const applyGlobalDiscount = (discountPercent: number) => {
-    setGlobalDiscount(discountPercent)
-    setCart((prevCart) =>
-      prevCart.map((item) => {
-        const purchasePrice = item.product.purchase_price || 0
-        const originalProfit = (item.price - purchasePrice) * item.quantity
-        const priceAfterDiscount = item.price * (1 - discountPercent / 100)
-        const profitPerUnit = priceAfterDiscount - purchasePrice
-        const profitAfterDiscount = profitPerUnit * item.quantity
-
-        return {
-          ...item,
-          discount: discountPercent,
-          subtotal: calculateSubtotal(item.quantity, item.price, discountPercent),
-          originalProfit,
-          profitAfterDiscount,
-        }
-      }),
-    )
-  }
-
-  // Remove item from cart
-  const removeFromCart = (itemId: string) => {
-    setCart((prevCart) => prevCart.filter((item) => item.id !== itemId))
-  }
-
-  // Clear cart
-  const clearCart = () => {
-    setCart([])
-    setGlobalDiscount(0)
-  }
-
-  // Handle checkout
-  const handleCheckout = () => {
-    setIsCheckoutOpen(true)
-  }
-
-  // Handle sale confirmation
-  const handleConfirmSale = async (shouldPrint?: boolean) => {
-    setIsProcessing(true)
-
-    try {
-      const saleData: Sale = {
-        total: total,
-        tax: tax,
-        payment_method: paymentMethod,
-      }
-
-      const saleItems: SaleItem[] = cart.map((item) => ({
-        product_id: item.product_id,
-        quantity: item.quantity,
-        price: item.price,
-        discount: item.discount,
-      }))
-
-      const { data, error } = await createSale(saleData, saleItems)
-      if (error) throw error
-
-      // Update stock for all sold products
-      const stockUpdates = cart.map(async (item) => {
-        const newStock = item.product.stock - item.quantity
-        try {
-          await updateProductStock(item.product_id, newStock)
-          return { productId: item.product_id, newStock }
-        } catch (error) {
-          console.error(`Error updating stock for product ${item.product_id}:`, error)
-          return null
-        }
-      })
-
-      const stockUpdateResults = await Promise.all(stockUpdates)
-
-      // Update local state
-      stockUpdateResults.forEach((result) => {
-        if (result) {
-          const { productId, newStock } = result
-          setProducts((prev) => prev.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)))
-          setRecentlyScannedProducts((prev) => prev.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)))
-          setRecentlySoldProducts((prev) => prev.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)))
-          setFavoriteProducts((prev) => prev.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)))
-        }
-      })
-
-      clearCart()
-      await refreshRecentSales()
-
-      if (shouldPrint) {
-        console.log("Printing receipt for sale:", data)
-      }
-    } catch (error) {
-      console.error("Error processing sale:", error)
-    } finally {
-      setIsProcessing(false)
-      setIsCheckoutOpen(false)
-    }
-  }
-
-  // Refresh recent sales
+  // Refresh recent sales after a new sale
   const refreshRecentSales = async () => {
     try {
       setIsLoadingRecentSales(true)
       const recentSalesData = await getRecentSales(10)
       setRecentSales(recentSalesData)
 
+      // Update recently sold products
       const soldProductsMap = new Map<string, Product>()
       recentSalesData.forEach((sale) => {
         sale.items?.forEach((item: any) => {
@@ -737,7 +791,439 @@ export default function POSPage() {
     }
   }
 
-  // Format currency
+  // Update item quantity and handle stock changes
+  const updateQuantity = (itemId: string, newQuantity: number) => {
+    if (newQuantity < 1) return
+
+    setCart((prevCart) =>
+      prevCart.map((item) => {
+        if (item.id === itemId) {
+          const quantityDifference = newQuantity - item.quantity
+
+          // Check if new quantity exceeds available stock + current cart quantity
+          const availableStock = item.product.stock + item.quantity
+          if (newQuantity > availableStock) {
+            // Play alert sound
+            playAlertSound()
+
+            // Show stock adjustment alert with option to adjust stock
+            const alertDiv = document.createElement("div")
+            alertDiv.className =
+              "fixed top-1/4 left-1/2 transform -translate-x-1/2 bg-orange-500 text-white px-6 py-4 rounded-lg shadow-lg z-50 flex flex-col"
+
+            alertDiv.innerHTML = `
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-5 w-5 mr-2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                <span>لا يمكن تعيين الكمية إلى ${newQuantity}! يتوفر فقط ${availableStock} عنصر في المخزون.</span>
+              </div>
+              <button class="close-btn bg-white/20 hover:bg-white/30 rounded-full p-1 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-4 w-4"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+            <div class="flex items-center mt-2">
+              <span class="mr-2">Adjust Stock to:</span>
+              <div class="flex items-center bg-white/20 rounded-md">
+                <button class="decrement-btn px-2 py-1 hover:bg-white/10 rounded-l-md transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-4 w-4"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
+                <input type="number" min="${newQuantity}" value="${newQuantity}" class="stock-input w-16 text-center bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-white/50 px-1 text-white" />
+                <button class="increment-btn px-2 py-1 hover:bg-white/10 rounded-r-md transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-4 w-4"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
+              </div>
+              <button class="update-stock-btn ml-2 bg-green-600 hover:bg-green-700 px-3 py-1 rounded-md transition-colors">
+                Update Stock
+              </button>
+            </div>
+          `
+
+            document.body.appendChild(alertDiv)
+
+            // Add event listeners
+            const closeButton = alertDiv.querySelector(".close-btn")
+            const decrementButton = alertDiv.querySelector(".decrement-btn")
+            const incrementButton = alertDiv.querySelector(".increment-btn")
+            const stockInput = alertDiv.querySelector(".stock-input") as HTMLInputElement
+            const updateStockButton = alertDiv.querySelector(".update-stock-btn") as HTMLButtonElement
+
+            if (closeButton) {
+              closeButton.addEventListener("click", () => {
+                alertDiv.classList.add("transition-opacity", "duration-500", "opacity-0")
+                setTimeout(() => {
+                  if (document.body.contains(alertDiv)) {
+                    document.body.removeChild(alertDiv)
+                  }
+                }, 500)
+              })
+            }
+
+            if (decrementButton && stockInput) {
+              decrementButton.addEventListener("click", () => {
+                const currentValue = Number.parseInt(stockInput.value) || newQuantity
+                stockInput.value = Math.max(newQuantity, currentValue - 1).toString()
+              })
+            }
+
+            if (incrementButton && stockInput) {
+              incrementButton.addEventListener("click", () => {
+                const currentValue = Number.parseInt(stockInput.value) || newQuantity
+                stockInput.value = (currentValue + 1).toString()
+              })
+            }
+
+            if (updateStockButton && stockInput) {
+              updateStockButton.addEventListener("click", async () => {
+                const newStock = Number.parseInt(stockInput.value) || newQuantity
+
+                // Show loading state
+                updateStockButton.innerHTML = `
+                <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              `
+                updateStockButton.disabled = true
+
+                try {
+                  // Call the updateProductStock function
+                  await updateProductStock(item.product_id, newStock)
+
+                  // Update local state for the product in all lists
+                  const updatedProduct = { ...item.product, stock: newStock }
+
+                  setProducts((prevProducts) =>
+                    prevProducts.map((p) => (p.id === item.product_id ? updatedProduct : p)),
+                  )
+                  setRecentlyScannedProducts((prevProducts) =>
+                    prevProducts.map((p) => (p.id === item.product_id ? updatedProduct : p)),
+                  )
+                  setRecentlySoldProducts((prevProducts) =>
+                    prevProducts.map((p) => (p.id === item.product_id ? updatedProduct : p)),
+                  )
+                  setFavoriteProducts((prevProducts) =>
+                    prevProducts.map((p) => (p.id === item.product_id ? updatedProduct : p)),
+                  )
+
+                  // Close the alert with success message
+                  alertDiv.innerHTML = `
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-5 w-5 mr-2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                    <span>Stock updated successfully! Updating cart quantity...</span>
+                  </div>
+                </div>
+              `
+                  alertDiv.classList.remove("bg-orange-500")
+                  alertDiv.classList.add("bg-green-600")
+
+                  // Close the alert after 2 seconds and update the cart quantity
+                  setTimeout(() => {
+                    if (document.body.contains(alertDiv)) {
+                      document.body.removeChild(alertDiv)
+                    }
+                    // Now update the cart quantity since we have sufficient stock
+                    updateQuantity(itemId, newQuantity)
+                  }, 2000)
+                } catch (error) {
+                  console.error("Error updating stock:", error)
+
+                  // Show error message
+                  updateStockButton.innerHTML = "Update Stock"
+                  updateStockButton.disabled = false
+
+                  // Add error message
+                  const errorMsg = document.createElement("div")
+                  errorMsg.className = "text-xs mt-2 bg-white/20 p-1 rounded"
+                  errorMsg.textContent = "Failed to update stock. Please try again."
+                  alertDiv.appendChild(errorMsg)
+
+                  // Remove error message after 3 seconds
+                  setTimeout(() => {
+                    if (alertDiv.contains(errorMsg)) {
+                      alertDiv.removeChild(errorMsg)
+                    }
+                  }, 3000)
+                }
+              })
+            }
+
+            return item // Don't update quantity
+          }
+
+          // Update stock in product lists
+          const newStock = item.product.stock - quantityDifference
+          const updatedProduct = { ...item.product, stock: newStock }
+
+          setProducts((prevProducts) => prevProducts.map((p) => (p.id === item.product_id ? updatedProduct : p)))
+          setRecentlyScannedProducts((prevProducts) =>
+            prevProducts.map((p) => (p.id === item.product_id ? updatedProduct : p)),
+          )
+          setRecentlySoldProducts((prevProducts) =>
+            prevProducts.map((p) => (p.id === item.product_id ? updatedProduct : p)),
+          )
+          setFavoriteProducts((prevProducts) =>
+            prevProducts.map((p) => (p.id === item.product_id ? updatedProduct : p)),
+          )
+
+          const purchasePrice = item.product.purchase_price || 0
+          const originalProfit = (item.price - purchasePrice) * newQuantity
+          const profitAfterDiscount = originalProfit * (1 - item.discount / 100)
+
+          return {
+            ...item,
+            quantity: newQuantity,
+            subtotal: calculateSubtotal(newQuantity, item.price, item.discount),
+            originalProfit,
+            profitAfterDiscount,
+            product: updatedProduct,
+          }
+        }
+        return item
+      }),
+    )
+  }
+
+  // Remove item from cart and restore stock
+  const removeFromCart = (itemId: string) => {
+    setCart((prevCart) => {
+      const itemToRemove = prevCart.find((item) => item.id === itemId)
+      if (itemToRemove) {
+        // Restore stock when removing from cart
+        const restoredStock = itemToRemove.product.stock + itemToRemove.quantity
+        const updatedProduct = { ...itemToRemove.product, stock: restoredStock }
+
+        // Update stock in all product lists
+        setProducts((prevProducts) => prevProducts.map((p) => (p.id === itemToRemove.product_id ? updatedProduct : p)))
+        setRecentlyScannedProducts((prevProducts) =>
+          prevProducts.map((p) => (p.id === itemToRemove.product_id ? updatedProduct : p)),
+        )
+        setRecentlySoldProducts((prevProducts) =>
+          prevProducts.map((p) => (p.id === itemToRemove.product_id ? updatedProduct : p)),
+        )
+        setFavoriteProducts((prevProducts) =>
+          prevProducts.map((p) => (p.id === itemToRemove.product_id ? updatedProduct : p)),
+        )
+      }
+
+      return prevCart.filter((item) => item.id !== itemId)
+    })
+  }
+
+  // Update item discount
+  const updateDiscount = (itemId: string, discount: number) => {
+    setCart((prevCart) =>
+      prevCart.map((item) => {
+        if (item.id === itemId) {
+          const purchasePrice = item.product.purchase_price || 0
+          const originalProfit = (item.price - purchasePrice) * item.quantity
+
+          // Calculate the discounted price per unit
+          const priceAfterDiscount = item.price * (1 - discount / 100)
+          // Calculate profit per unit after discount
+          const profitPerUnit = priceAfterDiscount - purchasePrice
+          // Calculate total profit for this item quantity
+          const profitAfterDiscount = profitPerUnit * item.quantity
+
+          return {
+            ...item,
+            discount,
+            subtotal: calculateSubtotal(item.quantity, item.price, discount),
+            originalProfit,
+            profitAfterDiscount,
+          }
+        }
+        return item
+      }),
+    )
+  }
+
+  // Apply global discount to all items
+  const applyGlobalDiscount = (discountPercent: number) => {
+    setGlobalDiscount(discountPercent)
+
+    // Apply the discount to each item in the cart
+    setCart((prevCart) =>
+      prevCart.map((item) => {
+        const purchasePrice = item.product.purchase_price || 0
+        const originalProfit = (item.price - purchasePrice) * item.quantity
+
+        // Calculate the discounted price per unit
+        const priceAfterDiscount = item.price * (1 - discountPercent / 100)
+        // Calculate profit per unit after discount
+        const profitPerUnit = priceAfterDiscount - purchasePrice
+        // Calculate total profit for this item quantity
+        const profitAfterDiscount = profitPerUnit * item.quantity
+
+        return {
+          ...item,
+          discount: discountPercent,
+          subtotal: calculateSubtotal(item.quantity, item.price, discountPercent),
+          originalProfit,
+          profitAfterDiscount,
+        }
+      }),
+    )
+  }
+
+  // Clear cart
+  const clearCart = () => {
+    setCart([])
+    setGlobalDiscount(0)
+  }
+
+  // Process checkout
+  const handleCheckout = () => {
+    setIsCheckoutOpen(true)
+  }
+
+  // Handle sale confirmation
+  const handleConfirmSale = async (shouldPrint?: boolean) => {
+    setIsProcessing(true)
+
+    try {
+      // Format sale data for Supabase
+      const saleData: Sale = {
+        total: total,
+        tax: tax,
+        payment_method: paymentMethod,
+      }
+
+      // Format sale items for Supabase
+      const saleItems: SaleItem[] = cart.map((item) => ({
+        product_id: item.product_id,
+        quantity: item.quantity,
+        price: item.price,
+        discount: item.discount, // Include the discount percentage
+      }))
+
+      // Create sale in Supabase
+      const { data, error } = await createSale(saleData, saleItems)
+
+      if (error) {
+        console.error("Error creating sale:", error)
+        throw error
+      }
+
+      // Update stock for all sold products in the database and local state
+      const stockUpdates = cart.map(async (item) => {
+        const newStock = item.product.stock - item.quantity
+
+        try {
+          // Update stock in database
+          await updateProductStock(item.product_id, newStock)
+
+          // Return the updated product info
+          return {
+            productId: item.product_id,
+            newStock: newStock,
+          }
+        } catch (error) {
+          console.error(`Error updating stock for product ${item.product_id}:`, error)
+          return null
+        }
+      })
+
+      // Wait for all stock updates to complete
+      const stockUpdateResults = await Promise.all(stockUpdates)
+
+      // Update local state for all product arrays
+      stockUpdateResults.forEach((result) => {
+        if (result) {
+          const { productId, newStock } = result
+
+          // Update products list
+          setProducts((prevProducts) => prevProducts.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)))
+
+          // Update recently scanned products
+          setRecentlyScannedProducts((prevProducts) =>
+            prevProducts.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)),
+          )
+
+          // Update recently sold products
+          setRecentlySoldProducts((prevProducts) =>
+            prevProducts.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)),
+          )
+
+          // Update favorites
+          setFavoriteProducts((prevProducts) =>
+            prevProducts.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)),
+          )
+        }
+      })
+
+      // Clear cart after successful sale
+      clearCart()
+
+      // Refresh recent sales
+      await refreshRecentSales()
+
+      // Handle printing if needed
+      if (shouldPrint) {
+        console.log("Printing receipt for sale:", data)
+      }
+
+      // Show success message
+      const successDiv = document.createElement("div")
+      successDiv.className =
+        "fixed top-1/4 left-1/2 transform -translate-x-1/2 bg-green-500 text-white px-6 py-4 rounded-lg shadow-lg z-50 flex items-center"
+
+      successDiv.innerHTML = `
+        <div class="flex items-center">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-5 w-5 mr-2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+          <span>Sale completed successfully! Stock updated.</span>
+        </div>
+      `
+
+      document.body.appendChild(successDiv)
+
+      // Auto-remove success message after 3 seconds
+      setTimeout(() => {
+        if (document.body.contains(successDiv)) {
+          document.body.removeChild(successDiv)
+        }
+      }, 3000)
+    } catch (error) {
+      console.error("Error processing sale:", error)
+
+      // Show error message
+      const errorDiv = document.createElement("div")
+      errorDiv.className =
+        "fixed top-1/4 left-1/2 transform -translate-x-1/2 bg-red-500 text-white px-6 py-4 rounded-lg shadow-lg z-50 flex items-center"
+
+      errorDiv.innerHTML = `
+        <div class="flex items-center">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-5 w-5 mr-2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+          <span>حدث خطأ أثناء معالجة عملية البيع. يُرجى المحاولة مرة أخرى.</span>
+          <button class="close-btn ml-4 bg-white/20 hover:bg-white/30 rounded-full p-1 transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-4 w-4"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
+      `
+
+      document.body.appendChild(errorDiv)
+
+      // Add close button functionality
+      const closeButton = errorDiv.querySelector(".close-btn")
+      if (closeButton) {
+        closeButton.addEventListener("click", () => {
+          document.body.removeChild(errorDiv)
+        })
+      }
+
+      // Auto-remove after 5 seconds
+      setTimeout(() => {
+        if (document.body.contains(errorDiv)) {
+          document.body.removeChild(errorDiv)
+        }
+      }, 5000)
+    } finally {
+      setIsProcessing(false)
+      setIsCheckoutOpen(false)
+    }
+  }
+
+  // Format currency based on settings
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -756,22 +1242,24 @@ export default function POSPage() {
     }).format(date)
   }
 
-  // Handle search
+  // Handle search input change
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
     setSearchTerm(value)
 
+    // Clear any pending search timeout
     if (searchTimeout.current) {
       clearTimeout(searchTimeout.current)
     }
 
+    // Debounce search to avoid too many requests
     searchTimeout.current = setTimeout(async () => {
       if (value.trim() !== "") {
         setIsSearching(true)
         try {
           const results = await searchProducts(value)
           setProducts(results)
-          setActiveTab("recent")
+          setActiveTab("recent") // Show on main tab
         } catch (error) {
           console.error("Error searching products:", error)
         } finally {
@@ -783,22 +1271,27 @@ export default function POSPage() {
     }, 300)
   }
 
-  // Handle barcode search
+  // Handle barcode search input change
   const handleBarcodeSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
     setBarcodeSearchTerm(value)
 
+    // Clear any pending barcode timeout
     if (barcodeTimeout.current) {
       clearTimeout(barcodeTimeout.current)
     }
 
+    // If the input is likely from a barcode scanner (fast input)
+    // we'll automatically search after a short delay
     barcodeTimeout.current = setTimeout(async () => {
       if (value.trim() !== "") {
         setIsSearching(true)
         try {
           const results = await searchProducts(value)
+          console.log("Barcode search results:", results)
 
           if (results.length === 1) {
+            // If exactly one product found, add it to cart
             addToCart(
               results[0],
               setCart,
@@ -807,19 +1300,23 @@ export default function POSPage() {
               setRecentlyScannedProducts,
               setRecentlySoldProducts,
               setFavoriteProducts,
-              setStockDialog,
             )
-            setBarcodeSearchTerm("")
+            setBarcodeSearchTerm("") // Clear search field
+
+            // Play beep sound for successful scan
             playBeepSound()
 
+            // Add to recently scanned products
             setRecentlyScannedProducts((prev) => {
               const filtered = prev.filter((p) => p.id !== results[0].id)
               return [results[0], ...filtered].slice(0, 10)
             })
           } else if (results.length > 1) {
+            // If multiple products found, show them
             setProducts(results)
-            setActiveTab("recent")
+            setActiveTab("recent") // Show on main tab
           } else {
+            // No products found
             setProducts([])
           }
         } catch (error) {
@@ -831,17 +1328,19 @@ export default function POSPage() {
     }, 300)
   }
 
-  // Handle barcode search keydown
+  // Handle barcode search keydown for Enter key
   const handleBarcodeSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && barcodeSearchTerm.trim() !== "") {
-      e.preventDefault()
+      e.preventDefault() // Prevent form submission
 
+      // Process the barcode search immediately
       const processBarcode = async () => {
         setIsSearching(true)
         try {
           const results = await searchProducts(barcodeSearchTerm)
 
           if (results.length === 1) {
+            // If exactly one product found, add it to cart
             addToCart(
               results[0],
               setCart,
@@ -850,25 +1349,31 @@ export default function POSPage() {
               setRecentlyScannedProducts,
               setRecentlySoldProducts,
               setFavoriteProducts,
-              setStockDialog,
             )
-            setBarcodeSearchTerm("")
+            setBarcodeSearchTerm("") // Clear search field
+
+            // Play beep sound for successful scan
             playBeepSound()
 
+            // Add to recently scanned products
             setRecentlyScannedProducts((prev) => {
               const filtered = prev.filter((p) => p.id !== results[0].id)
               return [results[0], ...filtered].slice(0, 10)
             })
           } else if (results.length > 1) {
+            // If multiple products found, show them
             setProducts(results)
-            setActiveTab("recent")
+            setActiveTab("recent") // Show on main tab
           } else {
+            // No products found
             setProducts([])
           }
         } catch (error) {
           console.error("Error processing barcode:", error)
         } finally {
           setIsSearching(false)
+
+          // Refocus the barcode input for the next scan
           if (barcodeSearchInputRef.current) {
             barcodeSearchInputRef.current.focus()
           }
@@ -879,891 +1384,917 @@ export default function POSPage() {
     }
   }
 
-  // Product card component
-  const ProductCard = ({ product }: { product: Product }) => (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
-      <Card
-        className={cn(
-          "cursor-pointer hover:border-primary hover:shadow-lg transition-all duration-300 relative group",
-          lastAddedProduct === product.id && "border-primary ring-2 ring-primary/30",
-          product.stock <= 0 && "border-red-500 opacity-75",
-        )}
-        onClick={() =>
-          addToCart(
-            product,
-            setCart,
-            setLastAddedProduct,
-            setProducts,
-            setRecentlyScannedProducts,
-            setRecentlySoldProducts,
-            setFavoriteProducts,
-            setStockDialog,
-          )
-        }
-      >
-        {userId && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute top-2 right-2 h-8 w-8 z-10 bg-background/80 hover:bg-background opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={(e) => toggleFavorite(product, e)}
-          >
-            {productFavorites[product.id] ? (
-              <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-            ) : (
-              <StarOff className="h-4 w-4 text-muted-foreground" />
-            )}
-          </Button>
-        )}
-
-        <CardContent className="p-3">
-          <div className="aspect-square bg-muted rounded-lg mb-3 overflow-hidden">
-            {product.image ? (
-              <img
-                src={product.image || '/placeholder.svg"}.image || "/placeholder.svg'}
-                alt={product.name}
-                className="h-full w-full object-cover transition-transform group-hover:scale-105"
-              />
-            ) : (
-              <div className="h-full w-full flex items-center justify-center text-muted-foreground">
-                <Package className="h-8 w-8 text-primary/40" />
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <h3 className="font-medium text-sm line-clamp-2 min-h-[2.5rem]">{product.name}</h3>
-
-            <div className="flex justify-between items-center">
-              <div className="font-bold text-primary text-lg">{formatCurrency(product.price)}</div>
-              <Badge variant={product.stock > 0 ? "outline" : "destructive"} className="text-xs">
-                {product.stock}
-              </Badge>
-            </div>
-
-            {product.purchase_price && (
-              <div className="flex items-center text-xs text-blue-600">
-                <TrendingUp className="h-3 w-3 mr-1" />
-                {formatCurrency(product.price - product.purchase_price)}
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </motion.div>
-  )
-
   return (
     <TooltipProvider>
-      <div className="flex flex-col h-screen bg-gradient-to-br from-background via-background/95 to-primary/5">
-        {/* Mobile Header */}
-        <div className="lg:hidden bg-card border-b p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h1 className="text-xl font-bold">POS System</h1>
-            <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
-              <SheetTrigger asChild>
-                <Button variant="outline" size="sm" className="relative">
-                  <ShoppingCart className="h-4 w-4 mr-2" />
-                  Cart
-                  {cartItemCount > 0 && (
-                    <Badge className="absolute -top-2 -right-2 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs">
-                      {cartItemCount}
-                    </Badge>
-                  )}
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="w-full sm:max-w-md">
-                <SheetHeader>
-                  <SheetTitle className="flex items-center gap-2">
-                    <ShoppingCart className="h-5 w-5" />
-                    Shopping Cart
-                    {cartItemCount > 0 && <Badge>{cartItemCount} items</Badge>}
-                  </SheetTitle>
-                </SheetHeader>
+      <div className="flex flex-col md:flex-row h-screen bg-gradient-to-br from-background to-background/90">
+        {/* Products Section */}
+        <div className="w-full md:w-2/3 p-4 overflow-auto">
+          {/* Today's Sales and Profit Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <Card className="bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center text-blue-600 mb-1">
+                      <DollarSign className="h-4 w-4 mr-1" />
+                      <span className="text-sm font-medium">Today's Sales</span>
+                    </div>
+                    <div className="text-2xl font-bold text-blue-700">{formatCurrency(todayTotal)}</div>
+                  </div>
+                  <div className="bg-blue-200 p-3 rounded-full">
+                    <TrendingUp className="h-6 w-6 text-blue-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-                {/* Mobile Cart Content */}
-                <div className="flex flex-col h-full mt-6">
-                  <ScrollArea className="flex-1 -mx-6 px-6">
-                    <AnimatePresence>
-                      {cart.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
-                          <ShoppingCart className="h-12 w-12 mb-4 opacity-40" />
-                          <p>Your cart is empty</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-4">
-                          {cart.map((item) => {
-                            const maxDiscount = calculateMaxDiscount(item.price, item.product.purchase_price || 0)
-                            const isDiscountTooHigh = item.discount > maxDiscount
+            <Card className="bg-gradient-to-r from-green-50 to-green-100 border-green-200">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center text-green-600 mb-1">
+                      <TrendingUp className="h-4 w-4 mr-1" />
+                      <span className="text-sm font-medium">Today's Profit</span>
+                    </div>
+                    <div className={cn("text-2xl font-bold", todayProfit >= 0 ? "text-green-700" : "text-red-600")}>
+                      {formatCurrency(todayProfit)}
+                    </div>
+                  </div>
+                  <div className="bg-green-200 p-3 rounded-full">
+                    <DollarSign className="h-6 w-6 text-green-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
-                            return (
-                              <motion.div
-                                key={item.id}
-                                initial={{ opacity: 0, x: 20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0, x: -20 }}
-                                transition={{ duration: 0.2 }}
+          <div className="mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {/* Product search input */}
+              <div className="relative flex items-center">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  ref={searchInputRef}
+                  type="search"
+                  placeholder="Search products by name..."
+                  className="pl-10 pr-10 h-12 text-lg rounded-full border-primary/20 focus-visible:ring-primary/30"
+                  value={searchTerm}
+                  onChange={handleSearch}
+                />
+                {searchTerm && (
+                  <button
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      setSearchTerm("")
+                      if (searchInputRef.current) {
+                        searchInputRef.current.focus()
+                      }
+                    }}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* Barcode search input */}
+              <div className="relative flex items-center">
+                <Barcode className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  ref={barcodeSearchInputRef}
+                  type="search"
+                  placeholder="Scan barcode..."
+                  className="pl-10 pr-10 h-12 text-lg rounded-full border-primary/20 focus-visible:ring-primary/30"
+                  value={barcodeSearchTerm}
+                  onChange={handleBarcodeSearch}
+                  onKeyDown={handleBarcodeSearchKeyDown}
+                />
+                {barcodeSearchTerm && (
+                  <button
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      setBarcodeSearchTerm("")
+                      if (barcodeSearchInputRef.current) {
+                        barcodeSearchInputRef.current.focus()
+                      }
+                    }}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
+            <TabsList className="grid grid-cols-3 mb-4">
+              <TabsTrigger
+                value="recent"
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              >
+                <Clock className="mr-2 h-4 w-4" />
+                Recent Sales
+              </TabsTrigger>
+              <TabsTrigger
+                value="scanned"
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              >
+                <Scan className="mr-2 h-4 w-4" />
+                Recently Scanned
+              </TabsTrigger>
+              <TabsTrigger
+                value="search"
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              >
+                <Search className="mr-2 h-4 w-4" />
+                Search Results
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="recent" className="mt-0">
+              <div className="grid grid-cols-1 gap-4">
+                {/* 1. Search Results Section - First priority */}
+                {searchTerm && products.length > 0 && (
+                  <>
+                    <h3 className="text-lg font-medium flex items-center">
+                      <Search className="mr-2 h-5 w-5" />
+                      Search Results for "{searchTerm}"
+                    </h3>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                      {products.map((product) => (
+                        <motion.div
+                          key={product.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.3 }}
+                        >
+                          <Card
+                            className={cn(
+                              "cursor-pointer hover:border-primary hover:shadow-md transition-all duration-300 relative",
+                              lastAddedProduct === product.id && "border-primary ring-2 ring-primary/30",
+                              product.stock <= 0 && "border-red-500", // Add red border for 0 stock products
+                            )}
+                            onClick={() =>
+                              addToCart(
+                                product,
+                                setCart,
+                                setLastAddedProduct,
+                                setProducts,
+                                setRecentlyScannedProducts,
+                                setRecentlySoldProducts,
+                                setFavoriteProducts,
+                              )
+                            }
+                          >
+                            {userId && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="absolute top-1 right-1 h-7 w-7 z-10 bg-background/80 hover:bg-background"
+                                onClick={(e) => toggleFavorite(product, e)}
                               >
-                                <Card className={cn("overflow-hidden", isDiscountTooHigh && "border-red-500")}>
-                                  <CardContent className="p-4">
-                                    <div className="flex gap-3">
-                                      <div className="h-16 w-16 rounded-lg overflow-hidden bg-muted flex-shrink-0">
-                                        {item.product.image ? (
-                                          <img
-                                            src={item.product.image || "/placeholder.svg"}
-                                            alt={item.name}
-                                            className="h-full w-full object-cover"
-                                          />
-                                        ) : (
-                                          <div className="h-full w-full flex items-center justify-center">
-                                            <Package className="h-6 w-6 text-primary/40" />
-                                          </div>
-                                        )}
-                                      </div>
-
-                                      <div className="flex-1 min-w-0">
-                                        <div className="flex justify-between items-start mb-2">
-                                          <h4 className="font-medium text-sm line-clamp-2">{item.name}</h4>
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-6 w-6 text-destructive ml-2"
-                                            onClick={() => removeFromCart(item.id)}
-                                          >
-                                            <Trash2 className="h-3 w-3" />
-                                          </Button>
-                                        </div>
-
-                                        <div className="text-xs text-muted-foreground mb-2">
-                                          {formatCurrency(item.price)} × {item.quantity} | Stock: {item.product.stock}
-                                        </div>
-
-                                        {/* Quantity Controls */}
-                                        <div className="flex items-center justify-between mb-3">
-                                          <div className="flex items-center gap-2">
-                                            <Button
-                                              variant="outline"
-                                              size="icon"
-                                              className="h-8 w-8"
-                                              onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                                            >
-                                              <Minus className="h-3 w-3" />
-                                            </Button>
-                                            <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
-                                            <Button
-                                              variant="outline"
-                                              size="icon"
-                                              className="h-8 w-8"
-                                              onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                                            >
-                                              <Plus className="h-3 w-3" />
-                                            </Button>
-                                          </div>
-
-                                          <div className="text-right">
-                                            {item.discount > 0 && (
-                                              <div className="text-xs line-through text-muted-foreground">
-                                                {formatCurrency(item.price * item.quantity)}
-                                              </div>
-                                            )}
-                                            <div className="font-bold text-primary">
-                                              {formatCurrency(item.subtotal)}
-                                            </div>
-                                          </div>
-                                        </div>
-
-                                        {/* Discount Control */}
-                                        <div className="flex items-center gap-2">
-                                          <Tag className="h-3 w-3 text-muted-foreground" />
-                                          <Input
-                                            type="number"
-                                            min="0"
-                                            max="100"
-                                            value={item.discount}
-                                            onChange={(e) => updateDiscount(item.id, Number(e.target.value) || 0)}
-                                            className={cn(
-                                              "h-7 w-16 text-xs px-2",
-                                              isDiscountTooHigh && "border-red-500 text-red-500",
-                                            )}
-                                            placeholder="0%"
-                                          />
-                                          <span className="text-xs text-muted-foreground">%</span>
-                                        </div>
-
-                                        {/* Profit Display */}
-                                        <div className="mt-2 text-xs">
-                                          <span className="text-blue-600">Profit: </span>
-                                          <span
-                                            className={cn(
-                                              item.profitAfterDiscount < 0 ? "text-red-500 font-bold" : "text-blue-600",
-                                            )}
-                                          >
-                                            {formatCurrency(item.profitAfterDiscount)}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </CardContent>
-                                </Card>
-                              </motion.div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </AnimatePresence>
-                  </ScrollArea>
-
-                  {/* Mobile Cart Summary */}
-                  {cart.length > 0 && (
-                    <div className="border-t pt-4 mt-4 space-y-3">
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span>Subtotal</span>
-                          <span>{formatCurrency(subtotal)}</span>
-                        </div>
-                        {totalDiscount > 0 && (
-                          <div className="flex justify-between text-green-600">
-                            <span>Discount</span>
-                            <span>-{formatCurrency(totalDiscount)}</span>
-                          </div>
-                        )}
-                        <div className="flex justify-between">
-                          <span>Tax ({(settings.tax_rate * 100).toFixed(0)}%)</span>
-                          <span>{formatCurrency(tax)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-blue-600">Profit</span>
-                          <span className={cn(profitAfterDiscount < 0 ? "text-red-500" : "text-blue-600")}>
-                            {formatCurrency(profitAfterDiscount)}
-                          </span>
-                        </div>
-                        <Separator />
-                        <div className="flex justify-between font-bold text-lg">
-                          <span>Total</span>
-                          <span>{formatCurrency(total)}</span>
-                        </div>
-                      </div>
-
-                      <Button
-                        className="w-full"
-                        size="lg"
-                        onClick={() => {
-                          setIsCartOpen(false)
-                          handleCheckout()
-                        }}
-                      >
-                        Checkout
-                        <ChevronRight className="ml-2 h-4 w-4" />
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </SheetContent>
-            </Sheet>
-          </div>
-
-          {/* Mobile Search */}
-          <div className="space-y-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                ref={searchInputRef}
-                type="search"
-                placeholder="Search products..."
-                className="pl-10 h-12 text-base"
-                value={searchTerm}
-                onChange={handleSearch}
-              />
-            </div>
-
-            <div className="relative">
-              <Barcode className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                ref={barcodeSearchInputRef}
-                type="search"
-                placeholder="Scan barcode..."
-                className="pl-10 h-12 text-base"
-                value={barcodeSearchTerm}
-                onChange={handleBarcodeSearch}
-                onKeyDown={handleBarcodeSearchKeyDown}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Desktop Layout */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Products Section */}
-          <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Desktop Header */}
-            <div className="hidden lg:block bg-card border-b p-6">
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h1 className="text-2xl font-bold">Point of Sale</h1>
-                  <p className="text-muted-foreground">Scan, search, and sell products</p>
-                </div>
-
-                {/* Quick Stats */}
-                <div className="flex gap-4">
-                  <Card className="p-3">
-                    <div className="flex items-center gap-2">
-                      <div className="bg-blue-100 p-2 rounded-lg">
-                        <DollarSign className="h-4 w-4 text-blue-600" />
-                      </div>
-                      <div>
-                        <div className="text-xs text-muted-foreground">Today's Sales</div>
-                        <div className="font-bold">{formatCurrency(todaysSales)}</div>
-                      </div>
-                    </div>
-                  </Card>
-
-                  <Card className="p-3">
-                    <div className="flex items-center gap-2">
-                      <div className="bg-green-100 p-2 rounded-lg">
-                        <TrendingUp className="h-4 w-4 text-green-600" />
-                      </div>
-                      <div>
-                        <div className="text-xs text-muted-foreground">Today's Profit</div>
-                        <div className="font-bold text-green-600">{formatCurrency(todaysProfit)}</div>
-                      </div>
-                    </div>
-                  </Card>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    ref={searchInputRef}
-                    type="search"
-                    placeholder="Search products by name..."
-                    className="pl-10 h-12 text-base rounded-xl"
-                    value={searchTerm}
-                    onChange={handleSearch}
-                  />
-                </div>
-
-                <div className="relative">
-                  <Barcode className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    ref={barcodeSearchInputRef}
-                    type="search"
-                    placeholder="Scan barcode..."
-                    className="pl-10 h-12 text-base rounded-xl"
-                    value={barcodeSearchTerm}
-                    onChange={handleBarcodeSearch}
-                    onKeyDown={handleBarcodeSearchKeyDown}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Products Content */}
-            <div className="flex-1 overflow-auto p-4 lg:p-6">
-              <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full">
-                <TabsList className="grid grid-cols-3 mb-6 w-full lg:w-auto">
-                  <TabsTrigger value="recent" className="flex items-center gap-2">
-                    <Clock className="h-4 w-4" />
-                    <span className="hidden sm:inline">Recent</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="scanned" className="flex items-center gap-2">
-                    <Scan className="h-4 w-4" />
-                    <span className="hidden sm:inline">Scanned</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="search" className="flex items-center gap-2">
-                    <Search className="h-4 w-4" />
-                    <span className="hidden sm:inline">Search</span>
-                  </TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="recent" className="mt-0 h-full">
-                  <div className="space-y-8">
-                    {/* Search Results */}
-                    {searchTerm && products.length > 0 && (
-                      <div>
-                        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                          <Search className="h-5 w-5" />
-                          Search Results for "{searchTerm}"
-                        </h3>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                          {products.map((product) => (
-                            <ProductCard key={product.id} product={product} />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Favorites */}
-                    {userId && favoriteProducts.length > 0 && (
-                      <div>
-                        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                          <Star className="h-5 w-5 fill-yellow-500 text-yellow-500" />
-                          Your Favorites
-                        </h3>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                          {favoriteProducts.map((product) => (
-                            <ProductCard key={product.id} product={product} />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Recently Sold */}
-                    <div>
-                      <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                        <ReceiptText className="h-5 w-5" />
-                        Recently Sold Products
-                      </h3>
-                      {isLoadingRecentSales ? (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                          {Array.from({ length: 10 }).map((_, i) => (
-                            <Card key={i} className="animate-pulse">
-                              <CardContent className="p-3">
-                                <div className="aspect-square bg-muted rounded-lg mb-3" />
-                                <div className="h-4 bg-muted rounded mb-2" />
-                                <div className="h-3 bg-muted rounded w-2/3" />
-                              </CardContent>
-                            </Card>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                          {recentlySoldProducts.length > 0 ? (
-                            recentlySoldProducts.map((product) => <ProductCard key={product.id} product={product} />)
-                          ) : (
-                            <div className="col-span-full text-center text-muted-foreground py-12">
-                              <ReceiptText className="h-12 w-12 mx-auto mb-4 opacity-40" />
-                              <p>No products sold yet</p>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Recent Sales History */}
-                    <div>
-                      <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                        <Clock className="h-5 w-5" />
-                        Recent Sales History
-                      </h3>
-                      <ScrollArea className="h-80 rounded-lg border p-4">
-                        <div className="space-y-4">
-                          {recentSales.length > 0 ? (
-                            recentSales.map((sale) => (
-                              <Card key={sale.id} className="overflow-hidden">
-                                <CardContent className="p-0">
-                                  <div className="bg-primary/5 p-4 flex justify-between items-center">
-                                    <div className="flex items-center gap-3">
-                                      <div className="bg-primary/10 p-2 rounded-full">
-                                        <ReceiptText className="h-4 w-4 text-primary" />
-                                      </div>
-                                      <div>
-                                        <div className="font-medium">{formatDate(sale.created_at)}</div>
-                                        <div className="text-sm text-muted-foreground">
-                                          {sale.items?.length || 0} items • {sale.payment_method}
-                                        </div>
-                                      </div>
-                                    </div>
-                                    <div className="text-right">
-                                      <div className="font-bold text-lg">{formatCurrency(sale.total)}</div>
-                                      <div className="text-sm text-muted-foreground flex items-center gap-1">
-                                        <CreditCard className="h-3 w-3" />
-                                        {sale.payment_method}
-                                      </div>
-                                    </div>
+                                {productFavorites[product.id] ? (
+                                  <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
+                                ) : (
+                                  <StarOff className="h-4 w-4 text-muted-foreground" />
+                                )}
+                              </Button>
+                            )}
+                            <CardContent className="p-2">
+                              <div className="aspect-square bg-muted rounded-md mb-2 overflow-hidden">
+                                {product.image ? (
+                                  <img
+                                    src={product.image || "/placeholder.svg"}
+                                    alt={product.name}
+                                    className="h-full w-full object-cover transition-transform hover:scale-105"
+                                  />
+                                ) : (
+                                  <div className="h-full w-full flex items-center justify-center text-muted-foreground">
+                                    <span className="text-lg font-bold text-primary/40">{product.name.charAt(0)}</span>
                                   </div>
-                                  <div className="p-4">
-                                    <div className="flex flex-wrap gap-2">
-                                      {sale.items?.slice(0, 5).map((item: any) => (
-                                        <div
-                                          key={item.id}
-                                          className="flex items-center gap-2 bg-muted/50 rounded-full px-3 py-1"
-                                        >
-                                          <Avatar className="h-6 w-6">
-                                            <AvatarImage src={item.product?.image || ""} />
-                                            <AvatarFallback className="text-xs">
-                                              {item.product?.name?.charAt(0) || "P"}
-                                            </AvatarFallback>
-                                          </Avatar>
-                                          <span className="text-sm">
-                                            {item.quantity}× {item.product?.name || "Product"}
-                                          </span>
-                                        </div>
-                                      ))}
-                                      {sale.items && sale.items.length > 5 && (
-                                        <Badge variant="outline">+{sale.items.length - 5} more</Badge>
-                                      )}
-                                    </div>
-                                  </div>
-                                </CardContent>
-                              </Card>
-                            ))
-                          ) : (
-                            <div className="text-center text-muted-foreground py-12">
-                              <Clock className="h-12 w-12 mx-auto mb-4 opacity-40" />
-                              <p>No recent sales</p>
-                            </div>
-                          )}
-                        </div>
-                      </ScrollArea>
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="scanned" className="mt-0">
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                    {recentlyScannedProducts.length > 0 ? (
-                      recentlyScannedProducts.map((product) => <ProductCard key={product.id} product={product} />)
-                    ) : (
-                      <div className="col-span-full text-center text-muted-foreground py-12">
-                        <Scan className="h-12 w-12 mx-auto mb-4 opacity-40" />
-                        <p>No recently scanned products</p>
-                      </div>
-                    )}
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="search" className="mt-0">
-                  {isSearching ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                      {Array.from({ length: 10 }).map((_, i) => (
-                        <Card key={i} className="animate-pulse">
-                          <CardContent className="p-3">
-                            <div className="aspect-square bg-muted rounded-lg mb-3" />
-                            <div className="h-4 bg-muted rounded mb-2" />
-                            <div className="h-3 bg-muted rounded w-2/3" />
-                          </CardContent>
-                        </Card>
+                                )}
+                              </div>
+                              <div className="font-medium text-sm line-clamp-1">{product.name}</div>
+                              <div className="flex justify-between items-center mt-1">
+                                <div className="font-bold text-primary text-sm">{formatCurrency(product.price)}</div>
+                                <Badge variant={product.stock > 0 ? "outline" : "destructive"} className="text-xs">
+                                  Stock: {product.stock}
+                                </Badge>
+                              </div>
+                              {product.purchase_price && (
+                                <div className="mt-1 text-xs text-blue-600">
+                                  Profit: {formatCurrency(product.price - product.purchase_price)}
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+                        </motion.div>
                       ))}
                     </div>
-                  ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                      {products.length > 0 ? (
-                        products.map((product) => <ProductCard key={product.id} product={product} />)
-                      ) : (
-                        <div className="col-span-full text-center text-muted-foreground py-12">
-                          <Search className="h-12 w-12 mx-auto mb-4 opacity-40" />
-                          <p>No products found</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </TabsContent>
-              </Tabs>
-            </div>
-          </div>
+                    <Separator className="my-4" />
+                  </>
+                )}
 
-          {/* Desktop Cart Sidebar */}
-          <div className="hidden lg:flex w-96 border-l bg-card flex-col">
-            {/* Cart Header */}
-            <div className="p-6 border-b">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="bg-primary/10 p-2 rounded-lg">
-                    <ShoppingCart className="h-5 w-5 text-primary" />
+                {/* 2. Favorite Products Section - Second priority */}
+                {userId && favoriteProducts.length > 0 && (
+                  <>
+                    <h3 className="text-lg font-medium flex items-center">
+                      <Star className="mr-2 h-5 w-5 fill-yellow-500 text-yellow-500" />
+                      Your Favorite Products
+                    </h3>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                      {favoriteProducts.map((product) => (
+                        <motion.div
+                          key={product.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.3 }}
+                        >
+                          <Card
+                            className={cn(
+                              "cursor-pointer hover:border-primary hover:shadow-md transition-all duration-300 relative",
+                              lastAddedProduct === product.id && "border-primary ring-2 ring-primary/30",
+                              product.stock <= 0 && "border-red-500", // Add red border for 0 stock products
+                            )}
+                            onClick={() =>
+                              addToCart(
+                                product,
+                                setCart,
+                                setLastAddedProduct,
+                                setProducts,
+                                setRecentlyScannedProducts,
+                                setRecentlySoldProducts,
+                                setFavoriteProducts,
+                              )
+                            }
+                          >
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="absolute top-1 right-1 h-7 w-7 z-10 bg-background/80 hover:bg-background"
+                              onClick={(e) => toggleFavorite(product, e)}
+                            >
+                              <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
+                            </Button>
+                            <CardContent className="p-2">
+                              <div className="aspect-square bg-muted rounded-md mb-2 overflow-hidden">
+                                {product.image ? (
+                                  <img
+                                    src={product.image || "/placeholder.svg"}
+                                    alt={product.name}
+                                    className="h-full w-full object-cover transition-transform hover:scale-105"
+                                  />
+                                ) : (
+                                  <div className="h-full w-full flex items-center justify-center text-muted-foreground">
+                                    <span className="text-lg font-bold text-primary/40">{product.name.charAt(0)}</span>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="font-medium text-sm line-clamp-1">{product.name}</div>
+                              <div className="flex justify-between items-center mt-1">
+                                <div className="font-bold text-primary text-sm">{formatCurrency(product.price)}</div>
+                                <Badge variant={product.stock > 0 ? "outline" : "destructive"} className="text-xs">
+                                  Stock: {product.stock}
+                                </Badge>
+                              </div>
+                              {product.purchase_price && (
+                                <div className="mt-1 text-xs text-blue-600">
+                                  Profit: {formatCurrency(product.price - product.purchase_price)}
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+                        </motion.div>
+                      ))}
+                    </div>
+                    <Separator className="my-4" />
+                  </>
+                )}
+
+                {/* 3. Last 10 Products Sold - Third priority */}
+                <h3 className="text-lg font-medium flex items-center">
+                  <ReceiptText className="mr-2 h-5 w-5" />
+                  Last 10 Products Sold
+                </h3>
+
+                {isLoadingRecentSales ? (
+                  <div className="flex justify-center items-center h-40">
+                    <div className="animate-pulse flex flex-col items-center">
+                      <div className="h-12 w-12 rounded-full bg-primary/20 mb-2"></div>
+                      <div className="h-4 w-32 bg-primary/20 rounded"></div>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="text-lg font-bold">Shopping Cart</h2>
-                    {cartItemCount > 0 && (
-                      <p className="text-sm text-muted-foreground">
-                        {cartItemCount} items • {uniqueItemCount} unique
-                      </p>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                    {recentlySoldProducts.length > 0 ? (
+                      recentlySoldProducts.map((product) => (
+                        <motion.div
+                          key={product.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.3 }}
+                        >
+                          <Card
+                            className={cn(
+                              "cursor-pointer hover:border-primary hover:shadow-md transition-all duration-300 relative",
+                              lastAddedProduct === product.id && "border-primary ring-2 ring-primary/30",
+                              product.stock <= 0 && "border-red-500", // Add red border for 0 stock products
+                            )}
+                            onClick={() =>
+                              addToCart(
+                                product,
+                                setCart,
+                                setLastAddedProduct,
+                                setProducts,
+                                setRecentlyScannedProducts,
+                                setRecentlySoldProducts,
+                                setFavoriteProducts,
+                              )
+                            }
+                          >
+                            {userId && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="absolute top-1 right-1 h-7 w-7 z-10 bg-background/80 hover:bg-background"
+                                onClick={(e) => toggleFavorite(product, e)}
+                              >
+                                {productFavorites[product.id] ? (
+                                  <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
+                                ) : (
+                                  <StarOff className="h-4 w-4 text-muted-foreground" />
+                                )}
+                              </Button>
+                            )}
+                            <CardContent className="p-2">
+                              <div className="aspect-square bg-muted rounded-md mb-2 overflow-hidden">
+                                {product.image ? (
+                                  <img
+                                    src={product.image || "/placeholder.svg"}
+                                    alt={product.name}
+                                    className="h-full w-full object-cover transition-transform hover:scale-105"
+                                  />
+                                ) : (
+                                  <div className="h-full w-full flex items-center justify-center text-muted-foreground">
+                                    <span className="text-lg font-bold text-primary/40">{product.name.charAt(0)}</span>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="font-medium text-sm line-clamp-1">{product.name}</div>
+                              <div className="flex justify-between items-center mt-1">
+                                <div className="font-bold text-primary text-sm">{formatCurrency(product.price)}</div>
+                                <Badge variant={product.stock > 0 ? "outline" : "destructive"} className="text-xs">
+                                  Stock: {product.stock}
+                                </Badge>
+                              </div>
+                              {product.purchase_price && (
+                                <div className="mt-1 text-xs text-blue-600">
+                                  Profit: {formatCurrency(product.price - product.purchase_price)}
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+                        </motion.div>
+                      ))
+                    ) : (
+                      <div className="col-span-full text-center text-muted-foreground py-10">No products sold yet</div>
                     )}
+                  </div>
+                )}
+
+                <h3 className="text-lg font-medium flex items-center mt-8">
+                  <Clock className="mr-2 h-5 w-5" />
+                  Recent Sales History
+                </h3>
+
+                <ScrollArea className="h-[300px] rounded-lg border p-4">
+                  <div className="space-y-4">
+                    {recentSales.length > 0 ? (
+                      recentSales.map((sale) => (
+                        <motion.div
+                          key={sale.id}
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ duration: 0.3 }}
+                        >
+                          <Card className="overflow-hidden">
+                            <CardContent className="p-0">
+                              <div className="bg-primary/5 p-3 flex justify-between items-center">
+                                <div className="flex items-center">
+                                  <div className="bg-primary/10 p-2 rounded-full mr-3">
+                                    <ReceiptText className="h-4 w-4 text-primary" />
+                                  </div>
+                                  <div>
+                                    <div className="font-medium">{formatDate(sale.created_at)}</div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {sale.items?.length || 0} items · {sale.payment_method}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="font-bold">{formatCurrency(sale.total)}</div>
+                                  <div className="text-xs flex items-center justify-end text-muted-foreground">
+                                    <CreditCard className="h-3 w-3 mr-1" />
+                                    {sale.payment_method}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="p-3">
+                                <div className="flex flex-wrap gap-2">
+                                  {sale.items?.slice(0, 5).map((item: any) => (
+                                    <div
+                                      key={item.id}
+                                      className="flex items-center gap-2 bg-muted/50 rounded-full px-3 py-1"
+                                    >
+                                      <Avatar className="h-6 w-6">
+                                        <AvatarImage src={item.product?.image || ""} alt={item.product?.name || ""} />
+                                        <AvatarFallback className="text-xs">
+                                          {item.product?.name?.charAt(0) || "P"}
+                                        </AvatarFallback>
+                                      </Avatar>
+                                      <span className="text-xs">
+                                        {item.quantity}× {item.product?.name || "Product"}
+                                      </span>
+                                    </div>
+                                  ))}
+                                  {sale.items && sale.items.length > 5 && (
+                                    <Badge variant="outline" className="text-xs">
+                                      +{sale.items.length - 5} more
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </motion.div>
+                      ))
+                    ) : (
+                      <div className="text-center text-muted-foreground py-10">No recent sales</div>
+                    )}
+                  </div>
+                </ScrollArea>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="scanned" className="mt-0">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {recentlyScannedProducts.length > 0 ? (
+                  recentlyScannedProducts.map((product) => (
+                    <motion.div
+                      key={product.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <Card
+                        className={cn(
+                          "cursor-pointer hover:border-primary hover:shadow-md transition-all duration-300",
+                          lastAddedProduct === product.id && "border-primary ring-2 ring-primary/30",
+                          product.stock <= 0 && "border-red-500", // Add red border for 0 stock products
+                        )}
+                        onClick={() =>
+                          addToCart(
+                            product,
+                            setCart,
+                            setLastAddedProduct,
+                            setProducts,
+                            setRecentlyScannedProducts,
+                            setRecentlySoldProducts,
+                            setFavoriteProducts,
+                          )
+                        }
+                      >
+                        <CardContent className="p-2">
+                          <div className="aspect-square bg-muted rounded-md mb-2 overflow-hidden">
+                            {product.image ? (
+                              <img
+                                src={product.image || "/placeholder.svg"}
+                                alt={product.name}
+                                className="h-full w-full object-cover transition-transform hover:scale-105"
+                              />
+                            ) : (
+                              <div className="h-full w-full flex items-center justify-center text-muted-foreground">
+                                <span className="text-lg font-bold text-primary/40">{product.name.charAt(0)}</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="font-medium text-sm line-clamp-1">{product.name}</div>
+                          <div className="flex justify-between items-center mt-1">
+                            <div className="font-bold text-primary text-sm">{formatCurrency(product.price)}</div>
+                            <Badge variant={product.stock > 0 ? "outline" : "destructive"} className="text-xs">
+                              Stock: {product.stock}
+                            </Badge>
+                          </div>
+                          {product.purchase_price && (
+                            <div className="mt-1 text-xs text-blue-600">
+                              Profit: {formatCurrency(product.price - product.purchase_price)}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </motion.div>
+                  ))
+                ) : (
+                  <div className="col-span-full text-center text-muted-foreground py-10">
+                    No recently scanned products
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="search" className="mt-0">
+              {isSearching ? (
+                <div className="flex justify-center items-center h-40">
+                  <div className="animate-pulse flex flex-col items-center">
+                    <div className="h-12 w-12 rounded-full bg-primary/20 mb-2"></div>
+                    <div className="h-4 w-32 bg-primary/20 rounded"></div>
                   </div>
                 </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                  {products.length > 0 ? (
+                    products.map((product) => (
+                      <motion.div
+                        key={product.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3 }}
+                      >
+                        <Card
+                          className={cn(
+                            "cursor-pointer hover:border-primary hover:shadow-md transition-all duration-300",
+                            lastAddedProduct === product.id && "border-primary ring-2 ring-primary/30",
+                            product.stock <= 0 && "border-red-500", // Add red border for 0 stock products
+                          )}
+                          onClick={() =>
+                            addToCart(
+                              product,
+                              setCart,
+                              setLastAddedProduct,
+                              setProducts,
+                              setRecentlyScannedProducts,
+                              setRecentlySoldProducts,
+                              setFavoriteProducts,
+                            )
+                          }
+                        >
+                          <CardContent className="p-2">
+                            <div className="aspect-square bg-muted rounded-md mb-2 overflow-hidden">
+                              {product.image ? (
+                                <img
+                                  src={product.image || "/placeholder.svg"}
+                                  alt={product.name}
+                                  className="h-full w-full object-cover transition-transform hover:scale-105"
+                                />
+                              ) : (
+                                <div className="h-full w-full flex items-center justify-center text-muted-foreground">
+                                  <span className="text-lg font-bold text-primary/40">{product.name.charAt(0)}</span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="font-medium text-sm line-clamp-1">{product.name}</div>
+                            <div className="flex justify-between items-center mt-1">
+                              <div className="font-bold text-primary text-sm">{formatCurrency(product.price)}</div>
+                              <Badge variant={product.stock > 0 ? "outline" : "destructive"} className="text-xs">
+                                Stock: {product.stock}
+                              </Badge>
+                            </div>
+                            {product.purchase_price && (
+                              <div className="mt-1 text-xs text-blue-600">
+                                Profit: {formatCurrency(product.price - product.purchase_price)}
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      </motion.div>
+                    ))
+                  ) : (
+                    <div className="col-span-full text-center text-muted-foreground py-10">No products found</div>
+                  )}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </div>
 
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={clearCart}
-                  disabled={cart.length === 0}
-                  className="text-muted-foreground hover:text-destructive"
-                >
-                  Clear
-                </Button>
+        {/* Cart Section */}
+        <div className="w-full md:w-1/3 border-l bg-card flex flex-col h-full">
+          <div className="p-4 border-b flex justify-between items-center bg-primary/5">
+            <div className="flex items-center gap-2">
+              <div className="bg-primary/10 p-2 rounded-full">
+                <ShoppingCart className="h-5 w-5 text-primary" />
               </div>
+              <h2 className="text-lg font-bold">Cart</h2>
 
-              {/* Global Discount */}
-              {cart.length > 0 && (
-                <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <Tag className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">Global Discount</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={globalDiscount}
-                      onChange={(e) => applyGlobalDiscount(Number(e.target.value) || 0)}
-                      className="w-16 h-8 text-sm px-2 text-right"
-                      placeholder="0"
-                    />
-                    <span className="text-sm text-muted-foreground">%</span>
-                    {globalDiscount > 0 && (
-                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => applyGlobalDiscount(0)}>
-                        <X className="h-3 w-3" />
-                      </Button>
-                    )}
-                  </div>
+              {/* Cart Counter */}
+              {cartItemCount > 0 && (
+                <div className="flex gap-1">
+                  <Badge className="bg-primary text-primary-foreground">{cartItemCount} items</Badge>
+                  <Badge variant="outline">{uniqueItemCount} unique</Badge>
                 </div>
               )}
             </div>
 
-            {/* Cart Items */}
-            <ScrollArea className="flex-1 p-6">
-              <AnimatePresence>
-                {cart.length === 0 ? (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="flex flex-col items-center justify-center h-full text-muted-foreground py-12"
-                  >
-                    <div className="bg-primary/5 p-8 rounded-full mb-6">
-                      <ShoppingCart className="h-16 w-16 text-primary/40" />
-                    </div>
-                    <h3 className="text-lg font-medium mb-2">Your cart is empty</h3>
-                    <p className="text-sm text-center max-w-xs">
-                      Search for products or scan barcodes to add items to your cart
-                    </p>
-                  </motion.div>
-                ) : (
-                  <div className="space-y-4">
-                    {cart.map((item) => {
-                      const maxDiscount = calculateMaxDiscount(item.price, item.product.purchase_price || 0)
-                      const isDiscountTooHigh = item.discount > maxDiscount
-                      const discountPercentOfMax = maxDiscount > 0 ? (item.discount / maxDiscount) * 100 : 0
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clearCart}
+              disabled={cart.length === 0}
+              className="text-muted-foreground hover:text-destructive"
+            >
+              Clear
+            </Button>
+          </div>
 
-                      return (
-                        <motion.div
-                          key={item.id}
-                          initial={{ opacity: 0, x: 20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          exit={{ opacity: 0, x: -20 }}
-                          transition={{ duration: 0.2 }}
+          <ScrollArea className="flex-1 p-4">
+            <AnimatePresence>
+              {cart.length === 0 ? (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex flex-col items-center justify-center h-full text-muted-foreground py-10"
+                >
+                  <div className="bg-primary/5 p-6 rounded-full mb-4">
+                    <ShoppingCart className="h-12 w-12 text-primary/40" />
+                  </div>
+                  <p className="text-lg mb-2">Your cart is empty</p>
+                  <p className="text-sm text-center max-w-xs">
+                    Search for products or scan barcodes to add items to your cart
+                  </p>
+                </motion.div>
+              ) : (
+                <div className="space-y-4">
+                  {cart.map((item) => {
+                    const maxDiscount = calculateMaxDiscount(item.price, item.product.purchase_price || 0)
+                    const isDiscountTooHigh = item.discount > maxDiscount
+                    const discountPercentOfMax = maxDiscount > 0 ? (item.discount / maxDiscount) * 100 : 0
+
+                    return (
+                      <motion.div
+                        key={item.id}
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -20 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        <Card
+                          className={cn(
+                            "overflow-hidden",
+                            lastAddedProduct === item.product_id && "border-primary",
+                            isDiscountTooHigh && "border-red-500",
+                          )}
                         >
-                          <Card
-                            className={cn(
-                              "overflow-hidden",
-                              lastAddedProduct === item.product_id && "border-primary ring-2 ring-primary/30",
-                              isDiscountTooHigh && "border-red-500",
-                            )}
-                          >
-                            <CardContent className="p-4">
-                              <div className="flex gap-3">
-                                <div className="h-16 w-16 rounded-lg overflow-hidden bg-muted flex-shrink-0">
-                                  {item.product.image ? (
-                                    <img
-                                      src={item.product.image || "/placeholder.svg"}
-                                      alt={item.name}
-                                      className="h-full w-full object-cover"
-                                    />
-                                  ) : (
-                                    <div className="h-full w-full flex items-center justify-center">
-                                      <Package className="h-6 w-6 text-primary/40" />
-                                    </div>
-                                  )}
+                          <CardContent className="p-2">
+                            <div className="flex gap-2">
+                              <div className="h-14 w-14 rounded-md overflow-hidden bg-muted flex-shrink-0">
+                                {item.product.image ? (
+                                  <img
+                                    src={item.product.image || "/placeholder.svg"}
+                                    alt={item.name}
+                                    className="h-full w-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="h-full w-full flex items-center justify-center bg-primary/10">
+                                    <span className="text-lg font-bold text-primary/40">{item.name.charAt(0)}</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex-1 min-w-0">
+                                <div className="flex justify-between">
+                                  <h4 className="font-medium text-sm line-clamp-1">{item.name}</h4>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-5 w-5 text-destructive -mr-1 -mt-1"
+                                    onClick={() => removeFromCart(item.id)}
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
                                 </div>
 
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex justify-between items-start mb-2">
-                                    <h4 className="font-medium text-sm line-clamp-2">{item.name}</h4>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-6 w-6 text-destructive ml-2"
-                                      onClick={() => removeFromCart(item.id)}
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                    </Button>
-                                  </div>
+                                <div className="text-xs text-muted-foreground mt-0.5">
+                                  {formatCurrency(item.price)} × {item.quantity}
+                                </div>
 
-                                  <div className="text-xs text-muted-foreground mb-2">
-                                    {formatCurrency(item.price)} × {item.quantity} | Stock: {item.product.stock}
-                                  </div>
+                                {/* Stock display */}
+                                <div className="text-xs mt-0.5">
+                                  Stock:{" "}
+                                  <span className={item.product.stock <= 0 ? "text-red-500 font-bold" : ""}>
+                                    {item.product.stock}
+                                  </span>
+                                </div>
 
-                                  {/* Quantity Controls */}
-                                  <div className="flex items-center justify-between mb-3">
-                                    <div className="flex items-center gap-2">
-                                      <Button
-                                        variant="outline"
-                                        size="icon"
-                                        className="h-7 w-7"
-                                        onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                                      >
-                                        <Minus className="h-3 w-3" />
-                                      </Button>
-                                      <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
-                                      <Button
-                                        variant="outline"
-                                        size="icon"
-                                        className="h-7 w-7"
-                                        onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                                      >
-                                        <Plus className="h-3 w-3" />
-                                      </Button>
-                                    </div>
-
-                                    <div className="text-right">
-                                      {item.discount > 0 && (
-                                        <div className="text-xs line-through text-muted-foreground">
-                                          {formatCurrency(item.price * item.quantity)}
-                                        </div>
-                                      )}
-                                      <div className="font-bold text-primary">{formatCurrency(item.subtotal)}</div>
-                                    </div>
-                                  </div>
-
-                                  {/* Discount Control */}
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <div className="flex items-center gap-1">
-                                          <Tag className="h-3 w-3 text-muted-foreground" />
-                                          <Input
-                                            type="number"
-                                            min="0"
-                                            max="100"
-                                            value={item.discount}
-                                            onChange={(e) => updateDiscount(item.id, Number(e.target.value) || 0)}
-                                            className={cn(
-                                              "h-6 w-14 text-xs px-2",
-                                              isDiscountTooHigh && "border-red-500 text-red-500",
-                                            )}
-                                            placeholder="0"
-                                          />
-                                          <span className="text-xs text-muted-foreground">%</span>
-                                        </div>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        <p>Max discount before loss: {maxDiscount.toFixed(1)}%</p>
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </div>
-
-                                  {/* Discount Progress Bar */}
-                                  {maxDiscount > 0 && (
-                                    <div className="mb-2">
-                                      <Progress
-                                        value={discountPercentOfMax}
-                                        className={cn("h-1", discountPercentOfMax < 75 ? "bg-blue-100" : "bg-red-100")}
-                                        indicatorClassName={cn(
-                                          discountPercentOfMax < 75
-                                            ? "bg-blue-500"
-                                            : discountPercentOfMax < 100
-                                              ? "bg-yellow-500"
-                                              : "bg-red-500",
-                                        )}
-                                      />
-                                    </div>
-                                  )}
-
-                                  {/* Profit Display */}
+                                {/* Profit display */}
+                                <div className="flex justify-between items-center mt-1">
                                   <div className="text-xs">
-                                    <span className="text-blue-600">Profit: </span>
+                                    <span className="text-blue-600">Profit:</span>
                                     <span
                                       className={cn(
+                                        "ml-1",
                                         item.profitAfterDiscount < 0 ? "text-red-500 font-bold" : "text-blue-600",
                                       )}
                                     >
                                       {formatCurrency(item.profitAfterDiscount)}
                                     </span>
-                                    {item.discount > 0 && item.originalProfit !== item.profitAfterDiscount && (
+                                    {item.discount > 0 && (
                                       <span className="text-muted-foreground ml-1">
                                         (was {formatCurrency(item.originalProfit)})
                                       </span>
                                     )}
                                   </div>
                                 </div>
+
+                                {/* Item Discount with max discount indicator */}
+                                <div className="flex items-center gap-1 mt-1">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div className="flex items-center">
+                                        <Tag className="h-3 w-3 text-muted-foreground" />
+                                        <div className="flex items-center">
+                                          <Input
+                                            type="number"
+                                            min="0"
+                                            max="100"
+                                            value={item.discount}
+                                            onChange={(e) => updateDiscount(item.id, Number(e.target.value) || 0)}
+                                            className={cn(
+                                              "w-12 h-6 text-xs px-1",
+                                              isDiscountTooHigh && "border-red-500 text-red-500",
+                                            )}
+                                            placeholder="0%"
+                                          />
+                                          <span className="ml-0.5 text-xs text-muted-foreground">%</span>
+                                        </div>
+                                      </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Max discount before loss: {maxDiscount}%</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+
+                                  <div className="flex items-center gap-1 ml-auto">
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      className="h-6 w-6"
+                                      onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                                    >
+                                      <Minus className="h-2.5 w-2.5" />
+                                    </Button>
+                                    <span className="w-5 text-center text-xs">{item.quantity}</span>
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      className="h-6 w-6"
+                                      onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                                    >
+                                      <Plus className="h-2.5 w-2.5" />
+                                    </Button>
+                                  </div>
+                                </div>
+
+                                {/* Discount progress bar */}
+                                {maxDiscount > 0 && (
+                                  <div className="mt-1">
+                                    <Progress
+                                      value={discountPercentOfMax}
+                                      className={cn("h-1", discountPercentOfMax < 75 ? "bg-blue-100" : "bg-red-100")}
+                                      indicatorClassName={cn(
+                                        discountPercentOfMax < 75
+                                          ? "bg-blue-500"
+                                          : discountPercentOfMax < 100
+                                            ? "bg-yellow-500"
+                                            : "bg-red-500",
+                                      )}
+                                    />
+                                  </div>
+                                )}
+
+                                <div className="flex justify-end mt-1">
+                                  {item.discount > 0 && (
+                                    <span className="text-xs line-through text-muted-foreground mr-2">
+                                      {formatCurrency(item.price * item.quantity)}
+                                    </span>
+                                  )}
+                                  <span
+                                    className={cn("text-sm font-medium", item.discount > 0 ? "text-green-600" : "")}
+                                  >
+                                    {formatCurrency(item.subtotal)}
+                                  </span>
+                                </div>
                               </div>
-                            </CardContent>
-                          </Card>
-                        </motion.div>
-                      )
-                    })}
-                  </div>
-                )}
-              </AnimatePresence>
-            </ScrollArea>
-
-            {/* Cart Summary */}
-            {cart.length > 0 && (
-              <div className="border-t p-6 bg-card">
-                <div className="space-y-3 mb-6">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Subtotal</span>
-                    <span>{formatCurrency(subtotal)}</span>
-                  </div>
-
-                  {totalDiscount > 0 && (
-                    <div className="flex justify-between text-sm text-green-600">
-                      <span>Discount</span>
-                      <span>-{formatCurrency(totalDiscount)}</span>
-                    </div>
-                  )}
-
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Tax ({(settings.tax_rate * 100).toFixed(0)}%)</span>
-                    <span>{formatCurrency(tax)}</span>
-                  </div>
-
-                  <div className="flex justify-between text-sm">
-                    <span className="text-blue-600 flex items-center gap-1">
-                      Profit
-                      {profitAfterDiscount < 0 && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <AlertCircle className="h-3 w-3 text-red-500" />
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Warning: You're selling at a loss!</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
-                    </span>
-                    <div>
-                      {originalProfit !== profitAfterDiscount && (
-                        <span className="text-xs line-through text-muted-foreground mr-2">
-                          {formatCurrency(originalProfit)}
-                        </span>
-                      )}
-                      <span className={cn(profitAfterDiscount < 0 ? "text-red-500 font-bold" : "text-blue-600")}>
-                        {formatCurrency(profitAfterDiscount)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div className="flex justify-between font-bold text-lg">
-                    <span>Total</span>
-                    <span>{formatCurrency(total)}</span>
-                  </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </motion.div>
+                    )
+                  })}
                 </div>
+              )}
+            </AnimatePresence>
+          </ScrollArea>
 
-                <Button className="w-full relative overflow-hidden group" size="lg" onClick={handleCheckout}>
-                  <span className="relative z-10 flex items-center">
-                    Checkout
-                    <ChevronRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
-                  </span>
-                  <span className="absolute inset-0 bg-gradient-to-r from-primary to-primary-foreground/20 opacity-0 group-hover:opacity-100 transition-opacity" />
-                </Button>
+          <div className="border-t p-4 bg-card">
+            <div className="space-y-2 mb-4">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Subtotal</span>
+                <span>{formatCurrency(subtotal)}</span>
               </div>
-            )}
+
+              {/* Global Discount Input */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Global Discount</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <AlertCircle className="h-3 w-3 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Applies to all items in cart</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <div className="flex items-center">
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={globalDiscount}
+                    onChange={(e) => applyGlobalDiscount(Number(e.target.value) || 0)}
+                    className={cn(
+                      "w-16 h-7 text-sm px-2 text-right",
+                      checkGlobalDiscountImpact(globalDiscount) && "border-red-500 text-red-500",
+                    )}
+                    placeholder="0%"
+                  />
+                  <span className="ml-1 text-sm text-muted-foreground">%</span>
+                  {globalDiscount > 0 && (
+                    <Button variant="ghost" size="icon" className="h-6 w-6 ml-1" onClick={() => applyGlobalDiscount(0)}>
+                      <X className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {totalDiscount > 0 && (
+                <div className="flex justify-between text-green-600">
+                  <span>Discount</span>
+                  <span>-{formatCurrency(totalDiscount)}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Tax ({(settings.tax_rate * 100).toFixed(0)}%)</span>
+                <span>{formatCurrency(tax)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-blue-600 flex items-center">
+                  Profit
+                  {profitAfterDiscount < 0 && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <AlertCircle className="h-3 w-3 ml-1 text-red-500" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Warning: You're selling at a loss!</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </span>
+                <div>
+                  {originalProfit !== profitAfterDiscount && (
+                    <span className="text-xs line-through text-muted-foreground mr-2">
+                      {formatCurrency(originalProfit)}
+                    </span>
+                  )}
+                  <span className={cn(profitAfterDiscount < 0 ? "text-red-500 font-bold" : "text-blue-600")}>
+                    {formatCurrency(profitAfterDiscount)}
+                  </span>
+                </div>
+              </div>
+              <Separator className="my-2" />
+              <div className="flex justify-between font-bold text-lg">
+                <span>Total</span>
+                <span>{formatCurrency(total)}</span>
+              </div>
+            </div>
+
+            <Button
+              className="w-full relative overflow-hidden group"
+              size="lg"
+              disabled={cart.length === 0}
+              onClick={handleCheckout}
+            >
+              <span className="relative z-10 flex items-center">
+                Checkout
+                <ChevronRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
+              </span>
+              <span className="absolute inset-0 bg-gradient-to-r from-primary to-primary-foreground/20 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </Button>
           </div>
         </div>
-
-        {/* Stock Adjustment Dialog */}
-        <StockAdjustmentDialog
-          isOpen={stockDialog.isOpen}
-          onClose={() => setStockDialog((prev) => ({ ...prev, isOpen: false }))}
-          product={stockDialog.product}
-          onStockUpdate={stockDialog.onUpdate || (async () => {})}
-          message={stockDialog.message}
-          type={stockDialog.type}
-        />
 
         {/* Sale Confirmation Dialog */}
         <SaleConfirmationDialog
