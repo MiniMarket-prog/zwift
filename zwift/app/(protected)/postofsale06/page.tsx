@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   ShoppingCart,
@@ -23,6 +23,10 @@ import {
   Barcode,
   TrendingUp,
   DollarSign,
+  Camera,
+  FlashlightOff,
+  Flashlight,
+  RotateCcw,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -36,6 +40,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Progress } from "@/components/ui/progress"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import {
   createSale,
@@ -87,6 +92,479 @@ const updateProductStock = async (productId: string, newStock: number): Promise<
   }
 
   return
+}
+
+// Camera scanner component with real barcode detection
+const BarcodeScanner = ({
+  onScan,
+  isActive,
+}: {
+  onScan: (barcode: string) => void
+  isActive: boolean
+}) => {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const scanIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const [hasFlash, setHasFlash] = useState(false)
+  const [flashOn, setFlashOn] = useState(false)
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("environment")
+  const [isScanning, setIsScanning] = useState(false)
+  const [lastDetectedCode, setLastDetectedCode] = useState<string | null>(null)
+  const [needsUserInteraction, setNeedsUserInteraction] = useState(false)
+  const [debugInfo, setDebugInfo] = useState<string[]>([])
+
+  // Check if BarcodeDetector is available
+  const isBarcodeDetectorSupported = typeof window !== "undefined" && "BarcodeDetector" in window
+
+  // Add debug info with timestamp
+  const addDebugInfo = (message: string) => {
+    const timestamp = new Date().toLocaleTimeString()
+    setDebugInfo((prev) => {
+      const newInfo = [...prev, `[${timestamp}] ${message}`]
+      return newInfo.slice(-10) // Keep last 10 messages
+    })
+    console.log(`[Scanner Debug] ${message}`)
+  }
+
+  // Start camera
+  const startCamera = useCallback(async () => {
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop())
+      }
+
+      addDebugInfo(`Starting camera with facing mode: ${facingMode}`)
+
+      const constraints: MediaStreamConstraints = {
+        video: {
+          facingMode,
+          width: { ideal: 1280, min: 640 },
+          height: { ideal: 720, min: 480 },
+        },
+        audio: false,
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints)
+      streamRef.current = stream
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+
+        videoRef.current.onloadeddata = () => {
+          addDebugInfo("Video data loaded, starting barcode detection")
+          startBarcodeDetection()
+        }
+
+        try {
+          await videoRef.current.play()
+          addDebugInfo("Video playing successfully")
+          setNeedsUserInteraction(false)
+        } catch (err) {
+          addDebugInfo(`Play failed: ${(err as Error).message}`)
+          setNeedsUserInteraction(true)
+        }
+      }
+
+      // Check if flash is available
+      const videoTrack = stream.getVideoTracks()[0]
+      const capabilities = videoTrack.getCapabilities()
+      setHasFlash(!!(capabilities as any).torch)
+    } catch (error) {
+      addDebugInfo(`Camera error: ${(error as Error).message}`)
+      console.error("Error starting camera:", error)
+    }
+  }, [facingMode])
+
+  // Start barcode detection
+  const startBarcodeDetection = async () => {
+    if (!videoRef.current || !canvasRef.current) {
+      addDebugInfo("Cannot start detection: video or canvas ref not available")
+      return
+    }
+
+    setIsScanning(true)
+    addDebugInfo("Starting barcode detection")
+
+    // Try native BarcodeDetector first
+    if (isBarcodeDetectorSupported) {
+      try {
+        const barcodeDetector = new (window as any).BarcodeDetector({
+          formats: ["ean_13", "ean_8", "code_39", "code_128", "qr_code", "upc_a", "upc_e"],
+        })
+
+        addDebugInfo("Using native BarcodeDetector API")
+        startNativeDetection(barcodeDetector)
+        return
+      } catch (error) {
+        addDebugInfo(`BarcodeDetector failed: ${(error as Error).message}`)
+      }
+    }
+
+    // Fallback to ZXing
+    addDebugInfo("Using ZXing library")
+    startZXingDetection()
+  }
+
+  // Native BarcodeDetector scanning
+  const startNativeDetection = (detector: any) => {
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current)
+    }
+
+    scanIntervalRef.current = setInterval(async () => {
+      if (!videoRef.current || !canvasRef.current || videoRef.current.paused || videoRef.current.ended) {
+        return
+      }
+
+      try {
+        const canvas = canvasRef.current
+        const context = canvas.getContext("2d")
+        if (!context) return
+
+        canvas.width = videoRef.current.videoWidth
+        canvas.height = videoRef.current.videoHeight
+        context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height)
+
+        const barcodes = await detector.detect(canvas)
+        if (barcodes.length > 0) {
+          const barcode = barcodes[0].rawValue
+          if (barcode !== lastDetectedCode && barcode.length >= 8) {
+            addDebugInfo(`Native API detected: ${barcode}`)
+            handleSuccessfulScan(barcode)
+          }
+        }
+      } catch (error) {
+        // Ignore detection errors, they're normal when no barcode is present
+      }
+    }, 300)
+  }
+
+  // ZXing scanning
+  const startZXingDetection = async () => {
+    try {
+      const ZXing = await import("@zxing/library")
+      const codeReader = new ZXing.BrowserMultiFormatReader()
+
+      addDebugInfo("ZXing initialized")
+
+      if (scanIntervalRef.current) {
+        clearInterval(scanIntervalRef.current)
+      }
+
+      scanIntervalRef.current = setInterval(() => {
+        if (!videoRef.current || !canvasRef.current || videoRef.current.paused || videoRef.current.ended) {
+          return
+        }
+
+        try {
+          const canvas = canvasRef.current
+          const context = canvas.getContext("2d")
+          if (!context) return
+
+          canvas.width = videoRef.current.videoWidth
+          canvas.height = videoRef.current.videoHeight
+          context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height)
+
+          const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas)
+          const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource))
+
+          try {
+            const result = new ZXing.MultiFormatReader().decode(binaryBitmap)
+            if (result && result.getText()) {
+              const barcode = result.getText()
+              if (barcode !== lastDetectedCode && barcode.length >= 8) {
+                addDebugInfo(`ZXing detected: ${barcode}`)
+                handleSuccessfulScan(barcode)
+              }
+            }
+          } catch (error) {
+            // ZXing throws errors when no barcode is found, ignore these
+            if (!(error instanceof ZXing.NotFoundException)) {
+              addDebugInfo(`ZXing decode error: ${(error as Error).message}`)
+            }
+          }
+        } catch (error) {
+          addDebugInfo(`ZXing processing error: ${(error as Error).message}`)
+        }
+      }, 500)
+    } catch (error) {
+      addDebugInfo(`ZXing import error: ${(error as Error).message}`)
+    }
+  }
+
+  // Handle successful scan
+  const handleSuccessfulScan = (barcode: string) => {
+    setLastDetectedCode(barcode)
+
+    // Stop scanning
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current)
+      scanIntervalRef.current = null
+    }
+    setIsScanning(false)
+
+    // Play success sound
+    playBeepSound()
+
+    // Call the callback
+    onScan(barcode)
+  }
+
+  // Stop camera
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop())
+      streamRef.current = null
+    }
+
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current)
+      scanIntervalRef.current = null
+    }
+
+    setIsScanning(false)
+    addDebugInfo("Camera stopped")
+  }, [])
+
+  // Toggle flash
+  const toggleFlash = useCallback(async () => {
+    if (streamRef.current && hasFlash) {
+      const videoTrack = streamRef.current.getVideoTracks()[0]
+      try {
+        await videoTrack.applyConstraints({
+          advanced: [{ torch: !flashOn } as any],
+        })
+        setFlashOn(!flashOn)
+      } catch (error) {
+        console.error("Error toggling flash:", error)
+      }
+    }
+  }, [flashOn, hasFlash])
+
+  // Switch camera
+  const switchCamera = useCallback(() => {
+    stopCamera()
+    setFacingMode((prev) => (prev === "user" ? "environment" : "user"))
+  }, [stopCamera])
+
+  // Manual capture
+  const manualCapture = useCallback(async () => {
+    if (!videoRef.current || !canvasRef.current) return
+
+    addDebugInfo("Manual capture initiated")
+
+    try {
+      const canvas = canvasRef.current
+      const context = canvas.getContext("2d")
+      if (!context) return
+
+      canvas.width = videoRef.current.videoWidth
+      canvas.height = videoRef.current.videoHeight
+      context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height)
+
+      // Try native BarcodeDetector first
+      if (isBarcodeDetectorSupported) {
+        try {
+          const barcodeDetector = new (window as any).BarcodeDetector({
+            formats: ["ean_13", "ean_8", "code_39", "code_128", "qr_code", "upc_a", "upc_e"],
+          })
+
+          const barcodes = await barcodeDetector.detect(canvas)
+          if (barcodes.length > 0) {
+            const barcode = barcodes[0].rawValue
+            addDebugInfo(`Manual capture detected: ${barcode}`)
+            handleSuccessfulScan(barcode)
+            return
+          }
+        } catch (error) {
+          addDebugInfo(`Manual detection error: ${(error as Error).message}`)
+        }
+      }
+
+      // Fallback to ZXing
+      try {
+        const ZXing = await import("@zxing/library")
+        const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas)
+        const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource))
+
+        const result = new ZXing.MultiFormatReader().decode(binaryBitmap)
+        if (result && result.getText()) {
+          const barcode = result.getText()
+          addDebugInfo(`Manual ZXing detected: ${barcode}`)
+          handleSuccessfulScan(barcode)
+          return
+        }
+      } catch (error) {
+        addDebugInfo(`Manual ZXing failed: ${(error as Error).message}`)
+      }
+
+      // No barcode found
+      addDebugInfo("No barcode found in manual capture")
+    } catch (error) {
+      addDebugInfo(`Manual capture error: ${(error as Error).message}`)
+    }
+  }, [])
+
+  // Handle manual play
+  const handleManualPlay = async () => {
+    if (videoRef.current) {
+      try {
+        await videoRef.current.play()
+        setNeedsUserInteraction(false)
+        addDebugInfo("Video played after user interaction")
+        startBarcodeDetection()
+      } catch (err) {
+        addDebugInfo(`Manual play failed: ${(err as Error).message}`)
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (isActive) {
+      startCamera()
+    } else {
+      stopCamera()
+    }
+
+    return () => {
+      stopCamera()
+    }
+  }, [isActive, startCamera, stopCamera])
+
+  return (
+    <div className="relative w-full h-full bg-black rounded-lg overflow-hidden">
+      <video
+        ref={videoRef}
+        className="w-full h-full object-cover"
+        playsInline
+        muted
+        autoPlay
+        style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }}
+      />
+      <canvas ref={canvasRef} className="hidden" />
+
+      {/* Scanning overlay */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="relative">
+          {/* Scanning frame */}
+          <div className="w-64 h-64 border-2 border-white rounded-lg relative">
+            <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg" />
+            <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg" />
+            <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg" />
+            <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg" />
+
+            {/* Scanning line animation */}
+            <motion.div
+              className="absolute left-0 right-0 h-0.5 bg-primary shadow-lg"
+              animate={{
+                y: [0, 256, 0],
+              }}
+              transition={{
+                duration: 2,
+                repeat: Number.POSITIVE_INFINITY,
+                ease: "linear",
+              }}
+            />
+          </div>
+
+          {/* Instructions */}
+          <div className="absolute -bottom-20 left-1/2 transform -translate-x-1/2 text-center">
+            <p className="text-white text-sm font-medium">Position barcode within frame</p>
+            <p className="text-white/70 text-xs mt-1">
+              {isScanning ? "Scanning automatically..." : "Tap capture to scan manually"}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Play button for browsers that require user interaction */}
+      {needsUserInteraction && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/70">
+          <Button onClick={handleManualPlay} size="lg">
+            <Camera className="h-4 w-4 mr-2" />
+            Tap to Start Camera
+          </Button>
+        </div>
+      )}
+
+      {/* Camera controls */}
+      <div className="absolute top-4 right-4 flex flex-col gap-2">
+        {hasFlash && (
+          <Button
+            variant="secondary"
+            size="icon"
+            className="w-10 h-10 rounded-full bg-black/50 hover:bg-black/70"
+            onClick={toggleFlash}
+          >
+            {flashOn ? <FlashlightOff className="h-4 w-4 text-white" /> : <Flashlight className="h-4 w-4 text-white" />}
+          </Button>
+        )}
+        <Button
+          variant="secondary"
+          size="icon"
+          className="w-10 h-10 rounded-full bg-black/50 hover:bg-black/70"
+          onClick={switchCamera}
+        >
+          <RotateCcw className="h-4 w-4 text-white" />
+        </Button>
+      </div>
+
+      {/* Manual capture button */}
+      <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
+        <Button size="lg" className="rounded-full w-16 h-16 bg-primary hover:bg-primary/90" onClick={manualCapture}>
+          <Camera className="h-6 w-6" />
+        </Button>
+      </div>
+
+      {/* Scanning status */}
+      <div className="absolute top-4 left-4 bg-black/50 text-white px-3 py-1 rounded-full text-sm">
+        {isScanning ? (
+          <div className="flex items-center gap-2">
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
+            >
+              <Scan className="h-4 w-4" />
+            </motion.div>
+            Scanning...
+          </div>
+        ) : (
+          "Ready to scan"
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Barcode Scanner Dialog
+const BarcodeScannerDialog = ({
+  isOpen,
+  onClose,
+  onScan,
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onScan: (barcode: string) => void
+}) => {
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md max-w-[95vw] p-0 h-[80vh] max-h-[600px]">
+        <DialogHeader className="p-4 bg-card border-b">
+          <DialogTitle className="text-center">Scan Barcode</DialogTitle>
+        </DialogHeader>
+        <div className="flex-1 h-full">
+          <BarcodeScanner
+            isActive={isOpen}
+            onScan={(barcode) => {
+              onScan(barcode)
+              onClose()
+            }}
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 // Calculate subtotal
@@ -583,6 +1061,7 @@ export default function POSPage() {
   const [productFavorites, setProductFavorites] = useState<Record<string, boolean>>({})
   const [lastSearchLength, setLastSearchLength] = useState(0)
   const [globalDiscount, setGlobalDiscount] = useState<number>(0)
+  const [isScannerOpen, setIsScannerOpen] = useState(false)
 
   // Mobile-specific states
   const [isCartOpen, setIsCartOpen] = useState(false)
@@ -1809,14 +2288,14 @@ export default function POSPage() {
                     ref={barcodeSearchInputRef}
                     type="search"
                     placeholder="Scan barcode..."
-                    className="pl-10 pr-10 h-12 text-base rounded-full border-primary/20 focus-visible:ring-primary/30"
+                    className="pl-10 pr-16 h-12 text-base rounded-full border-primary/20 focus-visible:ring-primary/30"
                     value={barcodeSearchTerm}
                     onChange={handleBarcodeSearch}
                     onKeyDown={handleBarcodeSearchKeyDown}
                   />
                   {barcodeSearchTerm && (
                     <button
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
+                      className="absolute right-14 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
                       onClick={() => {
                         setBarcodeSearchTerm("")
                         if (barcodeSearchInputRef.current) {
@@ -1827,6 +2306,14 @@ export default function POSPage() {
                       <X className="h-4 w-4" />
                     </button>
                   )}
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8"
+                    onClick={() => setIsScannerOpen(true)}
+                  >
+                    <Camera className="h-4 w-4 text-primary" />
+                  </Button>
                 </div>
               </div>
             </div>
@@ -2368,6 +2855,16 @@ export default function POSPage() {
           isProcessing={isProcessing}
           onCancel={() => setIsCheckoutOpen(false)}
         />
+
+      {/* Barcode Scanner Dialog */}
+      <BarcodeScannerDialog
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onScan={(barcode) => {
+          setBarcodeSearchTerm(barcode);
+          handleBarcodeSearch({ target: { value: barcode } } as React.ChangeEvent<HTMLInputElement>);
+        }}
+      />
       </div>
     </TooltipProvider>
   )
