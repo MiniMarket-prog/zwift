@@ -1390,43 +1390,7 @@ export default function POSPage() {
         {/* Products Section */}
         <div className="w-full md:w-2/3 p-4 overflow-auto">
           {/* Today's Sales and Profit Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <Card className="bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="flex items-center text-blue-600 mb-1">
-                      <DollarSign className="h-4 w-4 mr-1" />
-                      <span className="text-sm font-medium">Today's Sales</span>
-                    </div>
-                    <div className="text-2xl font-bold text-blue-700">{formatCurrency(todayTotal)}</div>
-                  </div>
-                  <div className="bg-blue-200 p-3 rounded-full">
-                    <TrendingUp className="h-6 w-6 text-blue-600" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-gradient-to-r from-green-50 to-green-100 border-green-200">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="flex items-center text-green-600 mb-1">
-                      <TrendingUp className="h-4 w-4 mr-1" />
-                      <span className="text-sm font-medium">Today's Profit</span>
-                    </div>
-                    <div className={cn("text-2xl font-bold", todayProfit >= 0 ? "text-green-700" : "text-red-600")}>
-                      {formatCurrency(todayProfit)}
-                    </div>
-                  </div>
-                  <div className="bg-green-200 p-3 rounded-full">
-                    <DollarSign className="h-6 w-6 text-green-600" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          
 
           <div className="mb-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">

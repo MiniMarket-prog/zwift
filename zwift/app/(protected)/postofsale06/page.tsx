@@ -27,6 +27,9 @@ import {
   FlashlightOff,
   Flashlight,
   RotateCcw,
+  Eye,
+  EyeOff,
+  Calendar,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -57,6 +60,7 @@ import {
   createClient,
 } from "@/lib/supabase-client2"
 import { useEffect as useEffectOriginal } from "react"
+import { format } from "date-fns"
 
 interface PosCartItem extends Omit<CartItem, "product"> {
   product: Product & { purchase_price?: number }
@@ -1001,41 +1005,45 @@ const checkGlobalDiscountImpact = (discountPercent: number): boolean => {
 
 // Function to calculate today's sales and profit using Morocco timezone
 const calculateTodayStats = (recentSales: any[]) => {
-  // Morocco timezone is UTC+1
+  // Get today's date range (start and end of today)
   const now = new Date()
-  const moroccoTime = new Date(now.getTime() + 1 * 60 * 60 * 1000) // Add 1 hour for Morocco timezone
-  const todayStart = new Date(moroccoTime.getFullYear(), moroccoTime.getMonth(), moroccoTime.getDate())
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000) // End of today
 
   const todaySales = recentSales.filter((sale) => {
     const saleDate = new Date(sale.created_at)
-    const saleInMorocco = new Date(saleDate.getTime() + 1 * 60 * 60 * 1000)
-    return saleInMorocco >= todayStart && saleInMorocco < todayEnd
+    return saleDate >= todayStart && saleDate < todayEnd
   })
 
   const todayTotal = todaySales.reduce((sum, sale) => sum + (sale.total || 0), 0)
 
-  // Calculate today's profit from sale items
-  const todayProfit = todaySales.reduce((sum, sale) => {
-    if (sale.items) {
-      const saleProfit = sale.items.reduce((itemSum: number, item: any) => {
-        const purchasePrice = item.product?.purchase_price || 0
-        const salePrice = item.price || 0
-        const quantity = item.quantity || 0
-        const discount = item.discount || 0
+  // Calculate today's profit using the same logic as summary page
+  let totalProfit = 0
 
-        // Calculate profit per item after discount
-        const priceAfterDiscount = salePrice * (1 - discount / 100)
-        const profitPerItem = priceAfterDiscount - purchasePrice
+  todaySales.forEach((sale) => {
+    if (sale.items && sale.items.length > 0) {
+      sale.items.forEach((item: any) => {
+        const purchasePrice = item.product?.purchase_price || null
 
-        return itemSum + profitPerItem * quantity
-      }, 0)
-      return sum + saleProfit
+        if (purchasePrice !== null) {
+          // Get the discount percentage (default to 0 if not present)
+          const discount = item.discount || 0
+
+          // Calculate the selling price after discount
+          const priceAfterDiscount = item.price * (1 - discount / 100)
+
+          // Calculate cost and profit
+          const itemCost = purchasePrice * item.quantity
+          const itemRevenue = priceAfterDiscount * item.quantity
+          const itemProfit = itemRevenue - itemCost
+
+          totalProfit += itemProfit
+        }
+      })
     }
-    return sum
-  }, 0)
+  })
 
-  return { todayTotal, todayProfit }
+  return { todayTotal, todayProfit: totalProfit }
 }
 
 export default function POSPage() {
@@ -2186,6 +2194,79 @@ export default function POSPage() {
     </div>
   )
 
+  // Date and Stats Visibility States
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [showStats, setShowStats] = useState<boolean>(() => {
+    if (typeof localStorage !== 'undefined') {
+      const storedValue = localStorage.getItem('showStats');
+      return storedValue === 'true' || storedValue === null;
+    }
+    return true;
+  });
+
+  // Persist showStats to localStorage
+  useEffect(() => {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('showStats', String(showStats));
+    }
+  }, [showStats]);
+
+  // Function to toggle stats visibility
+  const toggleStatsVisibility = () => {
+    setShowStats(!showStats);
+  };
+
+  // Function to handle date change
+  const handleDateChange = (date: Date | undefined) => {
+    if (date) {
+      setSelectedDate(date);
+    }
+  };
+
+  // Calculate selected date's sales and profit
+  const calculateSelectedDateStats = (recentSales: any[]) => {
+    const formattedSelectedDate = format(selectedDate, 'yyyy-MM-dd');
+
+    const selectedDateSales = recentSales.filter((sale) => {
+      const saleDate = new Date(sale.created_at);
+      const formattedSaleDate = format(saleDate, 'yyyy-MM-dd');
+      return formattedSaleDate === formattedSelectedDate;
+    });
+
+    const selectedDateTotal = selectedDateSales.reduce((sum, sale) => sum + (sale.total || 0), 0);
+
+    // Calculate selected date's profit using the same logic as summary page
+    let totalProfit = 0;
+
+    selectedDateSales.forEach((sale) => {
+      if (sale.items && sale.items.length > 0) {
+        sale.items.forEach((item: any) => {
+          const purchasePrice = item.product?.purchase_price || null;
+
+          if (purchasePrice !== null) {
+            // Get the discount percentage (default to 0 if not present)
+            const discount = item.discount || 0;
+
+            // Calculate the selling price after discount
+            const priceAfterDiscount = item.price * (1 - discount / 100);
+
+            // Calculate cost and profit
+            const itemCost = purchasePrice * item.quantity;
+            const itemRevenue = priceAfterDiscount * item.quantity;
+            const itemProfit = itemRevenue - itemCost;
+
+            totalProfit += itemProfit;
+          }
+        });
+      }
+    });
+
+    return { selectedDateTotal, selectedDateProfit: totalProfit };
+  };
+
+  // Calculate selected date's stats
+  const { selectedDateTotal, selectedDateProfit } = calculateSelectedDateStats(recentSales);
+
   return (
     <TooltipProvider>
       <div className="flex flex-col lg:flex-row h-screen bg-gradient-to-br from-background to-background/90">
@@ -2200,7 +2281,7 @@ export default function POSPage() {
                   <Button variant="outline" size="sm" className="relative">
                     <ShoppingCart className="h-4 w-4" />
                     {cartItemCount > 0 && (
-                      <Badge className="absolute -top-2 -right-2 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs">
+                      <Badge className="absolute -topp-2 -right-2 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs">
                         {cartItemCount}
                       </Badge>
                     )}
@@ -2214,44 +2295,92 @@ export default function POSPage() {
           </div>
 
           <div className="flex-1 p-4 overflow-auto">
-            {/* Today's Sales and Profit Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-              <Card className="bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center text-blue-600 mb-1">
-                        <DollarSign className="h-4 w-4 mr-1" />
-                        <span className="text-sm font-medium">Today's Sales</span>
-                      </div>
-                      <div className="text-xl sm:text-2xl font-bold text-blue-700">{formatCurrency(todayTotal)}</div>
-                    </div>
-                    <div className="bg-blue-200 p-3 rounded-full">
-                      <TrendingUp className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-gradient-to-r from-green-50 to-green-100 border-green-200">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center text-green-600 mb-1">
-                        <TrendingUp className="h-4 w-4 mr-1" />
-                        <span className="text-sm font-medium">Today's Profit</span>
-                      </div>
-                      <div className={cn("text-xl sm:text-2xl font-bold", todayProfit >= 0 ? "text-green-700" : "text-red-600")}>
-                        {formatCurrency(todayProfit)}
-                      </div>
-                    </div>
-                    <div className="bg-green-200 p-3 rounded-full">
-                      <DollarSign className="h-5 w-5 sm:h-6 sm:w-6 text-green-600" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+            {/* Date Selection and Stats Toggle */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        // Programmatically open the date picker
+                        const input = document.querySelector('input[type="date"]') as HTMLInputElement;
+                        if (input) {
+                          input.showPicker();
+                        }
+                      }}
+                    >
+                      <Calendar className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Select Date</p>
+                  </TooltipContent>
+                </Tooltip>
+                <input
+                  type="date"
+                  value={format(selectedDate, 'yyyy-MM-dd')}
+                  onChange={(e) => handleDateChange(new Date(e.target.value))}
+                  className="hidden"
+                />
+                <span className="text-sm text-muted-foreground">
+                  {format(selectedDate, 'MMM dd, yyyy')}
+                </span>
+              </div>
+              <Tooltip>
+                <TooltipTrigger>
+                  <Button variant="outline" size="icon" onClick={toggleStatsVisibility}>
+                    {showStats ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{showStats ? 'Hide Stats' : 'Show Stats'}</p>
+                </TooltipContent>
+              </Tooltip>
             </div>
+
+            {/* Today's Sales and Profit Cards */}
+            {showStats && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                <Card className="bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center text-blue-600 mb-1">
+                          <DollarSign className="h-4 w-4 mr-1" />
+                          <span className="text-sm font-medium">Selected Date's Sales</span>
+                        </div>
+                        <div className="text-xl sm:text-2xl font-bold text-blue-700">{formatCurrency(selectedDateTotal)}</div>
+                      </div>
+                      <div className="bg-blue-200 p-3 rounded-full">
+                        <TrendingUp className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-r from-green-50 to-green-100 border-green-200">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center text-green-600 mb-1">
+                          <TrendingUp className="h-4 w-4 mr-1" />
+                          <span className="text-sm font-medium">Selected Date's Profit</span>
+                        </div>
+                        <div className={cn("text-xl sm:text-2xl font-bold", selectedDateProfit >= 0 ? "text-green-700" : "text-red-600")}>
+                          {formatCurrency(selectedDateProfit)}
+                        </div>
+                      </div>
+                      <div className="bg-green-200 p-3 rounded-full">
+                        <DollarSign className="h-5 w-5 sm:h-6 sm:w-6 text-green-600" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
 
             <div className="mb-4">
               <div className="grid grid-cols-1 gap-3">
@@ -2306,9 +2435,9 @@ export default function POSPage() {
                       <X className="h-4 w-4" />
                     </button>
                   )}
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8"
                     onClick={() => setIsScannerOpen(true)}
                   >
