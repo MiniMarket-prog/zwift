@@ -1013,31 +1013,39 @@ const calculateSelectedDateStats = (recentSales: any[], selectedDate: Date) => {
     return saleDateStr === selectedDateStr
   })
 
+  // Calculate total sales amount (use the total field directly from the sale record)
   const selectedDateTotal = selectedDateSales.reduce((sum, sale) => sum + (sale.total || 0), 0)
 
-  // Calculate selected date's profit using the same logic as reports page
+  // Calculate selected date's profit using the exact same logic as the reports page
   let totalProfit = 0
 
   selectedDateSales.forEach((sale) => {
     if (sale.items && sale.items.length > 0) {
       sale.items.forEach((item: any) => {
+        // Get the purchase price (default to 0 if not present)
         const purchasePrice = item.product?.purchase_price || 0
+
+        // Get the price and quantity
+        const price = item.price || 0
+        const quantity = item.quantity || 0
 
         // Get the discount percentage (default to 0 if not present)
         const discount = item.discount || 0
 
         // Calculate the selling price after discount
-        const priceAfterDiscount = item.price * (1 - discount / 100)
+        const priceAfterDiscount = price * (1 - discount / 100)
 
         // Calculate cost and profit
-        const itemCost = purchasePrice * item.quantity
-        const itemRevenue = priceAfterDiscount * item.quantity
+        const itemCost = purchasePrice * quantity
+        const itemRevenue = priceAfterDiscount * quantity
         const itemProfit = itemRevenue - itemCost
 
         totalProfit += itemProfit
       })
     }
   })
+
+  console.log(`Stats for ${selectedDateStr}: Total: ${selectedDateTotal}, Profit: ${totalProfit}`)
 
   return { selectedDateTotal, selectedDateProfit: totalProfit }
 }
@@ -1367,10 +1375,21 @@ export default function POSPage() {
 
   // Refresh recent sales after a new sale
   const refreshRecentSales = async () => {
-    const supabase = createClient()
-    const { data: recentSalesData, error } = await supabase
-      .from("sales")
-      .select(`
+    try {
+      setIsLoadingRecentSales(true)
+      const supabase = createClient()
+
+      // Format dates for the query - get start and end of selected date
+      const startOfDay = new Date(selectedDate)
+      startOfDay.setHours(0, 0, 0, 0)
+
+      const endOfDay = new Date(selectedDate)
+      endOfDay.setHours(23, 59, 59, 999)
+
+      // Fetch sales for the selected date with all necessary data
+      const { data: recentSalesData, error } = await supabase
+        .from("sales")
+        .select(`
         *,
         items:sale_items (
           id,
@@ -1388,21 +1407,19 @@ export default function POSPage() {
           )
         )
       `)
-      .order("created_at", { ascending: false })
-      .limit(10)
+        .gte("created_at", startOfDay.toISOString())
+        .lte("created_at", endOfDay.toISOString())
+        .order("created_at", { ascending: false })
+        .limit(100)
 
-    if (error) {
-      console.error("Error refreshing recent sales:", error)
-      setRecentSales([])
-      return
-    }
+      if (error) {
+        console.error("Error refreshing recent sales:", error)
+        return
+      }
 
-    // Set the recent sales data (handle null case)
-    const salesData = recentSalesData || []
-    setRecentSales(salesData)
-
-    try {
-      setIsLoadingRecentSales(true)
+      // Set the recent sales data (handle null case)
+      const salesData = recentSalesData || []
+      setRecentSales(salesData)
 
       // Update recently sold products
       const soldProductsMap = new Map<string, Product>()
@@ -1422,6 +1439,12 @@ export default function POSPage() {
       })
 
       setRecentlySoldProducts(Array.from(soldProductsMap.values()))
+
+      console.log("Sales data refreshed successfully:", salesData.length, "sales found")
+
+      // Recalculate stats after refresh and log them
+      const stats = calculateSelectedDateStats(salesData, selectedDate)
+      console.log("Refreshed stats:", stats)
     } catch (error) {
       console.error("Error refreshing recent sales:", error)
     } finally {
@@ -1719,6 +1742,30 @@ export default function POSPage() {
   const handleConfirmSale = async (shouldPrint?: boolean) => {
     setIsProcessing(true)
 
+    // Immediately clear the cart
+    clearCart()
+
+    // Optimistic UI update: Show success message immediately
+    const successDiv = document.createElement("div")
+    successDiv.className =
+      "fixed top-1/4 left-1/2 transform -translate-x-1/2 bg-green-500 text-white px-6 py-4 rounded-lg shadow-lg z-50 flex items-center"
+
+    successDiv.innerHTML = `
+      <div class="flex items-center">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-5 w-5 mr-2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+        <span>Sale completed successfully! Stock updating in background.</span>
+      </div>
+    `
+
+    document.body.appendChild(successDiv)
+
+    // Auto-remove success message after 3 seconds
+    setTimeout(() => {
+      if (document.body.contains(successDiv)) {
+        document.body.removeChild(successDiv)
+      }
+    }, 3000)
+
     try {
       // Format sale data for Supabase
       const saleData: Sale = {
@@ -1743,84 +1790,65 @@ export default function POSPage() {
         throw error
       }
 
-      // Update stock for all sold products in the database and local state
-      const stockUpdates = cart.map(async (item) => {
-        const newStock = item.product.stock - item.quantity
+      // Asynchronously update stock for all sold products in the database and local state
+      Promise.all(
+        cart.map(async (item) => {
+          const newStock = item.product.stock - item.quantity
 
-        try {
-          // Update stock in database
-          await updateProductStock(item.product_id, newStock)
+          try {
+            // Update stock in database
+            await updateProductStock(item.product_id, newStock)
 
-          // Return the updated product info
-          return {
-            productId: item.product_id,
-            newStock: newStock,
+            // Return the updated product info
+            return {
+              productId: item.product_id,
+              newStock: newStock,
+            }
+          } catch (error) {
+            console.error(`Error updating stock for product ${item.product_id}:`, error)
+            return null
           }
-        } catch (error) {
-          console.error(`Error updating stock for product ${item.product_id}:`, error)
-          return null
-        }
-      })
+        }),
+      )
+        .then((stockUpdateResults) => {
+          // Update local state for all product arrays
+          stockUpdateResults.forEach((result) => {
+            if (result) {
+              const { productId, newStock } = result
 
-      // Wait for all stock updates to complete
-      const stockUpdateResults = await Promise.all(stockUpdates)
+              // Update products list
+              setProducts((prevProducts) =>
+                prevProducts.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)),
+              )
 
-      // Update local state for all product arrays
-      stockUpdateResults.forEach((result) => {
-        if (result) {
-          const { productId, newStock } = result
+              // Update recently scanned products
+              setRecentlyScannedProducts((prevProducts) =>
+                prevProducts.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)),
+              )
 
-          // Update products list
-          setProducts((prevProducts) => prevProducts.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)))
+              // Update recently sold products
+              setRecentlySoldProducts((prevProducts) =>
+                prevProducts.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)),
+              )
 
-          // Update recently scanned products
-          setRecentlyScannedProducts((prevProducts) =>
-            prevProducts.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)),
-          )
+              // Update favorites
+              setFavoriteProducts((prevProducts) =>
+                prevProducts.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)),
+              )
+            }
+          })
+        })
+        .catch((stockUpdateError) => {
+          console.error("Error updating stocks:", stockUpdateError)
+        })
 
-          // Update recently sold products
-          setRecentlySoldProducts((prevProducts) =>
-            prevProducts.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)),
-          )
-
-          // Update favorites
-          setFavoriteProducts((prevProducts) =>
-            prevProducts.map((p) => (p.id === productId ? { ...p, stock: newStock } : p)),
-          )
-        }
-      })
-
-      // Clear cart after successful sale
-      clearCart()
-
-      // Refresh recent sales
-      await refreshRecentSales()
+      // Asynchronously refresh recent sales
+      refreshRecentSales()
 
       // Handle printing if needed
       if (shouldPrint) {
         console.log("Printing receipt for sale:", data)
       }
-
-      // Show success message
-      const successDiv = document.createElement("div")
-      successDiv.className =
-        "fixed top-1/4 left-1/2 transform -translate-x-1/2 bg-green-500 text-white px-6 py-4 rounded-lg shadow-lg z-50 flex items-center"
-
-      successDiv.innerHTML = `
-        <div class="flex items-center">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-5 w-5 mr-2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-          <span>Sale completed successfully! Stock updated.</span>
-        </div>
-      `
-
-      document.body.appendChild(successDiv)
-
-      // Auto-remove success message after 3 seconds
-      setTimeout(() => {
-        if (document.body.contains(successDiv)) {
-          document.body.removeChild(successDiv)
-        }
-      }, 3000)
     } catch (error) {
       console.error("Error processing sale:", error)
 
