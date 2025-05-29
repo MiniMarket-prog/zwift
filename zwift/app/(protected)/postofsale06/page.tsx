@@ -48,7 +48,6 @@ import { cn } from "@/lib/utils"
 import {
   createSale,
   getSettings,
-  getRecentSales,
   searchProducts,
   getUserFavorites,
   addToFavorites,
@@ -790,7 +789,7 @@ const addToCart = (
               <input type="number" min="${newQuantity}" value="${newQuantity}" class="stock-input w-20 text-center bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-white/50 px-2 py-1 text-white text-sm" />
               <button class="increment-btn px-3 py-2 hover:bg-white/10 rounded-r-md transition-colors">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class="h-3 w-3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-              </button>
+                </button>
             </div>
             <button class="update-stock-btn bg-green-600 hover:bg-green-700 px-4 py-2 rounded-md transition-colors text-sm font-medium">
               Update Stock
@@ -1003,47 +1002,44 @@ const checkGlobalDiscountImpact = (discountPercent: number): boolean => {
   return false // Placeholder: Replace with actual logic
 }
 
-// Function to calculate today's sales and profit using Morocco timezone
-const calculateTodayStats = (recentSales: any[]) => {
-  // Get today's date range (start and end of today)
-  const now = new Date()
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000) // End of today
+// Function to calculate selected date's sales and profit using proper date comparison
+const calculateSelectedDateStats = (recentSales: any[], selectedDate: Date) => {
+  // Format the selected date to YYYY-MM-DD for comparison
+  const selectedDateStr = format(selectedDate, "yyyy-MM-dd")
 
-  const todaySales = recentSales.filter((sale) => {
+  const selectedDateSales = recentSales.filter((sale) => {
     const saleDate = new Date(sale.created_at)
-    return saleDate >= todayStart && saleDate < todayEnd
+    const saleDateStr = format(saleDate, "yyyy-MM-dd")
+    return saleDateStr === selectedDateStr
   })
 
-  const todayTotal = todaySales.reduce((sum, sale) => sum + (sale.total || 0), 0)
+  const selectedDateTotal = selectedDateSales.reduce((sum, sale) => sum + (sale.total || 0), 0)
 
-  // Calculate today's profit using the same logic as summary page
+  // Calculate selected date's profit using the same logic as reports page
   let totalProfit = 0
 
-  todaySales.forEach((sale) => {
+  selectedDateSales.forEach((sale) => {
     if (sale.items && sale.items.length > 0) {
       sale.items.forEach((item: any) => {
-        const purchasePrice = item.product?.purchase_price || null
+        const purchasePrice = item.product?.purchase_price || 0
 
-        if (purchasePrice !== null) {
-          // Get the discount percentage (default to 0 if not present)
-          const discount = item.discount || 0
+        // Get the discount percentage (default to 0 if not present)
+        const discount = item.discount || 0
 
-          // Calculate the selling price after discount
-          const priceAfterDiscount = item.price * (1 - discount / 100)
+        // Calculate the selling price after discount
+        const priceAfterDiscount = item.price * (1 - discount / 100)
 
-          // Calculate cost and profit
-          const itemCost = purchasePrice * item.quantity
-          const itemRevenue = priceAfterDiscount * item.quantity
-          const itemProfit = itemRevenue - itemCost
+        // Calculate cost and profit
+        const itemCost = purchasePrice * item.quantity
+        const itemRevenue = priceAfterDiscount * item.quantity
+        const itemProfit = itemRevenue - itemCost
 
-          totalProfit += itemProfit
-        }
+        totalProfit += itemProfit
       })
     }
   })
 
-  return { todayTotal, todayProfit: totalProfit }
+  return { selectedDateTotal, selectedDateProfit: totalProfit }
 }
 
 export default function POSPage() {
@@ -1070,6 +1066,7 @@ export default function POSPage() {
   const [lastSearchLength, setLastSearchLength] = useState(0)
   const [globalDiscount, setGlobalDiscount] = useState<number>(0)
   const [isScannerOpen, setIsScannerOpen] = useState(false)
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date())
 
   // Mobile-specific states
   const [isCartOpen, setIsCartOpen] = useState(false)
@@ -1098,8 +1095,36 @@ export default function POSPage() {
     return total + purchasePrice * item.quantity
   }, 0)
 
-  // Calculate today's stats
-  const { todayTotal, todayProfit } = calculateTodayStats(recentSales)
+  // Date and Stats Visibility States
+  const [showStats, setShowStats] = useState<boolean>(() => {
+    if (typeof localStorage !== "undefined") {
+      const storedValue = localStorage.getItem("showStats")
+      return storedValue === "true" || storedValue === null
+    }
+    return true
+  })
+
+  // Persist showStats to localStorage
+  useEffect(() => {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("showStats", String(showStats))
+    }
+  }, [showStats])
+
+  // Function to toggle stats visibility
+  const toggleStatsVisibility = () => {
+    setShowStats(!showStats)
+  }
+
+  // Function to handle date change
+  const handleDateChange = (date: Date | undefined) => {
+    if (date) {
+      setSelectedDate(date)
+    }
+  }
+
+  // Calculate selected date's stats
+  const { selectedDateTotal, selectedDateProfit } = calculateSelectedDateStats(recentSales, selectedDate)
 
   // Add this function before the originalProfit and profitAfterDiscount calculations
   const calculateItemProfit = (item: PosCartItem): number => {
@@ -1141,26 +1166,60 @@ export default function POSPage() {
         const settingsData = await getSettings()
         setSettings(settingsData)
 
-        // Fetch recent sales
-        const recentSalesData = await getRecentSales(10)
-        setRecentSales(recentSalesData)
+        // Fetch recent sales with proper discount data - limit to last 7 days for performance
+        const supabase = createClient()
+        const sevenDaysAgo = new Date()
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+
+        const { data: recentSalesData, error } = await supabase
+          .from("sales")
+          .select(`
+            *,
+            items:sale_items (
+              id,
+              product_id,
+              quantity,
+              price,
+              discount,
+              product:products (
+                id,
+                name,
+                price,
+                stock,
+                image,
+                purchase_price
+              )
+            )
+          `)
+          .gte("created_at", sevenDaysAgo.toISOString())
+          .order("created_at", { ascending: false })
+          .limit(50) // Limit to 50 most recent sales
+
+        if (error) {
+          console.error("Error fetching recent sales:", error)
+          setRecentSales([])
+        } else {
+          setRecentSales(recentSalesData || [])
+        }
 
         // Extract recently sold products
         const soldProductsMap = new Map<string, Product>()
-        recentSalesData.forEach((sale) => {
-          sale.items?.forEach((item: any) => {
-            if (item.product && !soldProductsMap.has(item.product_id)) {
-              soldProductsMap.set(item.product_id, {
-                id: item.product_id,
-                name: item.product.name,
-                price: item.price,
-                stock: item.product.stock || 0,
-                image: item.product.image,
-                purchase_price: item.product.purchase_price || 0,
-              })
-            }
+        if (recentSalesData) {
+          recentSalesData.forEach((sale) => {
+            sale.items?.forEach((item: any) => {
+              if (item.product && !soldProductsMap.has(item.product_id)) {
+                soldProductsMap.set(item.product_id, {
+                  id: item.product_id,
+                  name: item.product.name,
+                  price: item.price,
+                  stock: item.product.stock || 0,
+                  image: item.product.image,
+                  purchase_price: item.product.purchase_price || 0,
+                })
+              }
+            })
           })
-        })
+        }
 
         setRecentlySoldProducts(Array.from(soldProductsMap.values()))
       } catch (error) {
@@ -1173,6 +1232,62 @@ export default function POSPage() {
 
     fetchData()
   }, [])
+
+  // Refetch sales data when selected date changes
+  useEffect(() => {
+    async function fetchSalesForSelectedDate() {
+      try {
+        setIsLoadingRecentSales(true)
+        const supabase = createClient()
+
+        // Format dates for the query - get start and end of selected date
+        const startOfDay = new Date(selectedDate)
+        startOfDay.setHours(0, 0, 0, 0)
+
+        const endOfDay = new Date(selectedDate)
+        endOfDay.setHours(23, 59, 59, 999)
+
+        // Only fetch sales for the selected date
+        const { data: salesData, error } = await supabase
+          .from("sales")
+          .select(`
+            *,
+            items:sale_items (
+              id,
+              product_id,
+              quantity,
+              price,
+              discount,
+              product:products (
+                id,
+                name,
+                price,
+                stock,
+                image,
+                purchase_price
+              )
+            )
+          `)
+          .gte("created_at", startOfDay.toISOString())
+          .lte("created_at", endOfDay.toISOString())
+          .order("created_at", { ascending: false })
+          .limit(100) // Add a reasonable limit
+
+        if (error) {
+          console.error("Error fetching sales for selected date:", error)
+          // Don't set empty array, keep existing data
+        } else {
+          setRecentSales(salesData || [])
+        }
+      } catch (error) {
+        console.error("Error in fetchSalesForSelectedDate:", error)
+      } finally {
+        setIsLoadingRecentSales(false)
+      }
+    }
+
+    fetchSalesForSelectedDate()
+  }, [selectedDate, setRecentSales, setIsLoadingRecentSales]) // Add dependencies
 
   useEffectOriginal(() => {
     async function getCurrentUser() {
@@ -1252,14 +1367,46 @@ export default function POSPage() {
 
   // Refresh recent sales after a new sale
   const refreshRecentSales = async () => {
+    const supabase = createClient()
+    const { data: recentSalesData, error } = await supabase
+      .from("sales")
+      .select(`
+        *,
+        items:sale_items (
+          id,
+          product_id,
+          quantity,
+          price,
+          discount,
+          product:products (
+            id,
+            name,
+            price,
+            stock,
+            image,
+            purchase_price
+          )
+        )
+      `)
+      .order("created_at", { ascending: false })
+      .limit(10)
+
+    if (error) {
+      console.error("Error refreshing recent sales:", error)
+      setRecentSales([])
+      return
+    }
+
+    // Set the recent sales data (handle null case)
+    const salesData = recentSalesData || []
+    setRecentSales(salesData)
+
     try {
       setIsLoadingRecentSales(true)
-      const recentSalesData = await getRecentSales(10)
-      setRecentSales(recentSalesData)
 
       // Update recently sold products
       const soldProductsMap = new Map<string, Product>()
-      recentSalesData.forEach((sale) => {
+      salesData.forEach((sale) => {
         sale.items?.forEach((item: any) => {
           if (item.product && !soldProductsMap.has(item.product_id)) {
             soldProductsMap.set(item.product_id, {
@@ -2076,9 +2223,7 @@ export default function POSPage() {
                                   {formatCurrency(item.price * item.quantity)}
                                 </span>
                               )}
-                              <span
-                                className={cn("text-sm font-medium", item.discount > 0 ? "text-green-600" : "")}
-                              >
+                              <span className={cn("text-sm font-medium", item.discount > 0 ? "text-green-600" : "")}>
                                 {formatCurrency(item.subtotal)}
                               </span>
                             </div>
@@ -2194,78 +2339,8 @@ export default function POSPage() {
     </div>
   )
 
-  // Date and Stats Visibility States
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [showStats, setShowStats] = useState<boolean>(() => {
-    if (typeof localStorage !== 'undefined') {
-      const storedValue = localStorage.getItem('showStats');
-      return storedValue === 'true' || storedValue === null;
-    }
-    return true;
-  });
-
-  // Persist showStats to localStorage
-  useEffect(() => {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('showStats', String(showStats));
-    }
-  }, [showStats]);
-
-  // Function to toggle stats visibility
-  const toggleStatsVisibility = () => {
-    setShowStats(!showStats);
-  };
-
-  // Function to handle date change
-  const handleDateChange = (date: Date | undefined) => {
-    if (date) {
-      setSelectedDate(date);
-    }
-  };
-
-  // Calculate selected date's sales and profit
-  const calculateSelectedDateStats = (recentSales: any[]) => {
-    const formattedSelectedDate = format(selectedDate, 'yyyy-MM-dd');
-
-    const selectedDateSales = recentSales.filter((sale) => {
-      const saleDate = new Date(sale.created_at);
-      const formattedSaleDate = format(saleDate, 'yyyy-MM-dd');
-      return formattedSaleDate === formattedSelectedDate;
-    });
-
-    const selectedDateTotal = selectedDateSales.reduce((sum, sale) => sum + (sale.total || 0), 0);
-
-    // Calculate selected date's profit using the same logic as summary page
-    let totalProfit = 0;
-
-    selectedDateSales.forEach((sale) => {
-      if (sale.items && sale.items.length > 0) {
-        sale.items.forEach((item: any) => {
-          const purchasePrice = item.product?.purchase_price || null;
-
-          if (purchasePrice !== null) {
-            // Get the discount percentage (default to 0 if not present)
-            const discount = item.discount || 0;
-
-            // Calculate the selling price after discount
-            const priceAfterDiscount = item.price * (1 - discount / 100);
-
-            // Calculate cost and profit
-            const itemCost = purchasePrice * item.quantity;
-            const itemRevenue = priceAfterDiscount * item.quantity;
-            const itemProfit = itemRevenue - itemCost;
-
-            totalProfit += itemProfit;
-          }
-        });
-      }
-    });
-
-    return { selectedDateTotal, selectedDateProfit: totalProfit };
-  };
-
   // Calculate selected date's stats
-  const { selectedDateTotal, selectedDateProfit } = calculateSelectedDateStats(recentSales);
+  // const { selectedDateTotal, selectedDateProfit } = calculateSelectedDateStats(recentSales);
 
   return (
     <TooltipProvider>
@@ -2304,11 +2379,11 @@ export default function POSPage() {
                       variant="outline"
                       size="icon"
                       onClick={(e) => {
-                        e.preventDefault();
+                        e.preventDefault()
                         // Programmatically open the date picker
-                        const input = document.querySelector('input[type="date"]') as HTMLInputElement;
+                        const input = document.querySelector('input[type="date"]') as HTMLInputElement
                         if (input) {
-                          input.showPicker();
+                          input.showPicker()
                         }
                       }}
                     >
@@ -2321,13 +2396,11 @@ export default function POSPage() {
                 </Tooltip>
                 <input
                   type="date"
-                  value={format(selectedDate, 'yyyy-MM-dd')}
+                  value={format(selectedDate, "yyyy-MM-dd")}
                   onChange={(e) => handleDateChange(new Date(e.target.value))}
                   className="hidden"
                 />
-                <span className="text-sm text-muted-foreground">
-                  {format(selectedDate, 'MMM dd, yyyy')}
-                </span>
+                <span className="text-sm text-muted-foreground">{format(selectedDate, "MMM dd, yyyy")}</span>
               </div>
               <Tooltip>
                 <TooltipTrigger>
@@ -2336,7 +2409,7 @@ export default function POSPage() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>{showStats ? 'Hide Stats' : 'Show Stats'}</p>
+                  <p>{showStats ? "Hide Stats" : "Show Stats"}</p>
                 </TooltipContent>
               </Tooltip>
             </div>
@@ -2352,7 +2425,9 @@ export default function POSPage() {
                           <DollarSign className="h-4 w-4 mr-1" />
                           <span className="text-sm font-medium">Selected Date's Sales</span>
                         </div>
-                        <div className="text-xl sm:text-2xl font-bold text-blue-700">{formatCurrency(selectedDateTotal)}</div>
+                        <div className="text-xl sm:text-2xl font-bold text-blue-700">
+                          {formatCurrency(selectedDateTotal)}
+                        </div>
                       </div>
                       <div className="bg-blue-200 p-3 rounded-full">
                         <TrendingUp className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
@@ -2369,7 +2444,12 @@ export default function POSPage() {
                           <TrendingUp className="h-4 w-4 mr-1" />
                           <span className="text-sm font-medium">Selected Date's Profit</span>
                         </div>
-                        <div className={cn("text-xl sm:text-2xl font-bold", selectedDateProfit >= 0 ? "text-green-700" : "text-red-600")}>
+                        <div
+                          className={cn(
+                            "text-xl sm:text-2xl font-bold",
+                            selectedDateProfit >= 0 ? "text-green-700" : "text-red-600",
+                          )}
+                        >
                           {formatCurrency(selectedDateProfit)}
                         </div>
                       </div>
@@ -2535,7 +2615,9 @@ export default function POSPage() {
                                     />
                                   ) : (
                                     <div className="h-full w-full flex items-center justify-center text-muted-foreground">
-                                      <span className="text-lg font-bold text-primary/40">{product.name.charAt(0)}</span>
+                                      <span className="text-lg font-bold text-primary/40">
+                                        {product.name.charAt(0)}
+                                      </span>
                                     </div>
                                   )}
                                 </div>
@@ -2612,7 +2694,9 @@ export default function POSPage() {
                                     />
                                   ) : (
                                     <div className="h-full w-full flex items-center justify-center text-muted-foreground">
-                                      <span className="text-lg font-bold text-primary/40">{product.name.charAt(0)}</span>
+                                      <span className="text-lg font-bold text-primary/40">
+                                        {product.name.charAt(0)}
+                                      </span>
                                     </div>
                                   )}
                                 </div>
@@ -2702,7 +2786,9 @@ export default function POSPage() {
                                     />
                                   ) : (
                                     <div className="h-full w-full flex items-center justify-center text-muted-foreground">
-                                      <span className="text-lg font-bold text-primary/40">{product.name.charAt(0)}</span>
+                                      <span className="text-lg font-bold text-primary/40">
+                                        {product.name.charAt(0)}
+                                      </span>
                                     </div>
                                   )}
                                 </div>
@@ -2723,7 +2809,9 @@ export default function POSPage() {
                           </motion.div>
                         ))
                       ) : (
-                        <div className="col-span-full text-center text-muted-foreground py-10">No products sold yet</div>
+                        <div className="col-span-full text-center text-muted-foreground py-10">
+                          No products sold yet
+                        </div>
                       )}
                     </div>
                   )}
@@ -2904,45 +2992,46 @@ export default function POSPage() {
                                 setFavoriteProducts,
                               )
                             }
-                        >
-                          <CardContent className="p-3">
-                            <div className="aspect-square bg-muted rounded-md mb-2 overflow-hidden">
-                              {product.image ? (
-                                <img
-                                  src={product.image || "/placeholder.svg"}
-                                  alt={product.name}
-                                  className="h-full w-full object-cover transition-transform hover:scale-105"
-                                />
-                              ) : (
-                                <div className="h-full w-full flex items-center justify-center text-muted-foreground">
-                                  <span className="text-lg font-bold text-primary/40">{product.name.charAt(0)}</span>
+                          >
+                            <CardContent className="p-3">
+                              <div className="aspect-square bg-muted rounded-md mb-2 overflow-hidden">
+                                {product.image ? (
+                                  <img
+                                    src={product.image || "/placeholder.svg"}
+                                    alt={product.name}
+                                    className="h-full w-full object-cover transition-transform hover:scale-105"
+                                  />
+                                ) : (
+                                  <div className="h-full w-full flex items-center justify-center text-muted-foreground">
+                                    <span className="text-lg font-bold text-primary/40">{product.name.charAt(0)}</span>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="font-medium text-sm line-clamp-2 mb-1">{product.name}</div>
+                              <div className="flex justify-between items-center">
+                                <div className="font-bold text-primary text-sm">{formatCurrency(product.price)}</div>
+                                <Badge variant={product.stock > 0 ? "outline" : "destructive"} className="text-xs">
+                                  {product.stock}
+                                </Badge>
+                              </div>
+                              {product.purchase_price && (
+                                <div className="mt-1 text-xs text-blue-600">
+                                  +{formatCurrency(product.price - product.purchase_price)}
                                 </div>
                               )}
-                            </div>
-                            <div className="font-medium text-sm line-clamp-2 mb-1">{product.name}</div>
-                            <div className="flex justify-between items-center">
-                              <div className="font-bold text-primary text-sm">{formatCurrency(product.price)}</div>
-                              <Badge variant={product.stock > 0 ? "outline" : "destructive"} className="text-xs">
-                                {product.stock}
-                              </Badge>
-                            </div>
-                            {product.purchase_price && (
-                              <div className="mt-1 text-xs text-blue-600">
-                                +{formatCurrency(product.price - product.purchase_price)}
-                              </div>
-                            )}
-                          </CardContent>
-                        </Card>
-                      </motion.div>
-                    ))
-                  ) : (
-                    <div className="col-span-full text-center text-muted-foreground py-10">No products found</div>
-                  )}
-                </div>
-              )}
-            </TabsContent>
-          </Tabs>
-        </div></div>
+                            </CardContent>
+                          </Card>
+                        </motion.div>
+                      ))
+                    ) : (
+                      <div className="col-span-full text-center text-muted-foreground py-10">No products found</div>
+                    )}
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
+          </div>
+        </div>
 
         {/* Desktop Cart Section */}
         <div className="hidden lg:flex w-1/3 border-l bg-card flex-col h-full">
@@ -2985,15 +3074,15 @@ export default function POSPage() {
           onCancel={() => setIsCheckoutOpen(false)}
         />
 
-      {/* Barcode Scanner Dialog */}
-      <BarcodeScannerDialog
-        isOpen={isScannerOpen}
-        onClose={() => setIsScannerOpen(false)}
-        onScan={(barcode) => {
-          setBarcodeSearchTerm(barcode);
-          handleBarcodeSearch({ target: { value: barcode } } as React.ChangeEvent<HTMLInputElement>);
-        }}
-      />
+        {/* Barcode Scanner Dialog */}
+        <BarcodeScannerDialog
+          isOpen={isScannerOpen}
+          onClose={() => setIsScannerOpen(false)}
+          onScan={(barcode) => {
+            setBarcodeSearchTerm(barcode)
+            handleBarcodeSearch({ target: { value: barcode } } as React.ChangeEvent<HTMLInputElement>)
+          }}
+        />
       </div>
     </TooltipProvider>
   )
