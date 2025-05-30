@@ -1060,7 +1060,7 @@ export default function POSPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [settings, setSettings] = useState({
     tax_rate: 0.08,
-    currency: "USD",
+    currency: "MAD",
     store_name: "My Store",
   })
   const [recentSales, setRecentSales] = useState<any[]>([])
