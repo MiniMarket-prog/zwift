@@ -133,7 +133,7 @@ const AlertsPage: React.FC = () => {
   const [adjustedStock, setAdjustedStock] = useState(0)
   const [isAdjusting, setIsAdjusting] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(12)
+  const [pageSize, setPageSize] = useState(50)
   const [totalPages, setTotalPages] = useState(1)
   const [isExporting, setIsExporting] = useState(false)
   const [isExportingPDF, setIsExportingPDF] = useState(false)
@@ -1399,10 +1399,11 @@ const AlertsPage: React.FC = () => {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="6">6</SelectItem>
-                      <SelectItem value="12">12</SelectItem>
-                      <SelectItem value="24">24</SelectItem>
-                      <SelectItem value="48">48</SelectItem>
+                      <SelectItem value="10">10</SelectItem>
+                      <SelectItem value="20">20</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                      <SelectItem value="100">100</SelectItem>
+                      <SelectItem value="5000">All</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
