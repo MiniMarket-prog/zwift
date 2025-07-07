@@ -20,7 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { format, subDays, startOfMonth, endOfMonth } from "date-fns"
+import { format, subDays, startOfMonth, endOfMonth, startOfYear } from "date-fns"
 import { useToast } from "@/components/ui/use-toast"
 import { createClient } from "@/lib/supabase-client"
 import { formatCurrency } from "@/lib/format-currency"
@@ -57,7 +57,7 @@ type DateRange = {
   to: Date
 }
 
-type PeriodOption = "today" | "yesterday" | "last7days" | "last30days" | "thisMonth" | "lastMonth" | "custom"
+type PeriodOption = "today" | "yesterday" | "last7days" | "last30days" | "thisMonth" | "lastMonth" | "thisYear"| "custom"
 
 // Cache for storing fetched data
 const dataCache = new Map<string, { data: SaleData[]; timestamp: number }>()
@@ -134,6 +134,10 @@ export default function SalesReportsPage() {
       case "lastMonth":
         const lastMonth = subDays(startOfMonth(today), 1)
         setDateRange({ from: startOfMonth(lastMonth), to: endOfMonth(lastMonth) })
+        setIsCustomPeriod(false)
+        break
+              case "thisYear":
+        setDateRange({ from: startOfYear(today), to: today })
         setIsCustomPeriod(false)
         break
       case "custom":
@@ -566,6 +570,7 @@ export default function SalesReportsPage() {
                 <SelectItem value="last30days">{getAppTranslation("last_30_days", language)}</SelectItem>
                 <SelectItem value="thisMonth">{getAppTranslation("this_month", language)}</SelectItem>
                 <SelectItem value="lastMonth">{getAppTranslation("last_month", language)}</SelectItem>
+                <SelectItem value="thisYear">{getAppTranslation("this_Year", language)}</SelectItem>
                 <SelectItem value="custom">{getAppTranslation("custom_range", language)}</SelectItem>
               </SelectContent>
             </Select>
