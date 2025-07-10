@@ -239,7 +239,7 @@ export function AppSidebar() {
     { href: "/dashboard", label: "dashboard" as AppTranslationKey, icon: <LayoutDashboard className="h-5 w-5" /> },
     { href: "/desactive02", label: "pointOfSale" as AppTranslationKey, icon: <ShoppingCart className="h-5 w-5" /> },
     {
-      href: "/alerts03",
+      href: "/alerts2",
       label: "alerts" as AppTranslationKey,
       icon: <AlertTriangle className="h-5 w-5" />,
       badge: unreadAlerts,
