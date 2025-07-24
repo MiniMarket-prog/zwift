@@ -1,7 +1,5 @@
 "use client"
-
 import type React from "react"
-
 import { useState, useEffect, useCallback } from "react"
 import { createClient } from "@/lib/supabase-client"
 import { useLanguage } from "@/hooks/use-language"
@@ -21,7 +19,6 @@ import {
   Loader2,
   RefreshCw,
 } from "lucide-react"
-
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Calendar } from "@/components/ui/calendar"
@@ -107,13 +104,11 @@ const SalesPage = () => {
   const [isLoadingSaleDetails, setIsLoadingSaleDetails] = useState(false)
   const { getAppTranslation, language, isRTL } = useLanguage()
   const [currentCurrency, setCurrentCurrency] = useState<string>("USD")
-
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [paginatedSales, setPaginatedSales] = useState<Sale[]>([])
   const [totalPages, setTotalPages] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
-
   const supabase = createClient()
   const { toast } = useToast()
 
@@ -122,7 +117,6 @@ const SalesPage = () => {
     async (saleId: string) => {
       try {
         setIsLoadingSaleDetails(true)
-
         // First, fetch the sale items
         const { data: itemsData, error: itemsError } = await supabase
           .from("sale_items")
@@ -196,25 +190,26 @@ const SalesPage = () => {
       return sale.items.reduce((totalProfit, item) => {
         // Get the purchase price (cost) of the item
         const purchasePrice = item.product?.purchase_price || 0
-
         // Check if discount exists on the item
         const discount = item.discount || 0
-
         // Calculate the actual selling price after discount
         const priceAfterDiscount = item.price * (1 - discount / 100)
-
         // Calculate profit per unit after discount
         const profitPerUnit = priceAfterDiscount - purchasePrice
-
         // Calculate total profit for this item
         const itemProfit = profitPerUnit * item.quantity
-
         return totalProfit + itemProfit
       }, 0)
     }
-
     // If items haven't been loaded yet, return 0
     return 0
+  }
+
+  // Calculate profit margin percentage for a sale
+  const calculateProfitMargin = (sale: Sale): number => {
+    if (sale.total === 0) return 0
+    const profit = calculateProfit(sale)
+    return (profit / sale.total) * 100
   }
 
   // Fetch currency setting
@@ -254,7 +249,6 @@ const SalesPage = () => {
   const fetchSales = useCallback(async () => {
     try {
       setIsLoading(true)
-
       // Build the query with filters
       let query = supabase
         .from("sales")
@@ -294,7 +288,6 @@ const SalesPage = () => {
         salesData?.map(async (sale) => {
           // Fetch sale items with product data
           const items = await fetchSaleItems(sale.id)
-
           return {
             ...sale,
             items,
@@ -321,7 +314,6 @@ const SalesPage = () => {
     try {
       setIsLoadingProducts(true)
       const productsData = await getProducts()
-
       if (Array.isArray(productsData)) {
         // Ensure all products have the required fields and proper data types
         const formattedProducts = productsData.map((product) => ({
@@ -339,7 +331,6 @@ const SalesPage = () => {
               : Number.parseFloat(String(product.purchase_price)) || null
             : null,
         }))
-
         setAvailableProducts(formattedProducts as Product[])
         setFilteredProducts(formattedProducts as Product[])
       }
@@ -373,14 +364,12 @@ const SalesPage = () => {
     const timer = setTimeout(() => {
       fetchSales()
     }, 300)
-
     return () => clearTimeout(timer)
   }, [searchTerm, fetchSales])
 
   const handleProductSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const term = e.target.value.toLowerCase()
     setProductSearchTerm(term)
-
     if (term.trim() === "") {
       setFilteredProducts(availableProducts)
     } else {
@@ -421,18 +410,15 @@ const SalesPage = () => {
   const handleViewDetails = async (sale: Sale) => {
     // Only fetch items if they haven't been fetched yet
     let saleWithItems = sale
-
     if (!sale.items || sale.items.length === 0) {
       const items = await fetchSaleItems(sale.id)
       saleWithItems = {
         ...sale,
         items,
       }
-
       // Update the sale in the list with the fetched items
       setPaginatedSales((prevSales) => prevSales.map((s) => (s.id === sale.id ? saleWithItems : s)))
     }
-
     setSelectedSale(saleWithItems)
     setIsDetailsOpen(true)
   }
@@ -440,29 +426,23 @@ const SalesPage = () => {
   const handleEditClick = async (sale: Sale) => {
     // Fetch items if they haven't been fetched yet
     let saleWithItems = sale
-
     if (!sale.items || sale.items.length === 0) {
       const items = await fetchSaleItems(sale.id)
       saleWithItems = {
         ...sale,
         items,
       }
-
       // Update the sale in the list with the fetched items
       setPaginatedSales((prevSales) => prevSales.map((s) => (s.id === sale.id ? saleWithItems : s)))
     }
-
     setSelectedSale(saleWithItems)
-
     // Create a deep copy of the sale for editing
     setEditedSale({
       ...saleWithItems,
       items: saleWithItems.items?.map((item) => ({ ...item })),
     })
-
     setIsEditOpen(true)
     setActiveTab("items")
-
     // Fetch available products when opening edit dialog
     fetchAvailableProducts()
   }
@@ -474,7 +454,6 @@ const SalesPage = () => {
 
   const handleQuantityChange = (itemId: string, newQuantity: number) => {
     if (!editedSale) return
-
     if (newQuantity < 1) newQuantity = 1
 
     // Find the product to check stock
@@ -521,7 +500,6 @@ const SalesPage = () => {
 
     // Check if product already exists in the sale
     const existingItemIndex = editedSale.items?.findIndex((item) => item.product_id === product.id)
-
     const updatedItems = [...(editedSale.items || [])]
 
     if (existingItemIndex !== undefined && existingItemIndex >= 0) {
@@ -535,7 +513,6 @@ const SalesPage = () => {
         })
         return
       }
-
       // Increment quantity if product already exists
       updatedItems[existingItemIndex] = {
         ...updatedItems[existingItemIndex],
@@ -551,7 +528,6 @@ const SalesPage = () => {
         })
         return
       }
-
       // Add new item if product doesn't exist in sale
       const newItem: SaleItem = {
         // Generate a temporary ID for new items
@@ -562,7 +538,6 @@ const SalesPage = () => {
         price: product.price,
         product: product,
       }
-
       updatedItems.push(newItem)
     }
 
@@ -577,7 +552,6 @@ const SalesPage = () => {
 
     // Switch back to items tab after adding
     setActiveTab("items")
-
     toast({
       title: getAppTranslation("product_added", language),
       description: `${product.name} has been added to the sale.`,
@@ -606,7 +580,6 @@ const SalesPage = () => {
 
   const handleSaveEdit = async () => {
     if (!editedSale) return
-
     setIsSaving(true)
     try {
       // Prepare sale items for update
@@ -654,7 +627,6 @@ const SalesPage = () => {
 
   const handleDeleteSale = async () => {
     if (!selectedSale) return
-
     setIsDeleting(true)
     try {
       // First, get all sale items to properly adjust stock
@@ -760,20 +732,23 @@ const SalesPage = () => {
         }) || [],
       )
 
-      // Create CSV content
-      const headers = ["Profit", "Date", "Total", "Payment Method"]
-
+      // Create CSV content with profit margin column
+      const headers = ["Date", "Payment Method", "Items", "Total", "Profit", "Profit Margin (%)"]
       const csvRows = [headers]
 
       salesWithItems.forEach((sale) => {
         const profit = calculateProfit(sale)
-        const row = [
-          formatCurrency(profit, currentCurrency, language),
-          format(new Date(sale.created_at), "yyyy-MM-dd HH:mm:ss"),
-          formatCurrency(sale.total, currentCurrency, language),
-          sale.payment_method,
-        ]
+        const profitMargin = calculateProfitMargin(sale)
+        const totalItems = sale.items?.reduce((total, item) => total + item.quantity, 0) || 0
 
+        const row = [
+          format(new Date(sale.created_at), "yyyy-MM-dd HH:mm:ss"),
+          sale.payment_method,
+          totalItems.toString(),
+          formatCurrency(sale.total, currentCurrency, language),
+          formatCurrency(profit, currentCurrency, language),
+          `${profitMargin.toFixed(2)}%`,
+        ]
         csvRows.push(row)
       })
 
@@ -811,12 +786,10 @@ const SalesPage = () => {
     if (sale.items && sale.items.length > 0) {
       return sale.items.reduce((total, item) => total + item.quantity, 0)
     }
-
     // If we have the itemCount from the initial fetch, use that
     if (sale.itemCount !== undefined) {
       return sale.itemCount
     }
-
     // If items haven't been loaded yet, show a placeholder
     return "-"
   }
@@ -844,7 +817,12 @@ const SalesPage = () => {
               <Calendar mode="single" selected={date} onSelect={handleDateChange} initialFocus />
             </PopoverContent>
           </Popover>
-          <Button variant="outline" className="w-full md:w-auto" onClick={exportToCSV} disabled={isLoadingMore}>
+          <Button
+            variant="outline"
+            className="w-full md:w-auto bg-transparent"
+            onClick={exportToCSV}
+            disabled={isLoadingMore}
+          >
             {isLoadingMore ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -857,7 +835,12 @@ const SalesPage = () => {
               </>
             )}
           </Button>
-          <Button variant="outline" className="w-full md:w-auto" onClick={() => fetchSales()} disabled={isLoading}>
+          <Button
+            variant="outline"
+            className="w-full md:w-auto bg-transparent"
+            onClick={() => fetchSales()}
+            disabled={isLoading}
+          >
             <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
@@ -902,66 +885,87 @@ const SalesPage = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Profit</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Payment Method</TableHead>
                   <TableHead className="text-right">Items</TableHead>
                   <TableHead className="text-right">{getAppTranslation("total", language)}</TableHead>
+                  <TableHead className="text-right">Profit</TableHead>
+                  <TableHead className="text-right">Profit Margin</TableHead>
                   <TableHead className="text-center">{getAppTranslation("actions", language)}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginatedSales.map((sale) => (
-                  <TableRow key={sale.id}>
-                    <TableCell className="font-medium text-green-600 dark:text-green-500">
-                      {sale.items ? formatCurrency(calculateProfit(sale), currentCurrency, language) : "-"}
-                    </TableCell>
-                    <TableCell>{format(new Date(sale.created_at), "MMM d, yyyy h:mm a")}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="capitalize">
-                        {sale.payment_method}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">{getTotalItems(sale)}</TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatCurrency(sale.total, currentCurrency, language)}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex justify-center gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleViewDetails(sale)}
-                          disabled={isLoadingSaleDetails && selectedSale?.id === sale.id}
-                        >
-                          {isLoadingSaleDetails && selectedSale?.id === sale.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Eye className="h-4 w-4" />
-                          )}
-                          <span className="sr-only">View</span>
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEditClick(sale)}
-                          disabled={isLoadingSaleDetails && selectedSale?.id === sale.id}
-                        >
-                          {isLoadingSaleDetails && selectedSale?.id === sale.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Pencil className="h-4 w-4" />
-                          )}
-                          <span className="sr-only">Edit</span>
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleDeleteClick(sale)}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                          <span className="sr-only">Delete</span>
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {paginatedSales.map((sale) => {
+                  const profit = calculateProfit(sale)
+                  const profitMargin = calculateProfitMargin(sale)
+
+                  return (
+                    <TableRow key={sale.id}>
+                      <TableCell>{format(new Date(sale.created_at), "MMM d, yyyy h:mm a")}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="capitalize">
+                          {sale.payment_method}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">{getTotalItems(sale)}</TableCell>
+                      <TableCell className="text-right font-medium">
+                        {formatCurrency(sale.total, currentCurrency, language)}
+                      </TableCell>
+                      <TableCell className="text-right font-medium text-green-600 dark:text-green-500">
+                        {sale.items ? formatCurrency(profit, currentCurrency, language) : "-"}
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {sale.items ? (
+                          <span
+                            className={cn(
+                              profitMargin >= 0
+                                ? "text-green-600 dark:text-green-500"
+                                : "text-red-600 dark:text-red-500",
+                            )}
+                          >
+                            {profitMargin.toFixed(2)}%
+                          </span>
+                        ) : (
+                          "-"
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex justify-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleViewDetails(sale)}
+                            disabled={isLoadingSaleDetails && selectedSale?.id === sale.id}
+                          >
+                            {isLoadingSaleDetails && selectedSale?.id === sale.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Eye className="h-4 w-4" />
+                            )}
+                            <span className="sr-only">View</span>
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleEditClick(sale)}
+                            disabled={isLoadingSaleDetails && selectedSale?.id === sale.id}
+                          >
+                            {isLoadingSaleDetails && selectedSale?.id === sale.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Pencil className="h-4 w-4" />
+                            )}
+                            <span className="sr-only">Edit</span>
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => handleDeleteClick(sale)}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                            <span className="sr-only">Delete</span>
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           </div>
@@ -1022,7 +1026,6 @@ const SalesPage = () => {
                       </Badge>
                     </div>
                   </div>
-
                   <div className="border-t pt-4">
                     <h3 className="font-medium mb-2">Items</h3>
                     {isLoadingSaleDetails ? (
@@ -1032,47 +1035,98 @@ const SalesPage = () => {
                       </div>
                     ) : (
                       <div className="space-y-3 max-h-[300px] overflow-y-auto">
-                        {selectedSale.items?.map((item) => (
-                          <div key={item.id} className="flex items-center justify-between py-2 border-b last:border-0">
-                            <div className="flex items-center">
-                              {item.product?.image ? (
-                                <div className="h-10 w-10 rounded overflow-hidden mr-3">
-                                  <img
-                                    src={item.product.image || "/placeholder.svg"}
-                                    alt={item.product?.name || "Product"}
-                                    className="w-full h-full object-cover"
-                                  />
-                                </div>
-                              ) : (
-                                <div className="h-10 w-10 bg-muted rounded flex items-center justify-center mr-3">
-                                  <span className="text-xs">No img</span>
-                                </div>
-                              )}
-                              <div>
-                                <p className="font-medium">{item.product?.name}</p>
-                                <div className="flex items-center text-sm text-muted-foreground">
-                                  <span>
-                                    {formatCurrency(item.price, currentCurrency, language)} × {item.quantity}
-                                    {(item.discount ?? 0) > 0 && ` (-${item.discount}%)`}
-                                  </span>
+                        {selectedSale.items?.map((item) => {
+                          // Calculate profit margin for this specific item
+                          const purchasePrice = item.product?.purchase_price || 0
+                          const sellingPriceAfterDiscount = item.price * (1 - (item.discount ?? 0) / 100)
+                          const profitPerUnit = sellingPriceAfterDiscount - purchasePrice
+                          const itemProfitMargin =
+                            sellingPriceAfterDiscount > 0 ? (profitPerUnit / sellingPriceAfterDiscount) * 100 : 0
+
+                          return (
+                            <div
+                              key={item.id}
+                              className="flex items-center justify-between py-2 border-b last:border-0"
+                            >
+                              <div className="flex items-center">
+                                {item.product?.image ? (
+                                  <div className="h-10 w-10 rounded overflow-hidden mr-3">
+                                    <img
+                                      src={item.product.image || "/placeholder.svg"}
+                                      alt={item.product?.name || "Product"}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="h-10 w-10 bg-muted rounded flex items-center justify-center mr-3">
+                                    <span className="text-xs">No img</span>
+                                  </div>
+                                )}
+                                <div>
+                                  <p className="font-medium">{item.product?.name}</p>
+                                  <div className="flex items-center text-sm text-muted-foreground">
+                                    <span>
+                                      {formatCurrency(item.price, currentCurrency, language)} × {item.quantity}
+                                      {(item.discount ?? 0) > 0 && ` (-${item.discount}%)`}
+                                    </span>
+                                  </div>
+                                  <div className="text-xs">
+                                    <span className="text-muted-foreground">Margin: </span>
+                                    <span
+                                      className={cn(
+                                        "font-medium",
+                                        itemProfitMargin >= 0
+                                          ? "text-green-600 dark:text-green-500"
+                                          : "text-red-600 dark:text-red-500",
+                                      )}
+                                    >
+                                      {itemProfitMargin.toFixed(1)}%
+                                    </span>
+                                  </div>
                                 </div>
                               </div>
+                              <div className="text-right">
+                                <p className="font-medium">
+                                  {formatCurrency(
+                                    item.price * item.quantity * (1 - (item.discount ?? 0) / 100),
+                                    currentCurrency,
+                                    language,
+                                  )}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  Profit: {formatCurrency(profitPerUnit * item.quantity, currentCurrency, language)}
+                                </p>
+                              </div>
                             </div>
-                            <p className="font-medium">
-                              {formatCurrency(
-                                item.price * item.quantity * (1 - (item.discount ?? 0) / 100),
-                                currentCurrency,
-                                language,
-                              )}
-                            </p>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     )}
                   </div>
-
-                  <div className="border-t mt-4 pt-4">
-                    <div className="flex justify-between items-center font-medium">
+                  <div className="border-t mt-4 pt-4 space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Subtotal</span>
+                      <span>{formatCurrency(selectedSale.total, currentCurrency, language)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Profit</span>
+                      <span className="text-green-600 dark:text-green-500">
+                        {formatCurrency(calculateProfit(selectedSale), currentCurrency, language)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Profit Margin</span>
+                      <span
+                        className={cn(
+                          calculateProfitMargin(selectedSale) >= 0
+                            ? "text-green-600 dark:text-green-500"
+                            : "text-red-600 dark:text-red-500",
+                        )}
+                      >
+                        {calculateProfitMargin(selectedSale).toFixed(2)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center font-medium border-t pt-2">
                       <span>{getAppTranslation("total", language)}</span>
                       <span>{formatCurrency(selectedSale.total, currentCurrency, language)}</span>
                     </div>
@@ -1108,13 +1162,11 @@ const SalesPage = () => {
                       </SelectContent>
                     </Select>
                   </div>
-
                   <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 overflow-hidden flex flex-col">
                     <TabsList className="grid w-full grid-cols-2">
                       <TabsTrigger value="items">Current Items</TabsTrigger>
                       <TabsTrigger value="add-products">Add Products</TabsTrigger>
                     </TabsList>
-
                     <TabsContent value="items" className="flex-1 overflow-hidden flex flex-col">
                       <div className="space-y-3 overflow-y-auto flex-1">
                         {editedSale.items?.length === 0 ? (
@@ -1152,7 +1204,7 @@ const SalesPage = () => {
                                 <Button
                                   variant="outline"
                                   size="icon"
-                                  className="h-7 w-7"
+                                  className="h-7 w-7 bg-transparent"
                                   onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
                                 >
                                   <Minus className="h-3 w-3" />
@@ -1161,7 +1213,7 @@ const SalesPage = () => {
                                 <Button
                                   variant="outline"
                                   size="icon"
-                                  className="h-7 w-7"
+                                  className="h-7 w-7 bg-transparent"
                                   onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
                                 >
                                   <Plus className="h-3 w-3" />
@@ -1180,7 +1232,6 @@ const SalesPage = () => {
                         )}
                       </div>
                     </TabsContent>
-
                     <TabsContent value="add-products" className="flex-1 overflow-hidden flex flex-col">
                       <div className="mb-4">
                         <div className="relative">
@@ -1193,7 +1244,6 @@ const SalesPage = () => {
                           />
                         </div>
                       </div>
-
                       <div className="flex-1 overflow-y-auto">
                         {isLoadingProducts ? (
                           <div className="flex justify-center items-center h-40">
@@ -1246,14 +1296,12 @@ const SalesPage = () => {
                       </div>
                     </TabsContent>
                   </Tabs>
-
                   <div className="border-t mt-4 pt-4">
                     <div className="flex justify-between items-center font-medium">
                       <span>{getAppTranslation("total", language)}</span>
                       <span>{formatCurrency(editedSale.total, currentCurrency, language)}</span>
                     </div>
                   </div>
-
                   <DialogFooter className="mt-6">
                     <Button variant="outline" onClick={() => setIsEditOpen(false)}>
                       {getAppTranslation("cancel", language)}
@@ -1316,4 +1364,3 @@ const SalesPage = () => {
 }
 
 export default SalesPage
-
