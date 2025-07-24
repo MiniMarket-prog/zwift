@@ -1,7 +1,5 @@
 "use client"
-
 import type React from "react"
-
 import { useState, useRef } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
@@ -36,6 +34,7 @@ import { DeleteProductDialog } from "./delete-product-dialog"
 import { PrintBarcodeDialog } from "./print-barcode-dialog"
 import Image from "next/image"
 import { toast } from "@/components/ui/use-toast"
+import { cn } from "@/lib/utils"
 
 interface Product {
   id: string
@@ -57,7 +56,7 @@ interface Category {
   name: string
 }
 
-type SortField = "name" | "price" | "stock" | "expiry_date"
+type SortField = "name" | "price" | "stock" | "expiry_date" | "profit_margin"
 type SortDirection = "asc" | "desc"
 
 export function ProductList({
@@ -83,6 +82,14 @@ export function ProductList({
   const [isLoading, setIsLoading] = useState(false)
   const [totalCount, setTotalCount] = useState(initialProducts.length)
   const searchTimeout = useRef<NodeJS.Timeout | null>(null)
+
+  // Calculate profit margin percentage for a product
+  const calculateProfitMargin = (product: Product): number | null => {
+    if (!product.purchase_price || product.purchase_price === 0 || product.price === 0) {
+      return null
+    }
+    return ((product.price - product.purchase_price) / product.price) * 100
+  }
 
   // Apply client-side filters for category and stock
   const filteredProducts = products
@@ -114,6 +121,10 @@ export function ProductList({
         const dateA = a.expiry_date ? new Date(a.expiry_date).getTime() : 0
         const dateB = b.expiry_date ? new Date(b.expiry_date).getTime() : 0
         return sortDirection === "asc" ? dateA - dateB : dateB - dateA
+      } else if (sortField === "profit_margin") {
+        const marginA = calculateProfitMargin(a) ?? Number.NEGATIVE_INFINITY
+        const marginB = calculateProfitMargin(b) ?? Number.NEGATIVE_INFINITY
+        return sortDirection === "asc" ? marginA - marginB : marginB - marginA
       }
       return 0
     })
@@ -128,12 +139,10 @@ export function ProductList({
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
     setSearchTerm(value)
-
     // Debounce search to avoid too many requests
     if (searchTimeout.current) {
       clearTimeout(searchTimeout.current)
     }
-
     searchTimeout.current = setTimeout(async () => {
       setIsLoading(true)
       try {
@@ -192,7 +201,6 @@ export function ProductList({
       await refreshProducts()
     } catch (error: any) {
       console.error("Error deleting product:", error)
-
       // Check if it's a foreign key constraint error related to sale_items
       if (
         error.code === "23503" ||
@@ -234,7 +242,6 @@ export function ProductList({
   // Render pagination controls
   const renderPagination = () => {
     if (totalPages <= 1) return null
-
     return (
       <Pagination>
         <PaginationContent>
@@ -244,7 +251,6 @@ export function ProductList({
               className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
             />
           </PaginationItem>
-
           {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
             let pageNum
             if (totalPages <= 5) {
@@ -292,7 +298,6 @@ export function ProductList({
                 )
               pageNum = currentPage + i - 2
             }
-
             return (
               <PaginationItem key={i}>
                 <PaginationLink onClick={() => handlePageChange(pageNum)} isActive={currentPage === pageNum}>
@@ -301,7 +306,6 @@ export function ProductList({
               </PaginationItem>
             )
           })}
-
           <PaginationItem>
             <PaginationNext
               onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
@@ -332,6 +336,12 @@ export function ProductList({
                   <ArrowUpDownIcon className="h-4 w-4" />
                 </div>
               </TableHead>
+              <TableHead>
+                <div className="flex items-center space-x-1 cursor-pointer" onClick={() => handleSort("profit_margin")}>
+                  <span>Profit Margin</span>
+                  <ArrowUpDownIcon className="h-4 w-4" />
+                </div>
+              </TableHead>
               <TableHead>Barcode</TableHead>
               <TableHead>
                 <div className="flex items-center space-x-1 cursor-pointer" onClick={() => handleSort("stock")}>
@@ -352,14 +362,14 @@ export function ProductList({
           <TableBody>
             {currentItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                   {isLoading ? "Loading products..." : "No products found"}
                 </TableCell>
               </TableRow>
             ) : (
               currentItems.map((product) => {
                 const stockStatus = getStockStatus(product.stock, product.min_stock)
-
+                const profitMargin = calculateProfitMargin(product)
                 return (
                   <TableRow key={product.id}>
                     <TableCell className="font-medium">
@@ -383,6 +393,20 @@ export function ProductList({
                       </div>
                     </TableCell>
                     <TableCell>DH {product.price.toFixed(2)}</TableCell>
+                    <TableCell>
+                      {profitMargin !== null ? (
+                        <span
+                          className={cn(
+                            "font-medium",
+                            profitMargin >= 0 ? "text-green-600 dark:text-green-500" : "text-red-600 dark:text-red-500",
+                          )}
+                        >
+                          {profitMargin.toFixed(1)}%
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">N/A</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {product.barcode ? (
                         product.barcode
@@ -458,7 +482,6 @@ export function ProductList({
             )}
           </TableBody>
         </Table>
-
         <div className="flex items-center justify-between px-4 py-4 border-t">
           <div className="flex items-center space-x-2">
             <span className="text-sm text-muted-foreground">
@@ -486,7 +509,6 @@ export function ProductList({
             </Select>
             <span className="text-sm text-muted-foreground">per page</span>
           </div>
-
           {renderPagination()}
         </div>
       </>
@@ -505,7 +527,7 @@ export function ProductList({
           ) : (
             currentItems.map((product) => {
               const stockStatus = getStockStatus(product.stock, product.min_stock)
-
+              const profitMargin = calculateProfitMargin(product)
               return (
                 <Card key={product.id} className="overflow-hidden">
                   <div className="h-40 bg-gray-100 relative">
@@ -525,17 +547,32 @@ export function ProductList({
                       <div className={`h-3 w-3 rounded-full ${stockStatus.color}`}></div>
                     </div>
                   </div>
-
                   <CardContent className="p-4">
                     <h3 className="font-semibold text-lg truncate">{product.name}</h3>
                     <div className="flex justify-between items-center mt-2">
-                      <span className="font-bold text-lg">${product.price.toFixed(2)}</span>
+                      <span className="font-bold text-lg">DH {product.price.toFixed(2)}</span>
                       <Badge variant={product.stock < product.min_stock ? "outline" : "secondary"}>
                         Stock: {product.stock}
                       </Badge>
                     </div>
-
                     <div className="mt-3 space-y-1">
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-muted-foreground">Profit Margin:</span>
+                        {profitMargin !== null ? (
+                          <span
+                            className={cn(
+                              "font-medium",
+                              profitMargin >= 0
+                                ? "text-green-600 dark:text-green-500"
+                                : "text-red-600 dark:text-red-500",
+                            )}
+                          >
+                            {profitMargin.toFixed(1)}%
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">N/A</span>
+                        )}
+                      </div>
                       {product.barcode ? (
                         <div className="flex items-center text-sm">
                           <BarcodeIcon className="h-4 w-4 mr-2 text-muted-foreground" />
@@ -546,7 +583,6 @@ export function ProductList({
                           No Barcode
                         </Badge>
                       )}
-
                       <div className="flex items-center text-sm">
                         <span className="text-muted-foreground mr-2">Category:</span>
                         {product.category_id ? (
@@ -555,7 +591,6 @@ export function ProductList({
                           <span className="text-muted-foreground">None</span>
                         )}
                       </div>
-
                       {product.expiry_date && (
                         <div className="flex items-center text-sm">
                           <span className="text-muted-foreground mr-2">Expires:</span>
@@ -564,7 +599,6 @@ export function ProductList({
                       )}
                     </div>
                   </CardContent>
-
                   <CardFooter className="p-4 pt-0 flex justify-between">
                     <Button
                       variant="outline"
@@ -599,7 +633,6 @@ export function ProductList({
             })
           )}
         </div>
-
         <div className="flex items-center justify-between mt-6">
           <div className="flex items-center space-x-2">
             <span className="text-sm text-muted-foreground">
@@ -627,7 +660,6 @@ export function ProductList({
             </Select>
             <span className="text-sm text-muted-foreground">per page</span>
           </div>
-
           {renderPagination()}
         </div>
       </>
@@ -647,12 +679,15 @@ export function ProductList({
               className="pl-10"
             />
           </div>
-
-          <Button variant="outline" onClick={refreshProducts} className="md:w-auto w-full" title="Refresh Products">
+          <Button
+            variant="outline"
+            onClick={refreshProducts}
+            className="md:w-auto w-full bg-transparent"
+            title="Refresh Products"
+          >
             <RefreshCwIcon className="h-4 w-4 mr-2" />
             Refresh
           </Button>
-
           <div className="flex flex-col space-y-4 sm:flex-row sm:space-y-0 sm:space-x-4">
             <div className="w-full sm:w-[180px]">
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
@@ -673,7 +708,6 @@ export function ProductList({
                 </SelectContent>
               </Select>
             </div>
-
             <div className="w-full sm:w-[180px]">
               <Select value={stockFilter} onValueChange={setStockFilter}>
                 <SelectTrigger>
@@ -720,4 +754,3 @@ export function ProductList({
     </div>
   )
 }
-
