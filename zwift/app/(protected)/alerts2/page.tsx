@@ -1,12 +1,11 @@
 "use client"
-
 import type React from "react"
-
 import { useState, useEffect, useCallback } from "react"
 import { createClient } from "@/lib/supabase-client"
 import { formatCurrency } from "@/lib/format-currency"
 import { jsPDF } from "jspdf"
 import autoTable from "jspdf-autotable"
+import { cn } from "@/lib/utils"
 
 // Properly extend the jsPDF types to include autoTable
 // This needs to be before any usage of jsPDF
@@ -166,6 +165,7 @@ const AlertsPage: React.FC = () => {
       barcode: true,
       price: true,
       purchasePrice: true,
+      profitMargin: true, // Add profit margin to export settings
       currentStock: true,
       minStock: true,
       stockNeeded: true,
@@ -180,6 +180,14 @@ const AlertsPage: React.FC = () => {
 
   // Add a new state to track the export type
   const [exportType, setExportType] = useState<"csv" | "pdf">("csv")
+
+  // Calculate profit margin percentage for a product
+  const calculateProfitMargin = useCallback((product: Product): number | null => {
+    if (!product.purchase_price || product.purchase_price === 0 || product.price === 0) {
+      return null
+    }
+    return ((product.price - product.purchase_price) / product.price) * 100
+  }, [])
 
   // Fetch currency setting
   const fetchCurrency = useCallback(async () => {
@@ -204,12 +212,10 @@ const AlertsPage: React.FC = () => {
     setLowStockProducts((prevProducts) =>
       prevProducts.map((product) => (product.id === updatedProduct.id ? updatedProduct : product)),
     )
-
     // Update filteredProducts
     setFilteredProducts((prevProducts) =>
       prevProducts.map((product) => (product.id === updatedProduct.id ? updatedProduct : product)),
     )
-
     // Update editedStockLevels
     setEditedStockLevels((prev) => ({
       ...prev,
@@ -228,17 +234,14 @@ const AlertsPage: React.FC = () => {
       if (!shouldProductBeInLowStockList(updatedProduct)) {
         // Remove from lowStockProducts
         setLowStockProducts((prevProducts) => prevProducts.filter((product) => product.id !== productId))
-
         // Remove from filteredProducts
         setFilteredProducts((prevProducts) => prevProducts.filter((product) => product.id !== productId))
-
         // Remove from editedStockLevels
         setEditedStockLevels((prev) => {
           const newLevels = { ...prev }
           delete newLevels[productId]
           return newLevels
         })
-
         // Show a success message indicating the product is no longer low stock
         toast({
           title: getAppTranslation("success", language),
@@ -251,11 +254,9 @@ const AlertsPage: React.FC = () => {
 
   // Modify the fetchLowStockProducts function to handle pagination properly
   // Replace the existing fetchLowStockProducts function with this implementation:
-
   const fetchLowStockProducts = useCallback(async () => {
     try {
       setIsLoading(true)
-
       // First, try to use the PostgreSQL function via RPC
       try {
         console.log("Attempting to fetch low stock products via RPC...")
@@ -263,21 +264,17 @@ const AlertsPage: React.FC = () => {
 
         if (!rpcError && rpcData) {
           console.log(`Successfully fetched ${rpcData.length} low stock products via RPC`)
-
           // Set the products directly from the RPC result
           setLowStockProducts(rpcData)
           setFilteredProducts(rpcData)
-
           // Calculate total pages
           setTotalPages(Math.max(1, Math.ceil(rpcData.length / pageSize)))
-
           // Initialize edited stock levels
           const initialStockLevels: Record<string, number> = {}
           rpcData.forEach((product: Product) => {
             initialStockLevels[product.id] = product.stock
           })
           setEditedStockLevels(initialStockLevels)
-
           return
         } else if (rpcError) {
           console.error("RPC error:", rpcError)
@@ -302,7 +299,6 @@ const AlertsPage: React.FC = () => {
         console.log(
           `Fetching products page ${page + 1} with range ${page * PAGE_SIZE} to ${(page + 1) * PAGE_SIZE - 1}`,
         )
-
         const { data, error } = await supabase
           .from("products")
           .select("*")
@@ -328,12 +324,10 @@ const AlertsPage: React.FC = () => {
 
       // Filter low stock products client-side
       const lowStockProducts = allProducts.filter((product) => product.stock <= product.min_stock)
-
       console.log(`Filtered ${lowStockProducts.length} low stock products client-side`)
 
       setLowStockProducts(lowStockProducts)
       setFilteredProducts(lowStockProducts)
-
       // Calculate total pages
       setTotalPages(Math.max(1, Math.ceil(lowStockProducts.length / pageSize)))
 
@@ -361,11 +355,9 @@ const AlertsPage: React.FC = () => {
   const fetchCategories = useCallback(async () => {
     try {
       const { data, error } = await supabase.from("categories").select("*").order("name")
-
       if (error) {
         throw error
       }
-
       // Clean up category names if they have encoding issues
       const cleanedCategories =
         data?.map((category: any) => {
@@ -412,7 +404,6 @@ const AlertsPage: React.FC = () => {
     let filtered = lowStockProducts.filter((product) => {
       const nameMatch = product.name.toLowerCase().includes(searchTerm.toLowerCase())
       const barcodeMatch = product.barcode && product.barcode.toLowerCase().includes(searchTerm.toLowerCase())
-
       // Return true if either name or barcode matches
       return nameMatch || barcodeMatch
     })
@@ -422,16 +413,13 @@ const AlertsPage: React.FC = () => {
     }
 
     setFilteredProducts(filtered)
-
     // Only reset to first page when filters change, not when products are updated
     if (searchTerm || categoryFilter) {
       setCurrentPage(1)
     }
-
     // Calculate total pages
     const newTotalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
     setTotalPages(newTotalPages)
-
     // Adjust current page if it's beyond the new total pages
     if (currentPage > newTotalPages) {
       setCurrentPage(newTotalPages)
@@ -484,13 +472,11 @@ const AlertsPage: React.FC = () => {
       // Try to get the translation using the app's translation system
       // @ts-ignore - Ignore TypeScript errors for keys not in AppTranslationKey
       const translated = getAppTranslation(key, language)
-
       // If the translation is the same as the key, it means no translation was found
       if (translated === key) {
         // Return a formatted version of the key as fallback
         return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase())
       }
-
       return translated
     } catch (error) {
       // If there's an error, return a formatted version of the key
@@ -502,7 +488,6 @@ const AlertsPage: React.FC = () => {
     try {
       // Update the product stock to min_stock + 5 (or some other logic)
       const newStock = product.min_stock + 5
-
       const { error } = await supabase.from("products").update({ stock: newStock }).eq("id", product.id)
 
       if (error) throw error
@@ -514,7 +499,6 @@ const AlertsPage: React.FC = () => {
 
       // Update the product in state instead of full refresh
       const updatedProduct = { ...product, stock: newStock }
-
       // Check if product should still be in low stock list
       if (shouldProductBeInLowStockList(updatedProduct)) {
         updateProductInState(updatedProduct)
@@ -634,9 +618,7 @@ const AlertsPage: React.FC = () => {
   // Get category name by ID
   const getCategoryName = (categoryId: string | null | undefined) => {
     if (!categoryId) return "Uncategorized"
-
     const category = categories.find((c) => c.id === categoryId)
-
     // If category exists but name has encoding issues, return a clean fallback
     if (category) {
       // Check if the category name contains encoding issues (common symbols in encoding problems)
@@ -645,7 +627,6 @@ const AlertsPage: React.FC = () => {
       }
       return category.name
     }
-
     return "Uncategorized"
   }
 
@@ -653,11 +634,9 @@ const AlertsPage: React.FC = () => {
   const handlePageSizeChange = (value: string) => {
     const newPageSize = Number.parseInt(value)
     setPageSize(newPageSize)
-
     // Calculate what the new current page should be to maintain roughly the same position
     const currentFirstItemIndex = (currentPage - 1) * pageSize
     const newCurrentPage = Math.floor(currentFirstItemIndex / newPageSize) + 1
-
     setCurrentPage(newCurrentPage)
   }
 
@@ -682,7 +661,6 @@ const AlertsPage: React.FC = () => {
   const getPaginatedProducts = () => {
     // First sort the products if a sort field is selected
     const sortedProducts = [...filteredProducts]
-
     if (sortField) {
       sortedProducts.sort((a, b) => {
         let valueA: any
@@ -702,11 +680,14 @@ const AlertsPage: React.FC = () => {
           // Handle sorting by last sale date
           valueA = lastSaleDates[a.id] || ""
           valueB = lastSaleDates[b.id] || ""
+        } else if (sortField === "profit_margin") {
+          // Handle sorting by profit margin
+          valueA = calculateProfitMargin(a) ?? Number.NEGATIVE_INFINITY
+          valueB = calculateProfitMargin(b) ?? Number.NEGATIVE_INFINITY
         } else {
           // For other fields, safely access the property
           valueA = a[sortField as keyof Product]
           valueB = b[sortField as keyof Product]
-
           // Handle null/undefined values
           valueA = valueA === null || valueA === undefined ? 0 : valueA
           valueB = valueB === null || valueB === undefined ? 0 : valueB
@@ -771,6 +752,7 @@ const AlertsPage: React.FC = () => {
       if (selectedColumns.includes("barcode")) headers.push("Barcode")
       if (selectedColumns.includes("price")) headers.push("Price")
       if (selectedColumns.includes("purchasePrice")) headers.push("Purchase Price")
+      if (selectedColumns.includes("profitMargin")) headers.push("Profit Margin (%)")
       if (selectedColumns.includes("currentStock")) headers.push("Current Stock")
       if (selectedColumns.includes("minStock")) headers.push("Min Stock")
       if (selectedColumns.includes("stockNeeded")) headers.push("Stock Needed")
@@ -791,13 +773,16 @@ const AlertsPage: React.FC = () => {
       productsToExport.forEach((product) => {
         const stockNeeded = product.min_stock - product.stock
         const categoryName = getCategoryName(product.category_id)
-
+        const profitMargin = calculateProfitMargin(product)
         const row: string[] = []
+
         if (selectedColumns.includes("name")) row.push(product.name)
         if (selectedColumns.includes("category")) row.push(categoryName)
         if (selectedColumns.includes("barcode")) row.push(product.barcode || "N/A")
         if (selectedColumns.includes("price")) row.push(product.price.toString())
         if (selectedColumns.includes("purchasePrice")) row.push(product.purchase_price?.toString() || "N/A")
+        if (selectedColumns.includes("profitMargin"))
+          row.push(profitMargin !== null ? `${profitMargin.toFixed(2)}%` : "N/A")
         if (selectedColumns.includes("currentStock")) row.push(product.stock.toString())
         if (selectedColumns.includes("minStock")) row.push(product.min_stock.toString())
         if (selectedColumns.includes("stockNeeded")) row.push(stockNeeded.toString())
@@ -858,7 +843,6 @@ const AlertsPage: React.FC = () => {
       if (exportSettings.includeHeader) {
         doc.setFontSize(18)
         doc.text("Low Stock Products Report", 14, 15)
-
         // Add date
         doc.setFontSize(10)
         doc.text(`Generated: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, 14, 22)
@@ -877,6 +861,7 @@ const AlertsPage: React.FC = () => {
       if (selectedColumns.includes("barcode")) headers.push("Barcode")
       if (selectedColumns.includes("price")) headers.push("Price")
       if (selectedColumns.includes("purchasePrice")) headers.push("Purchase Price")
+      if (selectedColumns.includes("profitMargin")) headers.push("Profit Margin (%)")
       if (selectedColumns.includes("currentStock")) headers.push("Current Stock")
       if (selectedColumns.includes("minStock")) headers.push("Min Stock")
       if (selectedColumns.includes("stockNeeded")) headers.push("Stock Needed")
@@ -899,7 +884,6 @@ const AlertsPage: React.FC = () => {
           // Calculate how many products per page (rough estimate)
           const rowsPerPage = Math.floor((297 - 40) / 10) // 297mm is A4 height, 40mm for headers, 10mm per row
           const totalRowsAllowed = rowsPerPage * pageCount
-
           if (productsToInclude.length > totalRowsAllowed) {
             productsToInclude = productsToInclude.slice(0, totalRowsAllowed)
           }
@@ -915,7 +899,7 @@ const AlertsPage: React.FC = () => {
           : "N/A"
         const categoryName = getCategoryName(product.category_id)
         const lastSaleDate = formatLastSaleDate(lastSaleDates[product.id])
-
+        const profitMargin = calculateProfitMargin(product)
         const row: any[] = []
 
         // Add image placeholder if includeImages is true
@@ -929,6 +913,8 @@ const AlertsPage: React.FC = () => {
         if (selectedColumns.includes("barcode")) row.push(product.barcode || "N/A")
         if (selectedColumns.includes("price")) row.push(price)
         if (selectedColumns.includes("purchasePrice")) row.push(purchasePrice)
+        if (selectedColumns.includes("profitMargin"))
+          row.push(profitMargin !== null ? `${profitMargin.toFixed(1)}%` : "N/A")
         if (selectedColumns.includes("currentStock")) row.push(product.stock.toString())
         if (selectedColumns.includes("minStock")) row.push(product.min_stock.toString())
         if (selectedColumns.includes("stockNeeded")) row.push(stockNeeded.toString())
@@ -948,16 +934,13 @@ const AlertsPage: React.FC = () => {
           .filter((product) => product.image && exportSettings.includeImages)
           .map(async (product) => {
             if (!product.image) return
-
             try {
               // Use our utility function to preload the image
               const img = await preloadImage(product.image)
-
               // Use the new function to create a properly sized and centered image
               const scaleFactor = 4 // Higher resolution for better quality
               const imageSize = exportSettings.imageSize * scaleFactor
               const base64 = createFixedSizeImageForPDF(img, imageSize)
-
               // Store base64 data in the product object for later use
               // @ts-ignore - Add a temporary property
               product._imageBase64 = base64
@@ -999,7 +982,6 @@ const AlertsPage: React.FC = () => {
             data.section === "body"
           ) {
             const product = productsToInclude[data.row.index]
-
             // Check if we have a base64 image
             // @ts-ignore - Access the temporary property
             if (product && product._imageBase64) {
@@ -1007,15 +989,12 @@ const AlertsPage: React.FC = () => {
                 // Calculate cell dimensions
                 const cellWidth = data.cell.width
                 const cellHeight = data.cell.height
-
                 // Calculate image dimensions (slightly smaller than cell to add padding)
                 const padding = 2 // 2mm padding
                 const imageSize = Math.min(cellWidth, cellHeight) - padding * 2
-
                 // Calculate position to center the image in the cell
                 const xPos = data.cell.x + (cellWidth - imageSize) / 2
                 const yPos = data.cell.y + (cellHeight - imageSize) / 2
-
                 // Add image to the cell
                 doc.addImage(
                   // @ts-ignore - Access the temporary
@@ -1032,15 +1011,12 @@ const AlertsPage: React.FC = () => {
             } else if (product && product.image) {
               // Draw a placeholder rectangle if we couldn't load the image
               doc.setFillColor(200, 200, 200)
-
               // Calculate position for placeholder
               const padding = 2 // 2mm padding
               const placeholderSize = Math.min(data.cell.width, data.cell.height) - padding * 2
               const xPos = data.cell.x + (data.cell.width - placeholderSize) / 2
               const yPos = data.cell.y + (data.cell.height - placeholderSize) / 2
-
               doc.rect(xPos, yPos, placeholderSize, placeholderSize, "F")
-
               doc.setFontSize(6)
               doc.text("No image", data.cell.x + data.cell.width / 2, data.cell.y + data.cell.height / 2, {
                 align: "center",
@@ -1402,7 +1378,6 @@ const AlertsPage: React.FC = () => {
                 getTranslation("export_to_csv")
               )}
             </Button>
-
             <div className="flex items-center space-x-2">
               <Label htmlFor="export-page-count">{getTranslation("page")}:</Label>
               <Select value={exportPageCount} onValueChange={handleExportPageCountChange}>
@@ -1419,7 +1394,6 @@ const AlertsPage: React.FC = () => {
                 </SelectContent>
               </Select>
             </div>
-
             <Button variant="secondary" onClick={() => openExportSettings("pdf")} disabled={isExportingPDF}>
               {isExportingPDF ? (
                 <>
@@ -1493,6 +1467,19 @@ const AlertsPage: React.FC = () => {
                         )}
                       </div>
                     </th>
+                    {/* Add Profit Margin column header */}
+                    <th
+                      scope="col"
+                      className="px-3 py-3.5 text-left text-sm font-semibold text-foreground hidden lg:table-cell cursor-pointer hover:bg-muted/80"
+                      onClick={() => handleSort("profit_margin")}
+                    >
+                      <div className="flex items-center">
+                        {getAppTranslation("profit_margin", language)}
+                        {sortField === "profit_margin" && (
+                          <span className="ml-1">{sortDirection === "asc" ? "↑" : "↓"}</span>
+                        )}
+                      </div>
+                    </th>
                     <th
                       scope="col"
                       className="px-3 py-3.5 text-left text-sm font-semibold text-foreground cursor-pointer hover:bg-muted/80"
@@ -1536,25 +1523,24 @@ const AlertsPage: React.FC = () => {
                     </th>
                   </tr>
                 </thead>
-
                 <tbody className="divide-y divide-gray-200 bg-background">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={10} className="text-center py-4">
+                      <td colSpan={11} className="text-center py-4">
                         <Loader2 className="h-6 w-6 mx-auto animate-spin" />
                         <p className="mt-2">{getTranslation("loading_products")}...</p>
                       </td>
                     </tr>
                   ) : filteredProducts.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="text-center py-4">
+                      <td colSpan={11} className="text-center py-4">
                         {getAppTranslation("no_low_stock_products", language)}
                       </td>
                     </tr>
                   ) : (
                     getPaginatedProducts().map((product) => {
                       const stockNeeded = product.min_stock - product.stock
-
+                      const profitMargin = calculateProfitMargin(product)
                       return (
                         <tr key={product.id}>
                           <td className="py-4 pl-4 pr-3 text-sm sm:pl-6">
@@ -1596,6 +1582,23 @@ const AlertsPage: React.FC = () => {
                             {product.purchase_price
                               ? formatCurrency(product.purchase_price, currentCurrency, language)
                               : "N/A"}
+                          </td>
+                          {/* Add Profit Margin column */}
+                          <td className="px-3 py-4 text-sm text-foreground hidden lg:table-cell">
+                            {profitMargin !== null ? (
+                              <span
+                                className={cn(
+                                  "font-medium",
+                                  profitMargin >= 0
+                                    ? "text-green-600 dark:text-green-500"
+                                    : "text-red-600 dark:text-red-500",
+                                )}
+                              >
+                                {profitMargin.toFixed(1)}%
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">N/A</span>
+                            )}
                           </td>
                           <td className="px-3 py-4 text-sm font-medium text-foreground">
                             {editedStockLevels[product.id] !== undefined
@@ -1658,7 +1661,6 @@ const AlertsPage: React.FC = () => {
               </SelectContent>
             </Select>
           </div>
-
           <div className="flex items-center space-x-2">
             <Button
               variant="outline"

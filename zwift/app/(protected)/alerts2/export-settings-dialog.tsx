@@ -24,6 +24,7 @@ export type ExportSettings = {
     barcode: boolean
     price: boolean
     purchasePrice: boolean
+    profitMargin: boolean
     currentStock: boolean
     minStock: boolean
     stockNeeded: boolean
