@@ -311,6 +311,11 @@ export function AppSidebar() {
           label: "Products History",
           icon: <Package className="h-4 w-4" />,
         },
+                {
+          href: "restocking-insights",
+          label: "restocking insights",
+          icon: <Package className="h-4 w-4" />,
+        },
       ],
     },
     { href: "/settings", label: "settings" as AppTranslationKey, icon: <Settings className="h-5 w-5" /> },
