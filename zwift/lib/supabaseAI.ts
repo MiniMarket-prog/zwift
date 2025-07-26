@@ -69,16 +69,15 @@ export type PurchaseOrderItem = {
 // --- NEW/UPDATED TYPES FOR AI TOOL FUNCTIONS ---
 
 // Type for the data returned by `sale_items` select in `getMostSoldProducts`
-// Adjusted 'products' to be an array based on the TypeScript error inference.
+// Updated to handle the proper join structure
 type SaleItemForMostSoldQuery = {
   product_id: string
   quantity: number
-  products: Array<{
-    // Changed to Array to match the error's inferred type
+  products: {
     name: string
     category_id: string | null
-    categories: { name: string } | { name: string }[] | null // Can be object or array
-  }> | null
+    categories: { name: string } | null
+  } | null
 }
 
 // Type for the data returned by `products` select in `getSlowMovingProducts`
@@ -88,7 +87,7 @@ type ProductForSlowMovingQuery = {
   stock: number
   min_stock: number
   category_id: string | null
-  categories: { name: string } | { name: string }[] | null // Can be object or array
+  categories: { name: string } | null
 }
 
 // Type for the data returned by `sale_items` select in `getSlowMovingProducts`
@@ -1233,28 +1232,40 @@ export async function generatePurchaseOrder(productIds: string[]) {
 
 // --- AI TOOL FUNCTIONS (using your createClient) ---
 
-// Updated getMostSoldProducts
+// FIXED: Updated getMostSoldProducts with proper date filtering and better joins
 export async function getMostSoldProducts(periodDays: number) {
-  const supabase = createClient() // Use your existing client
+  const supabase = createClient()
   const periodAgo = new Date()
   periodAgo.setDate(periodAgo.getDate() - periodDays)
 
-  const { data: saleItems, error: saleItemsError } = (await supabase.from("sale_items").select(
-    `
-      product_id,
-      quantity,
-      products (
-        name,
-        category_id,
-        categories ( name )
-      )
-    `,
-  )) as { data: SaleItemForMostSoldQuery[] | null; error: any } // Explicitly cast the result
+  console.log(`Fetching most sold products for period: ${periodDays} days (from ${periodAgo.toISOString()})`)
 
-  if (saleItemsError) {
-    console.error("Error fetching sale items for most sold products:", saleItemsError)
-    throw saleItemsError
+  // First, get sales within the date range with proper joins
+  const { data: salesWithItems, error: salesError } = await supabase
+    .from("sales")
+    .select(`
+      id,
+      created_at,
+      sale_items (
+        product_id,
+        quantity,
+        products (
+          name,
+          category_id,
+          categories (
+            name
+          )
+        )
+      )
+    `)
+    .gte("created_at", periodAgo.toISOString())
+
+  if (salesError) {
+    console.error("Error fetching sales for most sold products:", salesError)
+    throw salesError
   }
+
+  console.log(`Found ${salesWithItems?.length || 0} sales in the period`)
 
   const productSales: Record<
     string,
@@ -1266,95 +1277,97 @@ export async function getMostSoldProducts(periodDays: number) {
     }
   > = {}
 
-  saleItems?.forEach((item) => {
-    const productId = item.product_id
-    if (!productSales[productId]) {
-      let categoryName = "Uncategorized"
-      // Access the first element of the 'products' array, as per the error's inference
-      const productData = item.products?.[0]
+  // Process the sales data
+  salesWithItems?.forEach((sale) => {
+    sale.sale_items?.forEach((item: any) => {
+      const productId = item.product_id
+      if (!productSales[productId]) {
+        const product = item.products
+        let categoryName = "Uncategorized"
 
-      if (productData?.categories) {
-        if (Array.isArray(productData.categories)) {
-          categoryName = productData.categories[0]?.name || "Uncategorized"
-        } else {
-          categoryName = productData.categories.name || "Uncategorized"
+        if (product?.categories) {
+          categoryName = product.categories.name || "Uncategorized"
+        }
+
+        productSales[productId] = {
+          product_id: productId,
+          product_name: product?.name || "Unknown Product",
+          category_name: categoryName,
+          total_quantity_sold: 0,
         }
       }
-
-      productSales[productId] = {
-        product_id: productId,
-        product_name: productData?.name || "Unknown Product", // Use productData
-        category_name: categoryName,
-        total_quantity_sold: 0,
-      }
-    }
-    productSales[productId].total_quantity_sold += item.quantity
+      productSales[productId].total_quantity_sold += item.quantity
+    })
   })
 
   const sortedProducts = Object.values(productSales).sort((a, b) => b.total_quantity_sold - a.total_quantity_sold)
+
+  console.log(`Processed ${sortedProducts.length} unique products with sales data`)
+
   return sortedProducts
 }
 
-// Updated getSlowMovingProducts
+// FIXED: Updated getSlowMovingProducts with proper date filtering
 export async function getSlowMovingProducts(periodDays: number) {
-  const supabase = createClient() // Use your existing client
+  const supabase = createClient()
   const periodAgo = new Date()
   periodAgo.setDate(periodAgo.getDate() - periodDays)
 
-  // Cast the result of select to the specific query type
-  const { data: allProducts, error: productsError } = (await supabase
-    .from("products")
-    .select("id, name, stock, min_stock, category_id, categories ( name )")) as {
-    data: ProductForSlowMovingQuery[] | null
-    error: any
-  }
+  console.log(`Fetching slow moving products for period: ${periodDays} days (from ${periodAgo.toISOString()})`)
+
+  // Get all products with their categories
+  const { data: allProducts, error: productsError } = await supabase.from("products").select(`
+      id, 
+      name, 
+      stock, 
+      min_stock, 
+      category_id, 
+      categories (
+        name
+      )
+    `)
 
   if (productsError) {
     console.error("Error fetching all products for slow moving analysis:", productsError)
     throw productsError
   }
 
-  // Cast the result of select to the specific query type
-  const { data: saleItems, error: saleItemsError } = (await supabase
-    .from("sale_items")
-    .select(
-      `
-      product_id,
-      quantity
-    `,
-    )
-    .gte("created_at", periodAgo.toISOString())) as {
-    data: SaleItemForSlowMovingQuery[] | null
-    error: any
+  // Get sales within the date range
+  const { data: salesWithItems, error: salesError } = await supabase
+    .from("sales")
+    .select(`
+      sale_items (
+        product_id,
+        quantity
+      )
+    `)
+    .gte("created_at", periodAgo.toISOString())
+
+  if (salesError) {
+    console.error("Error fetching sales for slow moving analysis:", salesError)
+    throw salesError
   }
 
-  if (saleItemsError) {
-    console.error("Error fetching sale items for slow moving analysis:", saleItemsError)
-    throw saleItemsError
-  }
-
+  // Calculate total sales per product
   const productSales: Record<string, number> = {}
-  // Explicitly type the item in forEach
-  saleItems?.forEach((item: SaleItemForSlowMovingQuery) => {
-    productSales[item.product_id] = (productSales[item.product_id] || 0) + item.quantity
+  salesWithItems?.forEach((sale) => {
+    sale.sale_items?.forEach((item: any) => {
+      productSales[item.product_id] = (productSales[item.product_id] || 0) + item.quantity
+    })
   })
 
-  const slowMovingThreshold = 0.1
+  const slowMovingThreshold = 0.1 // Less than 0.1 units per day
 
-  const slowMovingProducts = (allProducts || []) // Ensure allProducts is an array
-    .filter((product: ProductForSlowMovingQuery) => {
+  const slowMovingProducts = (allProducts || [])
+    .filter((product: any) => {
       const totalQuantitySold = productSales[product.id] || 0
       const avgDailyVelocity = totalQuantitySold / periodDays
       return avgDailyVelocity < slowMovingThreshold && product.stock > 0
     })
-    .map((product: ProductForSlowMovingQuery) => {
+    .map((product: any) => {
       let categoryName = "Uncategorized"
       if (product.categories) {
-        if (Array.isArray(product.categories)) {
-          categoryName = product.categories[0]?.name || "Uncategorized"
-        } else {
-          categoryName = product.categories.name || "Uncategorized"
-        }
+        categoryName = product.categories.name || "Uncategorized"
       }
 
       return {
@@ -1367,6 +1380,8 @@ export async function getSlowMovingProducts(periodDays: number) {
       }
     })
     .sort((a, b) => a.avg_daily_velocity - b.avg_daily_velocity)
+
+  console.log(`Found ${slowMovingProducts.length} slow-moving products`)
 
   return slowMovingProducts
 }

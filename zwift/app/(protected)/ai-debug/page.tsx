@@ -86,11 +86,34 @@ export default function AiDebugPage() {
                             {part.text}
                           </p>
                         )
-                      // Add more cases here for other part types if needed in the future
-                      // case "tool-invocation":
-                      //   return <div key={partIndex}>Calling tool: {part.toolInvocation.toolName}</div>;
-                      // case "tool-result":
-                      //   return <div key={partIndex}>Tool result: {JSON.stringify(part.toolResult)}</div>;
+                      case "tool-invocation":
+                        // Handle different states of tool invocation
+                        if (part.toolInvocation.state === "partial-call") {
+                          return (
+                            <div key={partIndex} className="text-xs text-blue-600 bg-blue-50 p-2 rounded mb-2">
+                              🔧 Tool: {part.toolInvocation.toolName} (preparing...)
+                              <br />
+                              Args: {JSON.stringify(part.toolInvocation.args)}
+                            </div>
+                          )
+                        } else if (part.toolInvocation.state === "call") {
+                          return (
+                            <div key={partIndex} className="text-xs text-blue-600 bg-blue-50 p-2 rounded mb-2">
+                              🔧 Tool: {part.toolInvocation.toolName} (executing...)
+                              <br />
+                              Args: {JSON.stringify(part.toolInvocation.args)}
+                            </div>
+                          )
+                        } else if (part.toolInvocation.state === "result") {
+                          return (
+                            <div key={partIndex} className="text-xs text-green-600 bg-green-50 p-2 rounded mb-2">
+                              ✅ Tool: {part.toolInvocation.toolName} (completed)
+                              <br />
+                              Result: {JSON.stringify(part.toolInvocation.result).substring(0, 200)}...
+                            </div>
+                          )
+                        }
+                        return null
                       case "step-start":
                         return (
                           <div key={partIndex} className="text-sm text-muted-foreground italic mt-2 mb-1">
@@ -98,7 +121,6 @@ export default function AiDebugPage() {
                           </div>
                         )
                       default:
-                        // Fallback for unknown or unexpected part types
                         return (
                           <p key={partIndex} className="text-sm whitespace-pre-wrap text-red-400">
                             [Unsupported content type: {part.type}]
