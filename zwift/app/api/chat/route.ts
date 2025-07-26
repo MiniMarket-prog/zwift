@@ -5,6 +5,18 @@ import { z } from "zod"
 import { createClient } from "@/lib/supabase"
 
 export async function POST(req: NextRequest) {
+  // Check for OpenAI API key first
+  if (!process.env.OPENAI_API_KEY) {
+    console.error("OPENAI_API_KEY environment variable is not set")
+    return NextResponse.json(
+      {
+        error: "OpenAI API key is not configured. Please add OPENAI_API_KEY to your environment variables.",
+        details: "Check your Vercel environment variables or .env.local file",
+      },
+      { status: 500 },
+    )
+  }
+
   let messages
   try {
     const body = await req.json()
@@ -1584,6 +1596,9 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
       statusCode = error.statusCode || 500
       if (statusCode === 429) {
         clientErrorMessage = "Rate limit reached. Please try again in a few seconds."
+      } else if (statusCode === 401) {
+        clientErrorMessage =
+          "OpenAI API key is invalid or expired. Please check your OPENAI_API_KEY environment variable."
       } else {
         clientErrorMessage = `OpenAI API Error: ${error.message || "Unknown error"}`
       }
