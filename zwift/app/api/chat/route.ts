@@ -2,29 +2,17 @@ import { streamText, convertToCoreMessages, tool } from "ai"
 import { openai } from "@ai-sdk/openai"
 import { type NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
-import { createClient } from "@/lib/supabase"
+import { createClient } from "@/lib/supabaseAI"
 
 export async function POST(req: NextRequest) {
-  // Check for OpenAI API key first
-  if (!process.env.OPENAI_API_KEY) {
-    console.error("OPENAI_API_KEY environment variable is not set")
-    return NextResponse.json(
-      {
-        error: "OpenAI API key is not configured. Please add OPENAI_API_KEY to your environment variables.",
-        details: "Check your Vercel environment variables or .env.local file",
-      },
-      { status: 500 },
-    )
-  }
-
   let messages
+
   try {
     const body = await req.json()
     if (!body.messages || !Array.isArray(body.messages)) {
       throw new Error("Invalid or missing 'messages' in request body.")
     }
 
-    // Convert messages to the correct format for the AI SDK
     messages = convertToCoreMessages(body.messages)
     console.log("Messages received and converted:", JSON.stringify(messages, null, 2))
   } catch (parseError: any) {
@@ -37,9 +25,9 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await streamText({
-      model: openai("gpt-4o-mini"), // Use gpt-4o-mini for better rate limits and lower cost
+      model: openai("gpt-4o-mini"), // Using gpt-4o-mini for better rate limits and lower cost
       messages: messages,
-      maxTokens: 2000, // Limit response length to avoid rate limits
+      maxTokens: 4000, // Increased token limit for comprehensive responses
       temperature: 0.7,
       system: `You are an AI assistant for a mini-market inventory management system. You have access to real-time data about products, sales, and inventory levels through various tools.
 
@@ -56,37 +44,134 @@ Your role is to:
 - Calculate and analyze profit data for different time periods
 - Analyze daily sales performance and identify best/worst performing days
 - Search for specific products by name (including different languages like "cajou" for cashews)
+- Find products sold with zero stock available
 
-IMPORTANT: 
+IMPORTANT GUIDELINES:
 - When users ask about their data, inventory, products, or sales, you MUST use the appropriate tools to fetch the actual data from their database
-- When users ask about "this month", "current month", or similar, they mean the current month in 2025
 - Don't give generic responses - always try to use real data
 - Be efficient with tool calls - avoid making multiple similar calls simultaneously
 - If asked about multiple products, try to use batch queries when possible
-- When users ask to change/update product information, use the updateProduct tool
-- For profit questions, use calculateProfitAnalysis with appropriate parameters
-- For daily performance questions like "best day this month", use getDailySalesAnalysis
-- If no data is found for a specific period, provide context with all-time data when available
 - Always specify the exact date range you're analyzing in your response
 - For product searches, use searchInventory tool which supports partial name matching
+- Provide clear, actionable recommendations based on the data
+- If no data is found for a specific period, provide context with all-time data when available
+- Always include barcodes when available in product information
+- Format responses clearly with proper structure and bullet points when appropriate
 
-Available tools:
-- getLowStockProducts: Get products below minimum stock
-- getMostSoldProducts: Get best-selling products over a period
-- getSlowMovingProducts: Get slow-moving products
-- getAllProducts: Get all products summary
-- getDashboardStats: Get overall business statistics
-- getCategories: Get product categories
-- queryProducts: Flexible product queries - search, filter, analyze
-- calculateProfitAnalysis: Calculate profit metrics for products or sales (supports monthly, period-based, and product-specific analysis)
-- updateProduct: Update product information including stock levels, prices, etc.
-- getDailySalesAnalysis: Analyze daily sales performance to find best/worst days, daily breakdowns, and comparisons
-- searchInventory: Search for products by name, category, or other criteria with detailed stock information
-- checkProductStock: Quick stock check for specific products
-
-Always be helpful, accurate, and provide specific data-driven recommendations when possible. Format your responses clearly and include relevant numbers and statistics. If no data is available for a requested period, explain this clearly and offer alternative time periods or context.`,
+Available tools include comprehensive inventory management, sales analysis, profit calculation, product updates, and specialized queries.`,
 
       tools: {
+        // Enhanced tool for finding products sold with zero stock
+        getProductsSoldWithZeroStock: tool({
+          description:
+            "Get products that were sold in the last specified days but had zero stock available at the time of sale, including product names and barcodes",
+          parameters: z.object({
+            periodDays: z.number().min(1).max(30).default(7).describe("Number of days to analyze (default: 7)"),
+          }),
+          execute: async ({ periodDays }) => {
+            try {
+              console.log(`Executing getProductsSoldWithZeroStock tool with period: ${periodDays} days...`)
+              const supabase = createClient()
+              const startDate = new Date()
+              startDate.setDate(startDate.getDate() - periodDays)
+
+              // Get sales data with product information for the specified period
+              const { data: salesData, error: salesError } = await supabase
+                .from("sales")
+                .select(`
+                  id,
+                  created_at,
+                  sale_items (
+                    product_id,
+                    quantity,
+                    price,
+                    products (
+                      id,
+                      name,
+                      barcode,
+                      stock,
+                      categories (
+                        name
+                      )
+                    )
+                  )
+                `)
+                .gte("created_at", startDate.toISOString())
+                .order("created_at", { ascending: false })
+
+              if (salesError) {
+                console.error("Error fetching sales data:", salesError)
+                throw salesError
+              }
+
+              if (!salesData || salesData.length === 0) {
+                return {
+                  success: true,
+                  data: [],
+                  message: `No sales found in the last ${periodDays} days`,
+                  period: `${startDate.toISOString().split("T")[0]} to ${new Date().toISOString().split("T")[0]}`,
+                }
+              }
+
+              // Process sales to find products sold with zero stock
+              const productsWithZeroStock: Record<string, any> = {}
+
+              salesData.forEach((sale) => {
+                if (sale.sale_items && sale.sale_items.length > 0) {
+                  sale.sale_items.forEach((item: any) => {
+                    const product = item.products
+                    if (product && product.stock === 0) {
+                      const productKey = product.id
+
+                      if (!productsWithZeroStock[productKey]) {
+                        productsWithZeroStock[productKey] = {
+                          product_id: product.id,
+                          product_name: product.name,
+                          barcode: product.barcode || "Barcode not available in the data retrieved",
+                          category: (product.categories as any)?.name || "Uncategorized",
+                          current_stock: product.stock,
+                          total_quantity_sold: 0,
+                          total_sales_count: 0,
+                          last_sale_date: sale.created_at,
+                        }
+                      }
+
+                      productsWithZeroStock[productKey].total_quantity_sold += item.quantity
+                      productsWithZeroStock[productKey].total_sales_count += 1
+
+                      // Update last sale date if this sale is more recent
+                      if (new Date(sale.created_at) > new Date(productsWithZeroStock[productKey].last_sale_date)) {
+                        productsWithZeroStock[productKey].last_sale_date = sale.created_at
+                      }
+                    }
+                  })
+                }
+              })
+
+              const resultArray = Object.values(productsWithZeroStock).sort(
+                (a: any, b: any) => b.total_quantity_sold - a.total_quantity_sold,
+              )
+
+              console.log(`Found ${resultArray.length} products sold with zero stock`)
+
+              return {
+                success: true,
+                data: resultArray,
+                total_count: resultArray.length,
+                period: `${startDate.toISOString().split("T")[0]} to ${new Date().toISOString().split("T")[0]}`,
+                message: `Found ${resultArray.length} products that were sold in the last ${periodDays} days but had zero stock available`,
+              }
+            } catch (error: any) {
+              console.error("Error in getProductsSoldWithZeroStock tool:", error)
+              return {
+                success: false,
+                error: error.message,
+                message: `Failed to fetch products sold with zero stock for ${periodDays} days`,
+              }
+            }
+          },
+        }),
+
         getLowStockProducts: tool({
           description: "Get all products that are currently below their minimum stock level",
           parameters: z.object({}),
@@ -94,7 +179,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
             try {
               console.log("Executing getLowStockProducts tool...")
               const supabase = createClient()
-
               const { data: products, error } = await supabase
                 .from("products")
                 .select(`
@@ -103,6 +187,7 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                   stock,
                   min_stock,
                   price,
+                  barcode,
                   category_id,
                   categories (
                     name
@@ -118,18 +203,20 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
 
               console.log("getLowStockProducts result:", products?.length || 0, "products")
 
-              // Limit to top 15 most critical to reduce token usage
               const limitedProducts = (products || [])
                 .sort((a, b) => a.stock / a.min_stock - b.stock / b.min_stock)
-                .slice(0, 15)
+                .slice(0, 20)
                 .map((product) => ({
                   id: product.id,
                   name: product.name,
+                  barcode: product.barcode || "Barcode not available",
                   current_stock: product.stock,
                   min_stock: product.min_stock,
                   price: product.price,
                   category: (product.categories as any)?.name || "Uncategorized",
                   stock_deficit: product.min_stock - product.stock,
+                  urgency_level:
+                    product.stock === 0 ? "Critical" : product.stock < product.min_stock * 0.5 ? "High" : "Medium",
                 }))
 
               return {
@@ -159,7 +246,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
             try {
               console.log(`Executing getMostSoldProducts tool with period: ${periodDays} days...`)
               const supabase = createClient()
-
               const startDate = new Date()
               startDate.setDate(startDate.getDate() - periodDays)
 
@@ -170,6 +256,7 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                   products (
                     id,
                     name,
+                    barcode,
                     categories (
                       name
                     )
@@ -185,29 +272,28 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                 throw error
               }
 
-              // Aggregate sales by product
               const productSales: Record<string, any> = {}
-
               salesData?.forEach((item: any) => {
                 const productId = item.products?.id
                 const productName = item.products?.name || "Unknown Product"
+                const barcode = item.products?.barcode || "Barcode not available"
                 const categoryName = (item.products?.categories as any)?.name || "Uncategorized"
 
                 if (!productSales[productId]) {
                   productSales[productId] = {
                     product_id: productId,
                     product_name: productName,
+                    barcode: barcode,
                     category_name: categoryName,
                     total_quantity_sold: 0,
                   }
                 }
-
                 productSales[productId].total_quantity_sold += item.quantity
               })
 
               const sortedProducts = Object.values(productSales)
                 .sort((a: any, b: any) => b.total_quantity_sold - a.total_quantity_sold)
-                .slice(0, 15)
+                .slice(0, 20)
 
               console.log("getMostSoldProducts result:", sortedProducts.length, "products")
 
@@ -239,15 +325,14 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
             try {
               console.log(`Executing getSlowMovingProducts tool with period: ${periodDays} days...`)
               const supabase = createClient()
-
               const startDate = new Date()
               startDate.setDate(startDate.getDate() - periodDays)
 
-              // Get all products with their sales data
               const { data: products, error } = await supabase.from("products").select(`
                   id,
                   name,
                   stock,
+                  barcode,
                   categories (
                     name
                   )
@@ -255,7 +340,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
 
               if (error) throw error
 
-              // Get sales data for the period
               const { data: salesData, error: salesError } = await supabase
                 .from("sale_items")
                 .select(`
@@ -269,25 +353,24 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
 
               if (salesError) throw salesError
 
-              // Calculate sales for each product
               const productSales: Record<string, number> = {}
               salesData?.forEach((item: any) => {
                 productSales[item.product_id] = (productSales[item.product_id] || 0) + item.quantity
               })
 
-              // Find slow-moving products
               const slowMovingProducts = (products || [])
                 .map((product: any) => ({
                   id: product.id,
                   name: product.name,
+                  barcode: product.barcode || "Barcode not available",
                   category_name: (product.categories as any)?.name || "Uncategorized",
                   current_stock: product.stock,
                   total_quantity_sold_in_period: productSales[product.id] || 0,
                   avg_daily_velocity: (productSales[product.id] || 0) / periodDays,
                 }))
-                .filter((product: any) => product.avg_daily_velocity < 1) // Less than 1 unit per day
+                .filter((product: any) => product.avg_daily_velocity < 1)
                 .sort((a: any, b: any) => a.avg_daily_velocity - b.avg_daily_velocity)
-                .slice(0, 15)
+                .slice(0, 20)
 
               console.log("getSlowMovingProducts result:", slowMovingProducts.length, "products")
 
@@ -317,20 +400,19 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
             try {
               console.log("Executing getAllProducts tool...")
               const supabase = createClient()
-
               const { data: products, error } = await supabase
                 .from("products")
-                .select("id, name, stock, min_stock, price, purchase_price")
+                .select("id, name, stock, min_stock, price, purchase_price, barcode")
 
               if (error) throw error
 
               console.log("getAllProducts result count:", products?.length || 0)
 
-              // Return summary statistics instead of all products
               const totalProducts = products?.length || 0
               const inStock = products?.filter((p) => p.stock > 0).length || 0
               const outOfStock = products?.filter((p) => p.stock === 0).length || 0
               const lowStock = products?.filter((p) => p.stock < p.min_stock).length || 0
+              const withBarcodes = products?.filter((p) => p.barcode && p.barcode.trim() !== "").length || 0
               const avgPrice = totalProducts > 0 ? products!.reduce((sum, p) => sum + p.price, 0) / totalProducts : 0
               const totalValue = products?.reduce((sum, p) => sum + p.price * p.stock, 0) || 0
 
@@ -341,6 +423,8 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                   in_stock: inStock,
                   out_of_stock: outOfStock,
                   low_stock: lowStock,
+                  with_barcodes: withBarcodes,
+                  without_barcodes: totalProducts - withBarcodes,
                   average_price: Math.round(avgPrice * 100) / 100,
                   total_inventory_value: Math.round(totalValue * 100) / 100,
                 },
@@ -367,7 +451,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
             try {
               console.log(`Executing getDashboardStats tool with dates: ${fromDate} to ${toDate}...`)
               const supabase = createClient()
-
               let salesQuery = supabase.from("sales").select("total, created_at")
               let expensesQuery = supabase.from("expenses").select("amount, created_at")
 
@@ -432,7 +515,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
             try {
               console.log("Executing getCategories tool...")
               const supabase = createClient()
-
               const { data: categories, error } = await supabase.from("categories").select("id, name").order("name")
 
               if (error) throw error
@@ -478,7 +560,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
             try {
               console.log(`Executing searchInventory tool with searchTerm: ${searchTerm}...`)
               const supabase = createClient()
-
               let query = supabase.from("products").select(`
                   id,
                   name,
@@ -493,25 +574,21 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                   )
                 `)
 
-              // Apply search term filter
               if (searchTerm) {
                 query = query.ilike("name", `%${searchTerm}%`)
               }
 
-              // Apply category filter
               if (category) {
                 const { data: categoryData } = await supabase
                   .from("categories")
                   .select("id")
                   .ilike("name", `%${category}%`)
                   .single()
-
                 if (categoryData) {
                   query = query.eq("category_id", categoryData.id)
                 }
               }
 
-              // Apply sorting
               switch (sortBy) {
                 case "stock":
                   query = query.order("stock", { ascending: false })
@@ -526,9 +603,7 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                   query = query.order("name")
               }
 
-              // Apply limit
               query = query.limit(limit)
-
               const { data: products, error } = await query
 
               if (error) {
@@ -545,20 +620,19 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                 }
               }
 
-              // Format and filter results
               let formattedProducts = products.map((product: any) => {
                 const categoryName = (product.categories as any)?.name || "Uncategorized"
                 const profitMargin =
                   product.purchase_price && product.price
                     ? (((product.price - product.purchase_price) / product.price) * 100).toFixed(1)
                     : null
-
                 const stockStatusValue =
                   product.stock > product.min_stock ? "in_stock" : product.stock > 0 ? "low_stock" : "out_of_stock"
 
                 return {
                   id: product.id,
                   name: product.name,
+                  barcode: product.barcode || "Barcode not available",
                   current_stock: product.stock,
                   min_stock: product.min_stock,
                   stock_status: stockStatusValue,
@@ -568,18 +642,15 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                   purchase_price: product.purchase_price,
                   profit_margin: profitMargin ? `${profitMargin}%` : "N/A",
                   category: categoryName,
-                  barcode: product.barcode,
                   needs_restock: product.stock <= product.min_stock,
                   stock_value: Math.round(product.price * product.stock * 100) / 100,
                 }
               })
 
-              // Apply stock status filter
               if (stockStatus !== "all") {
                 formattedProducts = formattedProducts.filter((product) => product.stock_status === stockStatus)
               }
 
-              // Calculate summary statistics
               const totalProducts = formattedProducts.length
               const inStockCount = formattedProducts.filter((p) => p.stock_status === "in_stock").length
               const lowStockCount = formattedProducts.filter((p) => p.stock_status === "low_stock").length
@@ -621,7 +692,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
             try {
               console.log(`Executing checkProductStock tool for: ${productName}...`)
               const supabase = createClient()
-
               const { data: products, error } = await supabase
                 .from("products")
                 .select(`
@@ -630,6 +700,7 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                   stock,
                   min_stock,
                   price,
+                  barcode,
                   categories (
                     name
                   )
@@ -653,6 +724,7 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
 
               const formattedProducts = products.map((product: any) => ({
                 name: product.name,
+                barcode: product.barcode || "Barcode not available",
                 current_stock: product.stock,
                 min_stock: product.min_stock,
                 price: product.price,
@@ -725,7 +797,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
             try {
               console.log(`Executing queryProducts tool with type: ${query_type}...`)
               const supabase = createClient()
-
               let query = supabase.from("products").select(`
                   *,
                   categories (
@@ -733,42 +804,34 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                   )
                 `)
 
-              // Apply filters based on query type
               switch (query_type) {
                 case "missing_images":
                   query = query.or("image.is.null,image.eq.")
                   break
-
                 case "missing_barcodes":
                   query = query.or("barcode.is.null,barcode.eq.")
                   break
-
                 case "missing_purchase_prices":
                   query = query.is("purchase_price", null)
                   break
-
                 case "expiring_soon":
                   const thresholdDate = new Date()
                   thresholdDate.setDate(thresholdDate.getDate() + (days_threshold || 30))
                   query = query.not("expiry_date", "is", null).lte("expiry_date", thresholdDate.toISOString())
                   break
-
                 case "by_category":
                   if (category) {
                     // We'll filter by category after getting the data since we need to join
                   }
                   break
-
                 case "price_range":
                   if (min_price !== undefined) query = query.gte("price", min_price)
                   if (max_price !== undefined) query = query.lte("price", max_price)
                   break
-
                 case "stock_analysis":
                   if (min_stock !== undefined) query = query.gte("stock", min_stock)
                   if (max_stock !== undefined) query = query.lte("stock", max_stock)
                   break
-
                 case "search":
                   if (search_term) {
                     query = query.ilike("name", `%${search_term}%`)
@@ -790,10 +853,8 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                 }
               }
 
-              // Post-process results based on query type
               let processedProducts = products
 
-              // Filter by category if specified
               if (category) {
                 processedProducts = products.filter(
                   (product: any) =>
@@ -802,7 +863,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                 )
               }
 
-              // Calculate additional metrics for specific query types
               let analysisResults: any = {}
 
               switch (query_type) {
@@ -818,7 +878,18 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                       : "0%",
                   }
                   break
-
+                case "missing_barcodes":
+                  const { count: totalCountBarcodes } = await supabase
+                    .from("products")
+                    .select("*", { count: "exact", head: true })
+                  analysisResults = {
+                    total_products: totalCountBarcodes || 0,
+                    missing_barcodes: processedProducts.length,
+                    percentage_missing: totalCountBarcodes
+                      ? ((processedProducts.length / totalCountBarcodes) * 100).toFixed(2) + "%"
+                      : "0%",
+                  }
+                  break
                 case "high_profit_margin":
                 case "low_profit_margin":
                   processedProducts = processedProducts
@@ -833,7 +904,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                         : a.profit_margin - b.profit_margin,
                     )
                   break
-
                 case "stock_analysis":
                   const stockStats = {
                     total_products: processedProducts.length,
@@ -849,10 +919,10 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                   break
               }
 
-              // Format the response data (reduced fields to save tokens)
               const formattedProducts = processedProducts.slice(0, limit).map((product: any) => ({
                 id: product.id,
                 name: product.name,
+                barcode: product.barcode || "Barcode not available",
                 price: product.price,
                 purchase_price: product.purchase_price,
                 profit_margin: product.purchase_price
@@ -903,22 +973,18 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
             try {
               console.log(`Executing calculateProfitAnalysis tool with type: ${analysis_type}...`)
               const supabase = createClient()
-
               let startDate: Date
               let endDate: Date
 
-              // Handle different date ranges based on analysis type
               if (analysis_type === "monthly_profit" && month) {
                 const currentYear = year || new Date().getFullYear()
-                startDate = new Date(currentYear, month - 1, 1) // month - 1 because JS months are 0-indexed
-                endDate = new Date(currentYear, month, 0, 23, 59, 59) // Last day of the month
+                startDate = new Date(currentYear, month - 1, 1)
+                endDate = new Date(currentYear, month, 0, 23, 59, 59)
               } else if (analysis_type === "monthly_profit") {
-                // Current month if no specific month provided
                 const now = new Date()
                 startDate = new Date(now.getFullYear(), now.getMonth(), 1)
                 endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
               } else {
-                // Default period-based analysis
                 endDate = new Date()
                 startDate = new Date()
                 startDate.setDate(startDate.getDate() - period_days)
@@ -926,7 +992,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
 
               console.log(`Analyzing period: ${startDate.toISOString()} to ${endDate.toISOString()}`)
 
-              // Get sales data with product information
               const { data: salesData, error: salesError } = await supabase
                 .from("sales")
                 .select(`
@@ -953,7 +1018,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
 
               console.log(`Found ${salesData?.length || 0} sales in the specified period`)
 
-              // If no sales in the specified period, try to get all-time data for context
               let allTimeSales = null
               if (!salesData || salesData.length === 0) {
                 console.log("No sales found in specified period, fetching all-time data...")
@@ -974,7 +1038,7 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
             )
           `)
                   .order("created_at", { ascending: false })
-                  .limit(100) // Get last 100 sales for context
+                  .limit(100)
 
                 if (!allTimeError && allTimeData && allTimeData.length > 0) {
                   allTimeSales = allTimeData
@@ -982,8 +1046,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
               }
 
               let analysisResult: any = {}
-
-              // Calculate profit for the specified period
               let totalRevenue = 0
               let totalCost = 0
               let totalProfit = 0
@@ -1002,13 +1064,11 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                 })
               })
 
-              // Calculate all-time context if no data in period
               let allTimeContext = null
               if (allTimeSales && allTimeSales.length > 0) {
                 let allTimeRevenue = 0
                 let allTimeCost = 0
                 let allTimeProfit = 0
-
                 allTimeSales.forEach((sale) => {
                   sale.sale_items?.forEach((item: any) => {
                     const revenue = item.quantity * item.price
@@ -1048,15 +1108,11 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                 all_time_context: allTimeContext,
               }
 
-              // Add product-level analysis if requested
               if (analysis_type === "profit_by_product" && dataToAnalyze.length > 0) {
                 const productProfits: Record<string, any> = {}
-
                 dataToAnalyze.forEach((sale) => {
                   sale.sale_items?.forEach((item: any) => {
                     const productName = item.products?.name || "Unknown Product"
-
-                    // Filter by specific product names if provided
                     if (product_names && product_names.length > 0) {
                       const matchesFilter = product_names.some((name: string) =>
                         productName.toLowerCase().includes(name.toLowerCase()),
@@ -1077,7 +1133,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
 
                     const revenue = item.quantity * item.price
                     const cost = item.quantity * (item.products?.purchase_price || 0)
-
                     productProfits[productName].total_quantity_sold += item.quantity
                     productProfits[productName].total_revenue += revenue
                     productProfits[productName].total_cost += cost
@@ -1086,7 +1141,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                   })
                 })
 
-                // Convert to array and sort by profit
                 const sortedProductProfits = Object.values(productProfits)
                   .map((product: any) => ({
                     ...product,
@@ -1099,7 +1153,7 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                         : "0%",
                   }))
                   .sort((a: any, b: any) => b.total_profit - a.total_profit)
-                  .slice(0, 15) // Limit to top 15 to save tokens
+                  .slice(0, 20)
 
                 analysisResult.products = sortedProductProfits
                 analysisResult.total_products_analyzed = sortedProductProfits.length
@@ -1146,10 +1200,8 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
             try {
               console.log(`Executing updateProduct tool for: ${product_name}...`)
               console.log("Updates to apply:", updates)
-
               const supabase = createClient()
 
-              // First, find the product by name
               const { data: products, error: searchError } = await supabase
                 .from("products")
                 .select("*")
@@ -1167,15 +1219,12 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                 }
               }
 
-              // If multiple products found, use the first exact match or the first result
               const targetProduct =
                 products.find((p: any) => p.name.toLowerCase() === product_name.toLowerCase()) || products[0]
 
               console.log(`Found product: ${targetProduct.name} (ID: ${targetProduct.id})`)
 
-              // Prepare the update object
               const updateData: any = {}
-
               if (updates.stock !== undefined) updateData.stock = updates.stock
               if (updates.price !== undefined) updateData.price = updates.price
               if (updates.purchase_price !== undefined) updateData.purchase_price = updates.purchase_price
@@ -1187,7 +1236,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
 
               console.log("Applying updates:", updateData)
 
-              // Update the product
               const { data: updatedProduct, error: updateError } = await supabase
                 .from("products")
                 .update(updateData)
@@ -1202,7 +1250,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
 
               console.log("Product updated successfully:", updatedProduct)
 
-              // Format the response
               const changes = Object.keys(updateData)
                 .map((key) => {
                   const oldValue = targetProduct[key]
@@ -1255,27 +1302,22 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
             try {
               console.log(`Executing getDailySalesAnalysis tool with type: ${analysis_type}...`)
               const supabase = createClient()
-
               let startDate: Date
               let endDate: Date
 
-              // Handle different date ranges - FIXED VERSION
               if (month && year) {
-                // Specific month and year provided
                 startDate = new Date(year, month - 1, 1)
                 endDate = new Date(year, month, 0, 23, 59, 59)
                 console.log(`Using specified month/year: ${year}-${month}`)
               } else if (month) {
-                // Only month provided, use current year
                 const currentYear = new Date().getFullYear()
                 startDate = new Date(currentYear, month - 1, 1)
                 endDate = new Date(currentYear, month, 0, 23, 59, 59)
                 console.log(`Using month ${month} with current year: ${currentYear}`)
               } else {
-                // No specific month - use current month of current year
                 const now = new Date()
                 const currentYear = now.getFullYear()
-                const currentMonth = now.getMonth() // 0-indexed
+                const currentMonth = now.getMonth()
                 startDate = new Date(currentYear, currentMonth, 1)
                 endDate = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59)
                 console.log(
@@ -1286,7 +1328,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
               console.log(`Final date range: ${startDate.toISOString()} to ${endDate.toISOString()}`)
 
               let salesData
-
               const { data, error: salesError } = await supabase
                 .from("sales")
                 .select(`
@@ -1318,11 +1359,8 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
 
               if (!salesData || salesData.length === 0) {
                 console.log("No sales data found for current month, trying last 30 days...")
-
-                // Try last 30 days as fallback
                 const thirtyDaysAgo = new Date()
                 thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-
                 const { data: fallbackData, error: fallbackError } = await supabase
                   .from("sales")
                   .select(`
@@ -1364,7 +1402,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                 }
               }
 
-              // Process daily data
               const dailyStats: Record<
                 string,
                 {
@@ -1380,7 +1417,7 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
 
               salesData.forEach((sale) => {
                 const saleDate = new Date(sale.created_at)
-                const dateKey = saleDate.toISOString().split("T")[0] // YYYY-MM-DD format
+                const dateKey = saleDate.toISOString().split("T")[0]
                 const dayName = saleDate.toLocaleDateString("en-US", { weekday: "long" })
                 const displayDate = `${dayName}, ${saleDate.toLocaleDateString("en-US", {
                   month: "short",
@@ -1402,16 +1439,11 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                 const dayData = dailyStats[dateKey]
                 dayData.revenue += sale.total
                 dayData.transactions += 1
-
-                // Track payment methods
                 dayData.payment_methods[sale.payment_method] = (dayData.payment_methods[sale.payment_method] || 0) + 1
 
-                // Process sale items
                 if (sale.sale_items && sale.sale_items.length > 0) {
                   sale.sale_items.forEach((item: any) => {
                     dayData.items_sold += item.quantity
-
-                    // Calculate profit
                     const purchasePrice = item.products?.purchase_price || 0
                     const discount = item.discount || 0
                     const priceAfterDiscount = item.price * (1 - discount / 100)
@@ -1420,7 +1452,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                     const itemProfit = itemRevenue - itemCost
                     dayData.profit += itemProfit
 
-                    // Track top products
                     const productName = item.products?.name || "Unknown Product"
                     if (!dayData.top_products[productName]) {
                       dayData.top_products[productName] = {
@@ -1435,7 +1466,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                 }
               })
 
-              // Convert to array and sort by the specified metric
               const dailyArray = Object.entries(dailyStats).map(([dateKey, stats]) => ({
                 date_key: dateKey,
                 date_display: stats.date,
@@ -1452,7 +1482,6 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                   .slice(0, 3),
               }))
 
-              // Sort by the specified metric
               const sortedDays = dailyArray.sort((a, b) => {
                 switch (metric) {
                   case "revenue":
@@ -1501,17 +1530,14 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
                           : `${sortedDays[0]?.items_sold} items sold`
                   }`
                   break
-
                 case "worst_day":
                   result.worst_day = sortedDays[sortedDays.length - 1]
                   result.message = `Worst performing day by ${metric}: ${sortedDays[sortedDays.length - 1]?.date_display}`
                   break
-
                 case "daily_breakdown":
-                  result.daily_breakdown = sortedDays.slice(0, 10) // Top 10 days
-                  result.message = `Daily breakdown for ${sortedDays.length} days, showing top 10 by ${metric}`
+                  result.daily_breakdown = sortedDays.slice(0, 15)
+                  result.message = `Daily breakdown for ${sortedDays.length} days, showing top 15 by ${metric}`
                   break
-
                 case "day_comparison":
                   result.best_day = sortedDays[0]
                   result.worst_day = sortedDays[sortedDays.length - 1]
@@ -1581,26 +1607,29 @@ Always be helpful, accurate, and provide specific data-driven recommendations wh
         }),
       },
 
-      maxSteps: 3, // Reduce max steps to avoid too many tool calls
+      maxSteps: 5, // Increased max steps for more comprehensive responses
       toolChoice: "auto",
     })
 
     return result.toDataStreamResponse()
   } catch (error: any) {
     console.error("Critical AI chat API error:", error)
-
     let clientErrorMessage = "A critical error occurred with the AI assistant."
     let statusCode = 500
 
+    // Enhanced error handling for different types of API errors
     if (error.name === "AI_APICallError" || error.name === "AI_RetryError") {
       statusCode = error.statusCode || 500
       if (statusCode === 429) {
         clientErrorMessage = "Rate limit reached. Please try again in a few seconds."
+      } else if (statusCode === 400) {
+        clientErrorMessage = "Invalid request to AI service. Please try rephrasing your question."
       } else if (statusCode === 401) {
-        clientErrorMessage =
-          "OpenAI API key is invalid or expired. Please check your OPENAI_API_KEY environment variable."
+        clientErrorMessage = "Authentication error with AI service. Please check your API key."
+      } else if (statusCode === 403) {
+        clientErrorMessage = "Access denied to AI service. Please check your permissions."
       } else {
-        clientErrorMessage = `OpenAI API Error: ${error.message || "Unknown error"}`
+        clientErrorMessage = `AI Service Error: ${error.message || "Unknown error"}`
       }
     } else if (error instanceof Error) {
       clientErrorMessage = `Server error: ${error.message}`
