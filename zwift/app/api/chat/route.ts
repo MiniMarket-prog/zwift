@@ -127,7 +127,7 @@ Available tools include comprehensive inventory management, sales analysis, prof
                         productsWithZeroStock[productKey] = {
                           product_id: product.id,
                           product_name: product.name,
-                          barcode: product.barcode || "Barcode not available in the data retrieved",
+                          barcode: product.barcode || "Barcode not available",
                           category: (product.categories as any)?.name || "Uncategorized",
                           current_stock: product.stock,
                           total_quantity_sold: 0,
