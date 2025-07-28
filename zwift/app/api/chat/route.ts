@@ -6,6 +6,8 @@ import { createClient } from "@/lib/supabaseAI"
 
 export async function POST(req: NextRequest) {
   let messages
+  let detailedMode = true
+  let responseLength = 75
 
   try {
     const body = await req.json()
@@ -14,7 +16,11 @@ export async function POST(req: NextRequest) {
     }
 
     messages = convertToCoreMessages(body.messages)
+    detailedMode = body.detailedMode ?? true
+    responseLength = body.responseLength ?? 75
+
     console.log("Messages received and converted:", JSON.stringify(messages, null, 2))
+    console.log("Detailed mode:", detailedMode, "Response length:", responseLength)
   } catch (parseError: any) {
     console.error("Request parsing or validation error:", parseError)
     return NextResponse.json(
@@ -40,13 +46,28 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // Determine response style based on settings
+  const responseStyle = detailedMode
+    ? responseLength >= 75
+      ? "comprehensive and detailed with extensive analysis"
+      : responseLength >= 50
+        ? "detailed with good analysis"
+        : "moderately detailed"
+    : "concise but informative"
+
+  const maxTokens = detailedMode ? (responseLength >= 75 ? 6000 : responseLength >= 50 ? 4000 : 2500) : 1500
+
   try {
     const result = await streamText({
-      model: openai("gpt-4o-mini"), // Using gpt-4o-mini for better rate limits and lower cost
+      model: openai("gpt-4o"), // Using full gpt-4o for better detailed responses
       messages: messages,
-      maxTokens: 4000, // Increased token limit for comprehensive responses
+      maxTokens: maxTokens,
       temperature: 0.7,
       system: `You are an AI assistant for a mini-market inventory management system. You have access to real-time data about products, sales, and inventory levels through various tools.
+
+RESPONSE STYLE: ${responseStyle}
+DETAILED MODE: ${detailedMode ? "ENABLED" : "DISABLED"}
+RESPONSE LENGTH TARGET: ${responseLength}%
 
 CURRENT CONTEXT: The system is running in 2025. When users ask about "this month" or current periods, assume they mean the current month/year (2025).
 
@@ -68,6 +89,33 @@ Your role is to:
 - Analyze price history and optimization opportunities
 - Generate business intelligence dashboards with KPIs and insights
 
+RESPONSE GUIDELINES BASED ON MODE:
+
+${
+  detailedMode
+    ? `
+DETAILED MODE GUIDELINES:
+- Always provide comprehensive analysis with specific numbers and data points
+- Include multiple perspectives and considerations in your analysis
+- Offer step-by-step explanations and reasoning
+- Provide actionable recommendations with clear next steps
+- Include relevant context and background information
+- Use bullet points, sections, and formatting for clarity
+- Explain the significance of findings and their business impact
+- Suggest follow-up questions or additional analysis opportunities
+- Include relevant metrics, percentages, and comparisons
+- Provide both immediate and long-term recommendations
+`
+    : `
+QUICK MODE GUIDELINES:
+- Provide concise but complete answers
+- Focus on the most important findings and recommendations
+- Use clear, direct language
+- Include key data points without extensive explanation
+- Prioritize actionable insights over detailed analysis
+`
+}
+
 IMPORTANT GUIDELINES:
 - When users ask about their data, inventory, products, or sales, you MUST use the appropriate tools to fetch the actual data from their database
 - Don't give generic responses - always try to use real data
@@ -79,6 +127,7 @@ IMPORTANT GUIDELINES:
 - If no data is found for a specific period, provide context with all-time data when available
 - Always include barcodes when available in product information
 - Format responses clearly with proper structure and bullet points when appropriate
+- ${detailedMode ? "Provide extensive analysis with multiple data points and comprehensive recommendations" : "Focus on key insights and primary recommendations"}
 
 Available tools include comprehensive inventory management, sales analysis, profit calculation, product updates, supplier analysis, expense tracking, inventory activity monitoring, price history analysis, and business intelligence dashboards.`,
 
@@ -1666,8 +1715,7 @@ Available tools include comprehensive inventory management, sales analysis, prof
           },
         }),
 
-        // NEW ENHANCED TOOLS - Add these 5 powerful new capabilities
-
+        // Enhanced tools from the previous implementation
         getSupplierAnalysis: tool({
           description: "Analyze supplier performance, delivery times, and cost effectiveness",
           parameters: z.object({
@@ -1679,7 +1727,6 @@ Available tools include comprehensive inventory management, sales analysis, prof
           }),
           execute: async ({ analysis_type, supplier_id, period_days }) => {
             try {
-              console.log(`Executing getSupplierAnalysis tool with type: ${analysis_type}...`)
               const supabase = createClient()
               const startDate = new Date()
               startDate.setDate(startDate.getDate() - period_days)
@@ -1803,7 +1850,6 @@ Available tools include comprehensive inventory management, sales analysis, prof
                 message: `Analyzed ${supplierAnalysis.length} suppliers over ${period_days} days`,
               }
             } catch (error: any) {
-              console.error("Error in getSupplierAnalysis:", error)
               return {
                 success: false,
                 error: error.message,
@@ -1824,7 +1870,6 @@ Available tools include comprehensive inventory management, sales analysis, prof
           }),
           execute: async ({ analysis_type, period_days, category_id }) => {
             try {
-              console.log(`Executing getExpenseAnalysis tool with type: ${analysis_type}...`)
               const supabase = createClient()
               const startDate = new Date()
               startDate.setDate(startDate.getDate() - period_days)
@@ -1901,7 +1946,7 @@ Available tools include comprehensive inventory management, sales analysis, prof
                 categoryTotals[categoryId].expenses.push({
                   amount: expense.amount,
                   description: expense.description,
-                  date: expense.created_at, // Changed from expense_date
+                  date: expense.created_at,
                 })
                 totalExpenses += expense.amount
               })
@@ -1928,7 +1973,7 @@ Available tools include comprehensive inventory management, sales analysis, prof
                 categoryTotals[categoryId].expenses.push({
                   amount: expense.amount,
                   description: expense.description,
-                  date: expense.created_at, // Changed from expense_date
+                  date: expense.created_at,
                 })
                 totalOperatingExpenses += expense.amount
               })
@@ -1968,348 +2013,10 @@ Available tools include comprehensive inventory management, sales analysis, prof
                 message: `Analyzed ${analysisData.length} expense categories totaling $${summary.total_all_expenses} over ${period_days} days`,
               }
             } catch (error: any) {
-              console.error("Error in getExpenseAnalysis:", error)
               return {
                 success: false,
                 error: error.message,
                 message: "Failed to analyze expenses",
-              }
-            }
-          },
-        }),
-
-        getInventoryActivity: tool({
-          description: "Track all inventory movements, stock changes, and activity patterns",
-          parameters: z.object({
-            activity_type: z
-              .enum(["all", "stock_in", "stock_out", "adjustments", "low_stock_alerts"])
-              .describe("Type of inventory activity"),
-            period_days: z.number().min(1).max(90).default(7).describe("Period to analyze (default: 7 days)"),
-            product_id: z.string().optional().describe("Specific product to track"),
-          }),
-          execute: async ({ activity_type, period_days, product_id }) => {
-            try {
-              console.log(`Executing getInventoryActivity tool with type: ${activity_type}...`)
-              const supabase = createClient()
-              const startDate = new Date()
-              startDate.setDate(startDate.getDate() - period_days)
-
-              // Get inventory activity
-              let query = supabase
-                .from("inventory_activity")
-                .select(`
-                id,
-                product_id,
-                activity_type,
-                quantity_change,
-                previous_quantity,
-                new_quantity,
-                reason,
-                created_at,
-                products (
-                  name,
-                  barcode,
-                  categories (name)
-                )
-              `)
-                .gte("created_at", startDate.toISOString())
-                .order("created_at", { ascending: false })
-
-              if (product_id) {
-                query = query.eq("product_id", product_id)
-              }
-
-              if (activity_type !== "all") {
-                query = query.eq("activity_type", activity_type)
-              }
-
-              const { data: activities, error } = await query.limit(100)
-
-              if (error) throw error
-
-              // Also get current stock levels for context
-              const { data: currentStock, error: stockError } = await supabase
-                .from("products")
-                .select("id, name, stock, min_stock")
-
-              if (stockError) throw stockError
-
-              // Analyze activity patterns
-              const activitySummary: Record<string, any> = {}
-              const productActivity: Record<string, any> = {}
-
-              activities?.forEach((activity) => {
-                const actType = activity.activity_type
-                const productName = (activity.products as any)?.name || "Unknown Product"
-                const productId = activity.product_id
-
-                // Summary by activity type
-                if (!activitySummary[actType]) {
-                  activitySummary[actType] = {
-                    activity_type: actType,
-                    total_activities: 0,
-                    total_quantity_change: 0,
-                    products_affected: new Set(),
-                  }
-                }
-                activitySummary[actType].total_activities += 1
-                activitySummary[actType].total_quantity_change += Math.abs(activity.quantity_change || 0)
-                activitySummary[actType].products_affected.add(productId)
-
-                // Summary by product
-                if (!productActivity[productId]) {
-                  productActivity[productId] = {
-                    product_id: productId,
-                    product_name: productName,
-                    barcode: (activity.products as any)?.barcode || "N/A",
-                    category: (activity.products as any)?.categories?.name || "Uncategorized",
-                    total_activities: 0,
-                    stock_increases: 0,
-                    stock_decreases: 0,
-                    net_change: 0,
-                    recent_activities: [],
-                  }
-                }
-
-                const prodActivity = productActivity[productId]
-                prodActivity.total_activities += 1
-                prodActivity.net_change += activity.quantity_change || 0
-
-                if ((activity.quantity_change || 0) > 0) {
-                  prodActivity.stock_increases += activity.quantity_change
-                } else {
-                  prodActivity.stock_decreases += Math.abs(activity.quantity_change || 0)
-                }
-
-                prodActivity.recent_activities.push({
-                  type: activity.activity_type,
-                  quantity_change: activity.quantity_change,
-                  reason: activity.reason,
-                  date: activity.created_at,
-                  previous_qty: activity.previous_quantity,
-                  new_qty: activity.new_quantity,
-                })
-              })
-
-              // Convert sets to counts and format data
-              const formattedActivitySummary = Object.values(activitySummary).map((summary: any) => ({
-                ...summary,
-                products_affected_count: summary.products_affected.size,
-                avg_quantity_per_activity:
-                  summary.total_activities > 0
-                    ? Math.round((summary.total_quantity_change / summary.total_activities) * 100) / 100
-                    : 0,
-              }))
-
-              const formattedProductActivity = Object.values(productActivity)
-                .sort((a: any, b: any) => b.total_activities - a.total_activities)
-                .slice(0, 20)
-                .map((product: any) => ({
-                  ...product,
-                  recent_activities: product.recent_activities.slice(0, 5), // Show only 5 most recent
-                }))
-
-              // Get low stock alerts
-              const lowStockProducts =
-                currentStock
-                  ?.filter((product) => product.stock <= product.min_stock)
-                  .map((product) => ({
-                    product_id: product.id,
-                    product_name: product.name,
-                    current_stock: product.stock,
-                    min_stock: product.min_stock,
-                    deficit: product.min_stock - product.stock,
-                    urgency: product.stock === 0 ? "Critical" : "Low",
-                  })) || []
-
-              return {
-                success: true,
-                activity_type,
-                data: {
-                  activity_summary: formattedActivitySummary,
-                  product_activity: formattedProductActivity,
-                  low_stock_alerts: lowStockProducts,
-                  period_summary: {
-                    total_activities: activities?.length || 0,
-                    unique_products_affected: Object.keys(productActivity).length,
-                    most_active_product: formattedProductActivity[0]?.product_name || "None",
-                    low_stock_count: lowStockProducts.length,
-                  },
-                },
-                period_days,
-                message: `Found ${activities?.length || 0} inventory activities affecting ${Object.keys(productActivity).length} products over ${period_days} days`,
-              }
-            } catch (error: any) {
-              console.error("Error in getInventoryActivity:", error)
-              return {
-                success: false,
-                error: error.message,
-                message: "Failed to analyze inventory activity",
-              }
-            }
-          },
-        }),
-
-        getPriceHistoryAnalysis: tool({
-          description: "Analyze price changes, trends, and optimization opportunities",
-          parameters: z.object({
-            analysis_type: z
-              .enum(["price_trends", "frequent_changes", "price_optimization", "category_pricing"])
-              .describe("Type of price analysis"),
-            product_id: z.string().optional().describe("Specific product to analyze"),
-            period_days: z.number().min(1).max(365).default(90).describe("Period to analyze (default: 90 days)"),
-          }),
-          execute: async ({ analysis_type, product_id, period_days }) => {
-            try {
-              console.log(`Executing getPriceHistoryAnalysis tool with type: ${analysis_type}...`)
-              const supabase = createClient()
-              const startDate = new Date()
-              startDate.setDate(startDate.getDate() - period_days)
-
-              // Get price history
-              let query = supabase
-                .from("price_history")
-                .select(`
-                id,
-                product_id,
-                old_price,
-                new_price,
-                change_reason,
-                changed_at,
-                products (
-                  name,
-                  barcode,
-                  current_price: price,
-                  purchase_price,
-                  categories (name)
-                )
-              `)
-                .gte("changed_at", startDate.toISOString())
-                .order("changed_at", { ascending: false })
-
-              if (product_id) {
-                query = query.eq("product_id", product_id)
-              }
-
-              const { data: priceHistory, error } = await query
-
-              if (error) throw error
-
-              if (!priceHistory || priceHistory.length === 0) {
-                return {
-                  success: true,
-                  message: `No price changes found in the last ${period_days} days`,
-                  data: [],
-                  analysis_type,
-                  period_days,
-                }
-              }
-
-              // Analyze price changes by product
-              const productPriceAnalysis: Record<string, any> = {}
-
-              priceHistory.forEach((change) => {
-                const productId = change.product_id
-                const productName = (change.products as any)?.name || "Unknown Product"
-                const currentPrice = (change.products as any)?.current_price || 0
-                const purchasePrice = (change.products as any)?.purchase_price || 0
-
-                if (!productPriceAnalysis[productId]) {
-                  productPriceAnalysis[productId] = {
-                    product_id: productId,
-                    product_name: productName,
-                    barcode: (change.products as any)?.barcode || "N/A",
-                    category: (change.products as any)?.categories?.name || "Uncategorized",
-                    current_price: currentPrice,
-                    purchase_price: purchasePrice,
-                    current_profit_margin:
-                      purchasePrice > 0
-                        ? Math.round(((currentPrice - purchasePrice) / currentPrice) * 100 * 100) / 100
-                        : 0,
-                    price_changes: [],
-                    total_changes: 0,
-                    price_increases: 0,
-                    price_decreases: 0,
-                    total_increase_amount: 0,
-                    total_decrease_amount: 0,
-                    price_volatility: 0,
-                  }
-                }
-
-                const analysis = productPriceAnalysis[productId]
-                analysis.total_changes += 1
-
-                const priceChange = (change.new_price || 0) - (change.old_price || 0)
-                if (priceChange > 0) {
-                  analysis.price_increases += 1
-                  analysis.total_increase_amount += priceChange
-                } else if (priceChange < 0) {
-                  analysis.price_decreases += 1
-                  analysis.total_decrease_amount += Math.abs(priceChange)
-                }
-
-                analysis.price_changes.push({
-                  old_price: change.old_price,
-                  new_price: change.new_price,
-                  change_amount: priceChange,
-                  change_percentage:
-                    change.old_price > 0 ? Math.round((priceChange / change.old_price) * 100 * 100) / 100 : 0,
-                  reason: change.change_reason,
-                  date: change.changed_at,
-                })
-              })
-
-              // Calculate volatility and format results
-              const formattedAnalysis = Object.values(productPriceAnalysis)
-                .map((product: any) => {
-                  // Calculate price volatility (standard deviation of price changes)
-                  if (product.price_changes.length > 1) {
-                    const changes = product.price_changes.map((c: any) => c.change_percentage)
-                    const mean = changes.reduce((sum: number, change: number) => sum + change, 0) / changes.length
-                    const variance =
-                      changes.reduce((sum: number, change: number) => sum + Math.pow(change - mean, 2), 0) /
-                      changes.length
-                    product.price_volatility = Math.round(Math.sqrt(variance) * 100) / 100
-                  }
-
-                  return {
-                    ...product,
-                    avg_price_increase:
-                      product.price_increases > 0
-                        ? Math.round((product.total_increase_amount / product.price_increases) * 100) / 100
-                        : 0,
-                    avg_price_decrease:
-                      product.price_decreases > 0
-                        ? Math.round((product.total_decrease_amount / product.price_decreases) * 100) / 100
-                        : 0,
-                    net_price_change:
-                      Math.round((product.total_increase_amount - product.total_decrease_amount) * 100) / 100,
-                    price_changes: product.price_changes.slice(0, 10), // Limit to 10 most recent changes
-                  }
-                })
-                .sort((a, b) => b.total_changes - a.total_changes)
-
-              return {
-                success: true,
-                analysis_type,
-                data: formattedAnalysis.slice(0, 20), // Limit to top 20 products
-                summary: {
-                  total_products_with_changes: formattedAnalysis.length,
-                  total_price_changes: priceHistory.length,
-                  avg_changes_per_product:
-                    formattedAnalysis.length > 0
-                      ? Math.round((priceHistory.length / formattedAnalysis.length) * 100) / 100
-                      : 0,
-                  period_days,
-                },
-                message: `Analyzed price history for ${formattedAnalysis.length} products with ${priceHistory.length} total changes over ${period_days} days`,
-              }
-            } catch (error: any) {
-              console.error("Error in getPriceHistoryAnalysis:", error)
-              return {
-                success: false,
-                error: error.message,
-                message: "Failed to analyze price history",
               }
             }
           },
@@ -2326,7 +2033,6 @@ Available tools include comprehensive inventory management, sales analysis, prof
           }),
           execute: async ({ dashboard_type, period_days, compare_previous }) => {
             try {
-              console.log(`Executing getBusinessIntelligence tool with type: ${dashboard_type}...`)
               const supabase = createClient()
               const endDate = new Date()
               const startDate = new Date()
@@ -2343,7 +2049,6 @@ Available tools include comprehensive inventory management, sales analysis, prof
                 expensesResult,
                 operatingExpensesResult,
                 productsResult,
-                inventoryResult,
                 suppliersResult,
                 prevSalesResult,
               ] = await Promise.all([
@@ -2376,12 +2081,6 @@ Available tools include comprehensive inventory management, sales analysis, prof
                   .from("products")
                   .select("id, name, stock, min_stock, price, purchase_price"),
 
-                // Inventory activity
-                supabase
-                  .from("inventory_activity")
-                  .select("activity_type, quantity_change, created_at")
-                  .gte("created_at", startDate.toISOString()),
-
                 // Suppliers
                 supabase
                   .from("suppliers")
@@ -2406,7 +2105,6 @@ Available tools include comprehensive inventory management, sales analysis, prof
               const expenses = expensesResult.data || []
               const operatingExpenses = operatingExpensesResult.data || []
               const products = productsResult.data || []
-              const inventoryActivity = inventoryResult.data || []
               const suppliers = suppliersResult.data || []
               const prevSales = prevSalesResult.data || []
 
@@ -2491,7 +2189,6 @@ Available tools include comprehensive inventory management, sales analysis, prof
                 },
                 operational_metrics: {
                   total_suppliers: suppliers.length,
-                  inventory_activities: inventoryActivity.length,
                   avg_daily_revenue: Math.round((totalRevenue / period_days) * 100) / 100,
                   avg_daily_transactions: Math.round((totalTransactions / period_days) * 100) / 100,
                 },
@@ -2519,7 +2216,6 @@ Available tools include comprehensive inventory management, sales analysis, prof
                 message: `Generated ${dashboard_type} business intelligence dashboard for ${period_days} days`,
               }
             } catch (error: any) {
-              console.error("Error in getBusinessIntelligence:", error)
               return {
                 success: false,
                 error: error.message,
@@ -2530,7 +2226,7 @@ Available tools include comprehensive inventory management, sales analysis, prof
         }),
       },
 
-      maxSteps: 5, // Increased max steps for more comprehensive responses
+      maxSteps: 5,
       toolChoice: "auto",
     })
 

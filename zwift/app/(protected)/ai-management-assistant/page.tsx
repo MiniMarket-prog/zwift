@@ -15,12 +15,12 @@ import {
   RefreshCw,
   Copy,
   CheckCircle,
-  TrendingUp,
   Package,
-  BarChart3,
   Sparkles,
   MessageSquare,
   Menu,
+  Settings,
+  Zap,
 } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
@@ -28,17 +28,42 @@ import { Loader2 } from "lucide-react"
 import { useEffect, useState } from "react"
 import { toast } from "@/hooks/use-toast"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
+import { Slider } from "@/components/ui/slider"
 
 export default function AiManagementAssistantPage() {
+  const [detailedMode, setDetailedMode] = useState(true)
+  const [responseLength, setResponseLength] = useState([75]) // 75% detailed by default
+  const [showSettings, setShowSettings] = useState(false)
+
   const { messages, input, handleInputChange, handleSubmit, isLoading, error, reload } = useChat({
     api: "/api/chat",
+    body: {
+      detailedMode,
+      responseLength: responseLength[0],
+    },
     onError: (error) => {
       console.error("Chat error:", error)
+      console.error("Error details:", {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      })
       toast({
         title: "Error",
         description: error.message || "Something went wrong with the AI assistant",
         variant: "destructive",
       })
+    },
+    onFinish: (message) => {
+      console.log("Message finished:", message)
+    },
+    onResponse: (response) => {
+      console.log("Response received:", response.status, response.statusText)
+      if (!response.ok) {
+        console.error("Response not OK:", response)
+      }
     },
   })
 
@@ -72,56 +97,108 @@ export default function AiManagementAssistantPage() {
   const suggestedQuestions = [
     {
       icon: <Package className="h-4 w-4" />,
-      text: "Show me products sold with zero stock in the last 7 days",
-      category: "Inventory",
-      color: "bg-red-50 text-red-700 border-red-200",
-    },
-    {
-      icon: <AlertCircle className="h-4 w-4" />,
-      text: "Which products are running low on stock?",
-      category: "Stock Alert",
-      color: "bg-orange-50 text-orange-700 border-orange-200",
-    },
-    {
-      icon: <TrendingUp className="h-4 w-4" />,
-      text: "What are my best-selling products this month?",
-      category: "Sales",
-      color: "bg-green-50 text-green-700 border-green-200",
-    },
-    {
-      icon: <Package className="h-4 w-4" />,
-      text: "Search for products containing 'cajou'",
-      category: "Search",
+      text: "Test database connection and show me a detailed system overview",
+      category: "System Test",
       color: "bg-blue-50 text-blue-700 border-blue-200",
     },
     {
-      icon: <BarChart3 className="h-4 w-4" />,
-      text: "Show me daily sales analysis for this month",
-      category: "Analytics",
+      icon: <Package className="h-4 w-4" />,
+      text: "Show me products sold with zero stock in the last 7 days with detailed analysis and recommendations",
+      category: "Inventory Analysis",
+      color: "bg-red-50 text-red-700 border-red-200",
+    },
+    {
+      icon: <Package className="h-4 w-4" />,
+      text: "Give me a comprehensive business intelligence dashboard for the last 30 days",
+      category: "Business Intelligence",
+      color: "bg-green-50 text-green-700 border-green-200",
+    },
+    {
+      icon: <Sparkles className="h-4 w-4" />,
+      text: "Analyze my supplier performance and provide detailed recommendations for optimization",
+      category: "Supplier Analysis",
       color: "bg-purple-50 text-purple-700 border-purple-200",
     },
     {
-      icon: <TrendingUp className="h-4 w-4" />,
-      text: "Calculate profit analysis for the last 30 days",
-      category: "Profit",
-      color: "bg-emerald-50 text-emerald-700 border-emerald-200",
+      icon: <Zap className="h-4 w-4" />,
+      text: "Generate smart reorder suggestions with detailed cost analysis and supplier information",
+      category: "Smart Reordering",
+      color: "bg-orange-50 text-orange-700 border-orange-200",
     },
   ]
 
   const quickActions = [
-    { label: "Zero Stock", query: "Show products with zero stock" },
-    { label: "Low Stock", query: "Which products are low on stock?" },
-    { label: "Best Sellers", query: "Top selling products this month" },
-    { label: "Profit Analysis", query: "Calculate profit for last 30 days" },
+    {
+      label: "Detailed System Test",
+      query: "Test database connection and provide a comprehensive system status report with recommendations",
+    },
+    {
+      label: "Zero Stock Analysis",
+      query: "Show products with zero stock and provide detailed analysis with actionable recommendations",
+    },
+    {
+      label: "Business Dashboard",
+      query: "Generate a comprehensive business intelligence dashboard with detailed insights and trends",
+    },
+    {
+      label: "Profit Analysis",
+      query: "Calculate detailed profit analysis for the last 30 days with product-level breakdown and recommendations",
+    },
+    {
+      label: "Inventory Health",
+      query: "Provide a detailed inventory health report with optimization suggestions and action items",
+    },
   ]
 
   const handleQuestionClick = (question: string) => {
+    const enhancedQuestion = detailedMode
+      ? `${question}. Please provide a comprehensive, detailed response with specific data, actionable insights, and clear recommendations.`
+      : question
+
     const syntheticEvent = {
       preventDefault: () => {},
     } as React.FormEvent<HTMLFormElement>
-    handleInputChange({ target: { value: question } } as any)
+    handleInputChange({ target: { value: enhancedQuestion } } as any)
     setTimeout(() => handleSubmit(syntheticEvent), 100)
     setIsSidebarOpen(false)
+  }
+
+  const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+
+    let enhancedInput = input
+    if (detailedMode && input.trim()) {
+      // Add context for detailed responses
+      enhancedInput = `${input}. Please provide a comprehensive, detailed analysis with specific data points, actionable insights, clear recommendations, and step-by-step explanations where applicable.`
+    }
+
+    // Temporarily update the input for submission
+    handleInputChange({ target: { value: enhancedInput } } as any)
+    setTimeout(() => {
+      handleSubmit(e)
+      // Reset to original input for display
+      handleInputChange({ target: { value: input } } as any)
+    }, 50)
+  }
+
+  // Helper function to safely extract text content from message
+  const getMessageText = (content: any): string => {
+    if (typeof content === "string") {
+      return content
+    }
+    if (Array.isArray(content)) {
+      return content
+        .map((part: any) => {
+          if (typeof part === "string") return part
+          if (part && typeof part === "object" && part.type === "text") return part.text || ""
+          if (part && typeof part === "object" && part.type === "tool-call")
+            return `[Tool: ${part.toolName || "Unknown"}]`
+          return ""
+        })
+        .filter(Boolean)
+        .join("\n")
+    }
+    return ""
   }
 
   const SidebarContent = () => (
@@ -131,10 +208,48 @@ export default function AiManagementAssistantPage() {
         <h2 className="font-semibold text-lg">AI Assistant</h2>
       </div>
 
+      {/* Settings Section */}
+      <div className="space-y-4 p-3 bg-gray-50 rounded-lg">
+        <div className="flex items-center justify-between">
+          <h3 className="font-medium text-sm text-gray-700">Response Settings</h3>
+          <Button variant="ghost" size="sm" onClick={() => setShowSettings(!showSettings)}>
+            <Settings className="h-4 w-4" />
+          </Button>
+        </div>
+
+        {showSettings && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="detailed-mode" className="text-sm">
+                Detailed Mode
+              </Label>
+              <Switch id="detailed-mode" checked={detailedMode} onCheckedChange={setDetailedMode} />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm">Response Detail Level</Label>
+              <Slider
+                value={responseLength}
+                onValueChange={setResponseLength}
+                max={100}
+                min={25}
+                step={25}
+                className="w-full"
+              />
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>Brief</span>
+                <span>Detailed</span>
+                <span>Comprehensive</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="space-y-4">
         <div>
           <h3 className="font-medium text-sm text-gray-600 mb-2">Quick Actions</h3>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2">
             {quickActions.map((action, index) => (
               <Button
                 key={index}
@@ -149,25 +264,7 @@ export default function AiManagementAssistantPage() {
           </div>
         </div>
 
-        <div>
-          <h3 className="font-medium text-sm text-gray-600 mb-2">Suggested Questions</h3>
-          <div className="space-y-2">
-            {suggestedQuestions.slice(0, 4).map((question, index) => (
-              <Button
-                key={index}
-                variant="ghost"
-                size="sm"
-                className="w-full text-left justify-start h-auto p-2 text-xs"
-                onClick={() => handleQuestionClick(question.text)}
-              >
-                <div className="flex items-start gap-2">
-                  {question.icon}
-                  <span className="line-clamp-2">{question.text}</span>
-                </div>
-              </Button>
-            ))}
-          </div>
-        </div>
+
       </div>
     </div>
   )
@@ -206,15 +303,19 @@ export default function AiManagementAssistantPage() {
                 </div>
                 <div>
                   <h1 className="text-xl font-bold text-gray-900">AI Assistant</h1>
-                  <p className="text-sm text-gray-500 hidden sm:block">Mini-market management helper</p>
+                  <p className="text-sm text-gray-500 hidden sm:block">
+                    {detailedMode ? "Detailed Analysis Mode" : "Quick Response Mode"}
+                  </p>
                 </div>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Badge variant="secondary" className="hidden sm:flex items-center gap-1 text-xs">
-                <Sparkles className="h-3 w-3" />
-                Enhanced
-              </Badge>
+              {detailedMode && (
+                <Badge variant="secondary" className="hidden sm:flex items-center gap-1 text-xs">
+                  <Sparkles className="h-3 w-3" />
+                  Detailed Mode
+                </Badge>
+              )}
               <Badge variant="outline" className="text-xs">
                 {messages.length} msgs
               </Badge>
@@ -255,30 +356,14 @@ export default function AiManagementAssistantPage() {
                   <div className="space-y-2">
                     <h2 className="text-2xl font-bold text-gray-900">Welcome to AI Assistant</h2>
                     <p className="text-gray-600 max-w-md">
-                      Get instant insights about your inventory, sales, and business performance. Ask me anything!
+                      {detailedMode
+                        ? "I'm configured for detailed analysis and comprehensive responses. Ask me anything about your mini-market!"
+                        : "I'm ready to help with quick answers. Enable detailed mode for comprehensive analysis."}
                     </p>
                   </div>
 
-                  {/* Mobile Quick Actions */}
-                  <div className="w-full max-w-sm space-y-3 lg:hidden">
-                    <p className="text-sm font-medium text-gray-700">Quick Actions</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {quickActions.map((action, index) => (
-                        <Button
-                          key={index}
-                          variant="outline"
-                          size="sm"
-                          className="text-xs h-9 bg-transparent"
-                          onClick={() => handleQuestionClick(action.query)}
-                        >
-                          {action.label}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-
                   {/* Desktop Suggested Questions */}
-                  <div className="hidden lg:grid grid-cols-1 md:grid-cols-2 gap-3 w-full max-w-4xl">
+                  <div className="grid grid-cols-1 gap-3 w-full max-w-2xl">
                     {suggestedQuestions.map((question, index) => (
                       <Button
                         key={index}
@@ -333,10 +418,7 @@ export default function AiManagementAssistantPage() {
                           size="sm"
                           className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0 hover:bg-gray-100"
                           onClick={() => {
-                            const textContent = m.parts
-                              .filter((part) => part.type === "text")
-                              .map((part) => part.text)
-                              .join("\n")
+                            const textContent = getMessageText(m.content)
                             copyToClipboard(textContent, m.id)
                           }}
                         >
@@ -348,51 +430,7 @@ export default function AiManagementAssistantPage() {
                         </Button>
                       )}
 
-                      {m.parts.map((part, partIndex) => {
-                        switch (part.type) {
-                          case "text":
-                            return (
-                              <div key={partIndex} className="text-sm leading-relaxed whitespace-pre-wrap">
-                                {part.text}
-                              </div>
-                            )
-                          case "tool-invocation":
-                            if (part.toolInvocation.state === "partial-call") {
-                              return (
-                                <div
-                                  key={partIndex}
-                                  className="text-xs text-blue-600 bg-blue-50 p-2 rounded-lg mb-2 flex items-center gap-2 border border-blue-200"
-                                >
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                  <span className="font-medium">Preparing analysis...</span>
-                                </div>
-                              )
-                            } else if (part.toolInvocation.state === "call") {
-                              return (
-                                <div
-                                  key={partIndex}
-                                  className="text-xs text-blue-600 bg-blue-50 p-2 rounded-lg mb-2 flex items-center gap-2 border border-blue-200"
-                                >
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                  <span className="font-medium">Analyzing data...</span>
-                                </div>
-                              )
-                            } else if (part.toolInvocation.state === "result") {
-                              return (
-                                <div
-                                  key={partIndex}
-                                  className="text-xs text-green-600 bg-green-50 p-2 rounded-lg mb-2 flex items-center gap-2 border border-green-200"
-                                >
-                                  <CheckCircle className="h-3 w-3" />
-                                  <span className="font-medium">Analysis complete</span>
-                                </div>
-                              )
-                            }
-                            return null
-                          default:
-                            return null
-                        }
-                      })}
+                      <div className="text-sm leading-relaxed whitespace-pre-wrap">{getMessageText(m.content)}</div>
                     </div>
                     {m.role === "user" && (
                       <Avatar className="mt-1 ring-2 ring-gray-100 flex-shrink-0">
@@ -416,7 +454,9 @@ export default function AiManagementAssistantPage() {
                   <div className="max-w-[75%] p-4 rounded-2xl bg-white text-gray-800 rounded-bl-md border border-gray-200 shadow-sm">
                     <div className="flex items-center gap-2">
                       <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
-                      <span className="text-sm text-gray-600 font-medium">Thinking...</span>
+                      <span className="text-sm text-gray-600 font-medium">
+                        {detailedMode ? "Analyzing data and preparing detailed response..." : "Thinking..."}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -427,12 +467,16 @@ export default function AiManagementAssistantPage() {
 
         {/* Input Area */}
         <div className="bg-white border-t border-gray-200 p-4">
-          <form onSubmit={handleSubmit} className="flex gap-2 max-w-4xl mx-auto">
+          <form onSubmit={handleFormSubmit} className="flex gap-2 max-w-4xl mx-auto">
             <div className="flex-1 relative">
               <Input
                 className="h-12 pr-12 rounded-full border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                 value={input}
-                placeholder="Ask about inventory, sales, or business insights..."
+                placeholder={
+                  detailedMode
+                    ? "Ask for detailed analysis and comprehensive insights..."
+                    : "Ask me anything about your mini-market..."
+                }
                 onChange={handleInputChange}
                 disabled={isLoading}
               />
@@ -450,7 +494,11 @@ export default function AiManagementAssistantPage() {
               <span className="sr-only">Send message</span>
             </Button>
           </form>
-          <p className="text-xs text-gray-500 text-center mt-2">AI can make mistakes. Verify important information.</p>
+          <p className="text-xs text-gray-500 text-center mt-2">
+            {detailedMode
+              ? "Detailed mode enabled - I'll provide comprehensive analysis with specific data and recommendations."
+              : "Enable detailed mode in settings for comprehensive analysis and insights."}
+          </p>
         </div>
       </div>
     </div>

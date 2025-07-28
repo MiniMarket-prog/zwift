@@ -23,7 +23,7 @@ function LoginForm() {
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const redirectTo = searchParams.get("redirect") || "/postofsale03"
+  const redirectTo = searchParams.get("redirect") || "/desactive02"
   const supabase = createClient()
 
   // Disable auth state change listener for this page
