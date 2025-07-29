@@ -10,11 +10,12 @@ const BarcodeReadingSchema = z.object({
   barcodeType: z.string().optional().describe("Type of barcode detected (EAN-13, UPC, etc.)"),
   isValid: z.boolean().describe("Whether the detected barcode appears to be valid"),
   extractedDigits: z.array(z.string()).describe("Individual digits or characters detected"),
+  reasoning: z.string().describe("Brief explanation of what was seen and why this confidence level"),
 })
 
 export async function POST(req: NextRequest) {
   try {
-    const { image } = await req.json()
+    const { image, mode = "manual" } = await req.json()
 
     if (!image) {
       return NextResponse.json({ error: "No image provided" }, { status: 400 })
@@ -23,7 +24,11 @@ export async function POST(req: NextRequest) {
     // Remove data URL prefix if present
     const base64Image = image.replace(/^data:image\/[a-z]+;base64,/, "")
 
-    console.log("🤖 AI is reading barcode from image...")
+    console.log(`🤖 AI barcode reading (${mode} mode)...`)
+
+    // Adjust prompt based on mode
+    const isRealTimeMode = mode === "realtime"
+    const confidenceThreshold = isRealTimeMode ? 0.8 : 0.6
 
     // Use OpenAI's vision model to read the barcode
     const result = await generateObject({
@@ -37,26 +42,42 @@ export async function POST(req: NextRequest) {
               type: "text",
               text: `You are a specialized barcode reader AI. Analyze this image and extract the barcode number.
 
+${
+  isRealTimeMode
+    ? `
+REAL-TIME MODE - BE VERY CONSERVATIVE:
+- Only return results with 80%+ confidence
+- If you're not absolutely sure, set confidence below 0.8
+- Focus on clear, unambiguous barcodes only
+`
+    : `
+MANUAL MODE - BE THOROUGH BUT CAREFUL:
+- Examine the image carefully for any barcode
+- If you see partial or unclear digits, note this in confidence
+- Only return results you're reasonably confident about
+`
+}
+
 INSTRUCTIONS:
-1. Look carefully for any barcode (vertical black and white lines)
-2. Focus on the numbers below or near the barcode lines
+1. Look for vertical black and white lines (barcode pattern)
+2. Find the numbers below or near the barcode lines
 3. Read each digit carefully from left to right
-4. Common barcode formats: EAN-13 (13 digits), UPC-A (12 digits), EAN-8 (8 digits)
+4. Common formats: EAN-13 (13 digits), UPC-A (12 digits), EAN-8 (8 digits)
 5. Ignore any other text that's not part of the barcode number
 
-IMPORTANT:
-- Only return the actual barcode digits (numbers only)
-- If the barcode is partially obscured, try to read what you can see clearly
-- Set confidence based on how clear and readable the barcode is
-- If you see multiple barcodes, focus on the most prominent/clear one
-- Barcodes are usually 8, 12, or 13 digits long
+CONFIDENCE GUIDELINES:
+- 0.9-1.0: Perfect clarity, all digits crystal clear
+- 0.8-0.9: Very clear, minor lighting/angle issues
+- 0.7-0.8: Clear but some digits slightly unclear
+- 0.6-0.7: Readable but some uncertainty
+- 0.5-0.6: Partially readable, several digits unclear
+- Below 0.5: Too unclear to be reliable
 
-CONFIDENCE LEVELS:
-- 0.9-1.0: Very clear, all digits easily readable
-- 0.7-0.9: Clear but some digits might be slightly unclear
-- 0.5-0.7: Partially readable, some digits unclear
-- 0.3-0.5: Difficult to read, many digits unclear
-- 0.0-0.3: Barcode barely visible or unreadable
+IMPORTANT:
+- Only return actual barcode digits (numbers only)
+- If multiple barcodes exist, choose the clearest one
+- Be honest about confidence - better to be conservative
+- Explain your reasoning briefly
 
 Extract the barcode number as accurately as possible.`,
             },
@@ -67,20 +88,28 @@ Extract the barcode number as accurately as possible.`,
           ],
         },
       ],
-      temperature: 0.1, // Very low temperature for consistent barcode reading
+      temperature: 0.1, // Very low temperature for consistent results
     })
 
-    console.log("✅ AI barcode reading completed:", result.object.barcode, "confidence:", result.object.confidence)
-
-    // Validate barcode length and format
-    const barcode = result.object.barcode.replace(/\D/g, "") // Remove non-digits
+    // Clean and validate barcode
+    const cleanBarcode = result.object.barcode.replace(/\D/g, "") // Remove non-digits
     const validLengths = [8, 12, 13, 14] // Common barcode lengths
-    const isValidLength = validLengths.includes(barcode.length)
+    const isValidLength = validLengths.includes(cleanBarcode.length)
+
+    // Apply mode-specific confidence filtering
+    const meetsConfidenceThreshold = result.object.confidence >= confidenceThreshold
+
+    console.log(
+      `✅ AI barcode reading completed: ${cleanBarcode} (${Math.round(result.object.confidence * 100)}% confidence)`,
+    )
+    console.log(`Reasoning: ${result.object.reasoning}`)
 
     return NextResponse.json({
       ...result.object,
-      barcode: barcode,
-      isValid: result.object.isValid && isValidLength && barcode.length >= 8,
+      barcode: cleanBarcode,
+      isValid: result.object.isValid && isValidLength && cleanBarcode.length >= 8 && meetsConfidenceThreshold,
+      mode: mode,
+      confidenceThreshold: confidenceThreshold,
     })
   } catch (error: any) {
     console.error("❌ Error in AI barcode reading:", error)
@@ -97,6 +126,14 @@ Extract the barcode number as accurately as possible.`,
       }
     }
 
-    return NextResponse.json({ error: "Failed to read barcode from image. Please try again." }, { status: 500 })
+    return NextResponse.json(
+      {
+        error: "Failed to read barcode from image. Please try again.",
+        barcode: "",
+        confidence: 0,
+        isValid: false,
+      },
+      { status: 500 },
+    )
   }
 }

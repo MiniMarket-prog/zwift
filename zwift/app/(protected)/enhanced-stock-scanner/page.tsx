@@ -67,7 +67,7 @@ type ScanResult = {
   error: string | null
 }
 
-// Enhanced barcode scanner with AI fallback
+// Enhanced barcode scanner with real-time AI reading and manual confirmation
 const EnhancedBarcodeScanner = ({
   onScan,
   isActive,
@@ -79,6 +79,7 @@ const EnhancedBarcodeScanner = ({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const scanIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const aiScanIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const [hasFlash, setHasFlash] = useState(false)
   const [flashOn, setFlashOn] = useState(false)
   const [facingMode, setFacingMode] = useState<"user" | "environment">("environment")
@@ -87,19 +88,27 @@ const EnhancedBarcodeScanner = ({
   const [needsUserInteraction, setNeedsUserInteraction] = useState(false)
   const [quaggaLoaded, setQuaggaLoaded] = useState(false)
   const [debugInfo, setDebugInfo] = useState<string[]>([])
-  const [isUsingAI, setIsUsingAI] = useState(false)
-  const [aiAttempts, setAiAttempts] = useState(0)
-  const maxAiAttempts = 3
 
-  // Check if BarcodeDetector is available
-  const isBarcodeDetectorSupported = typeof window !== "undefined" && "BarcodeDetector" in window
+  // Real-time AI reading states
+  const [aiReadingEnabled, setAiReadingEnabled] = useState(false)
+  const [aiSuggestions, setAiSuggestions] = useState<
+    Array<{
+      barcode: string
+      confidence: number
+      timestamp: number
+    }>
+  >([])
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false)
+  const [pendingBarcode, setPendingBarcode] = useState<string | null>(null)
+  const [isAiReading, setIsAiReading] = useState(false)
+  const [aiReadingHistory, setAiReadingHistory] = useState<string[]>([])
 
   // Add debug info with timestamp
   const addDebugInfo = (message: string) => {
     const timestamp = new Date().toLocaleTimeString()
     setDebugInfo((prev) => {
       const newInfo = [...prev, `[${timestamp}] ${message}`]
-      return newInfo.slice(-10) // Keep last 10 messages
+      return newInfo.slice(-10)
     })
     console.log(`[Scanner Debug] ${message}`)
   }
@@ -118,72 +127,120 @@ const EnhancedBarcodeScanner = ({
     }
   }, [])
 
-  // AI Barcode Reading Function
-  const readBarcodeWithAI = async (imageData: string): Promise<string | null> => {
+  // Real-time AI barcode reading (slower, more careful)
+  const performRealTimeAIReading = async () => {
+    if (!videoRef.current || !canvasRef.current || isAiReading) return
+
     try {
-      addDebugInfo(`AI attempt ${aiAttempts + 1}/${maxAiAttempts} - analyzing image...`)
-      setIsUsingAI(true)
+      setIsAiReading(true)
+      const canvas = canvasRef.current
+      const video = videoRef.current
+      const context = canvas.getContext("2d")
+
+      if (!context) return
+
+      // Capture high-quality image for AI
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      context.drawImage(video, 0, 0, canvas.width, canvas.height)
+
+      const imageData = canvas.toDataURL("image/jpeg", 0.95) // Higher quality for AI
 
       const response = await fetch("/api/ai-barcode-reader", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ image: imageData }),
+        body: JSON.stringify({
+          image: imageData,
+          mode: "realtime", // Tell API this is real-time mode
+        }),
       })
 
-      if (!response.ok) {
-        throw new Error(`AI API error: ${response.status}`)
-      }
+      if (!response.ok) return
 
       const result = await response.json()
 
-      if (result.barcode && result.barcode.length >= 8) {
-        addDebugInfo(`AI successfully detected barcode: ${result.barcode}`)
-        return result.barcode
-      } else {
-        addDebugInfo(`AI could not detect valid barcode. Confidence: ${result.confidence}`)
-        return null
+      // Only consider high-confidence results for real-time suggestions
+      if (result.barcode && result.confidence > 0.7 && result.barcode.length >= 8) {
+        const barcode = result.barcode
+
+        // Check if this barcode is different from recent readings
+        const isNewReading = !aiReadingHistory.slice(-3).includes(barcode)
+
+        if (isNewReading) {
+          addDebugInfo(`AI detected: ${barcode} (${Math.round(result.confidence * 100)}% confidence)`)
+
+          // Add to suggestions with timestamp
+          setAiSuggestions((prev) => {
+            const newSuggestion = {
+              barcode,
+              confidence: result.confidence,
+              timestamp: Date.now(),
+            }
+
+            // Keep only recent suggestions (last 10 seconds) and unique barcodes
+            const recent = prev.filter((s) => Date.now() - s.timestamp < 10000)
+            const unique = recent.filter((s) => s.barcode !== barcode)
+
+            return [...unique, newSuggestion].slice(-3) // Keep max 3 suggestions
+          })
+
+          // Add to history
+          setAiReadingHistory((prev) => [...prev, barcode].slice(-10))
+        }
       }
     } catch (error) {
-      addDebugInfo(`AI barcode reading failed: ${(error as Error).message}`)
-      return null
+      // Silently handle errors in real-time mode
+      console.log("Real-time AI reading error:", error)
     } finally {
-      setIsUsingAI(false)
+      setIsAiReading(false)
     }
   }
 
-  // Capture image for AI analysis
-  const captureImageForAI = async (): Promise<string | null> => {
-    if (!videoRef.current || !canvasRef.current) return null
-
-    try {
-      const canvas = canvasRef.current
-      const video = videoRef.current
-      const context = canvas.getContext("2d")
-
-      if (!context) return null
-
-      // Set canvas size to match video with higher resolution for AI
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-
-      // Draw video frame to canvas
-      context.drawImage(video, 0, 0, canvas.width, canvas.height)
-
-      // Get image data as base64
-      return canvas.toDataURL("image/jpeg", 0.9)
-    } catch (error) {
-      addDebugInfo(`Image capture failed: ${(error as Error).message}`)
-      return null
+  // Start real-time AI reading
+  const startRealTimeAI = () => {
+    if (aiScanIntervalRef.current) {
+      clearInterval(aiScanIntervalRef.current)
     }
+
+    // Read every 3 seconds (slower than traditional scanning)
+    aiScanIntervalRef.current = setInterval(performRealTimeAIReading, 3000)
+    addDebugInfo("Real-time AI reading started")
   }
 
-  // Enhanced manual capture with AI fallback
+  // Stop real-time AI reading
+  const stopRealTimeAI = () => {
+    if (aiScanIntervalRef.current) {
+      clearInterval(aiScanIntervalRef.current)
+      aiScanIntervalRef.current = null
+    }
+    setAiSuggestions([])
+    addDebugInfo("Real-time AI reading stopped")
+  }
+
+  // Handle AI suggestion confirmation
+  const handleConfirmBarcode = (barcode: string) => {
+    addDebugInfo(`User confirmed AI suggestion: ${barcode}`)
+    handleSuccessfulScan(barcode)
+    setAiSuggestions([])
+    setShowConfirmDialog(false)
+    setPendingBarcode(null)
+  }
+
+  // Handle AI suggestion rejection
+  const handleRejectBarcode = (barcode: string) => {
+    addDebugInfo(`User rejected AI suggestion: ${barcode}`)
+    setAiSuggestions((prev) => prev.filter((s) => s.barcode !== barcode))
+    setShowConfirmDialog(false)
+    setPendingBarcode(null)
+  }
+
+  // Enhanced manual capture (more conservative)
   const enhancedManualCapture = async () => {
     if (!videoRef.current || !canvasRef.current) return
 
-    addDebugInfo("Enhanced manual capture initiated")
+    addDebugInfo("Manual capture initiated")
 
     try {
       const canvas = canvasRef.current
@@ -196,6 +253,9 @@ const EnhancedBarcodeScanner = ({
       canvas.height = video.videoHeight
       context.drawImage(video, 0, 0, canvas.width, canvas.height)
 
+      // Try traditional methods first
+      let foundBarcode = false
+
       // Try native BarcodeDetector first
       if (isBarcodeDetectorSupported) {
         try {
@@ -207,6 +267,7 @@ const EnhancedBarcodeScanner = ({
             const barcode = barcodes[0].rawValue
             addDebugInfo(`Native API detected: ${barcode}`)
             handleSuccessfulScan(barcode)
+            foundBarcode = true
             return
           }
         } catch (error) {
@@ -215,51 +276,63 @@ const EnhancedBarcodeScanner = ({
       }
 
       // Try ZXing fallback
-      try {
-        const ZXing = await import("@zxing/library")
-        const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas)
-        const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource))
-        const result = new ZXing.MultiFormatReader().decode(binaryBitmap)
-        if (result && result.getText()) {
-          const barcode = result.getText()
-          addDebugInfo(`ZXing detected: ${barcode}`)
-          handleSuccessfulScan(barcode)
-          return
+      if (!foundBarcode) {
+        try {
+          const ZXing = await import("@zxing/library")
+          const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas)
+          const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource))
+          const result = new ZXing.MultiFormatReader().decode(binaryBitmap)
+          if (result && result.getText()) {
+            const barcode = result.getText()
+            addDebugInfo(`ZXing detected: ${barcode}`)
+            handleSuccessfulScan(barcode)
+            foundBarcode = true
+            return
+          }
+        } catch (error) {
+          addDebugInfo(`ZXing detection failed: ${(error as Error).message}`)
         }
-      } catch (error) {
-        addDebugInfo(`ZXing detection failed: ${(error as Error).message}`)
       }
 
-      // If traditional methods fail, try AI (with attempt limit)
-      if (aiAttempts < maxAiAttempts) {
-        addDebugInfo("Traditional methods failed, trying AI barcode reading...")
-        setAiAttempts((prev) => prev + 1)
+      // If traditional methods fail, try AI with confirmation
+      if (!foundBarcode) {
+        addDebugInfo("Traditional methods failed, trying AI with confirmation...")
 
-        const imageData = canvas.toDataURL("image/jpeg", 0.9)
-        const aiBarcode = await readBarcodeWithAI(imageData)
+        const imageData = canvas.toDataURL("image/jpeg", 0.95)
+        const response = await fetch("/api/ai-barcode-reader", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            image: imageData,
+            mode: "manual", // Tell API this is manual capture mode
+          }),
+        })
 
-        if (aiBarcode) {
-          addDebugInfo(`AI successfully read barcode: ${aiBarcode}`)
-          handleSuccessfulScan(aiBarcode)
-          // Reset AI attempts on success
-          setAiAttempts(0)
-          return
+        if (response.ok) {
+          const result = await response.json()
+
+          if (result.barcode && result.barcode.length >= 8) {
+            // Show confirmation dialog for manual AI reading
+            setPendingBarcode(result.barcode)
+            setShowConfirmDialog(true)
+            addDebugInfo(
+              `AI suggests: ${result.barcode} (${Math.round(result.confidence * 100)}% confidence) - awaiting confirmation`,
+            )
+            return
+          }
         }
       }
 
       // All methods failed
       addDebugInfo("All barcode detection methods failed")
-      if (aiAttempts >= maxAiAttempts) {
-        addDebugInfo("Maximum AI attempts reached")
-        // Reset attempts after a delay
-        setTimeout(() => setAiAttempts(0), 10000)
-      }
     } catch (error) {
       addDebugInfo(`Enhanced capture error: ${(error as Error).message}`)
     }
   }
 
-  // Start camera (same as original)
+  // Start camera (same as before)
   const startCamera = useCallback(async () => {
     try {
       if (streamRef.current) {
@@ -269,8 +342,8 @@ const EnhancedBarcodeScanner = ({
       const constraints: MediaStreamConstraints = {
         video: {
           facingMode,
-          width: { ideal: 1280, min: 640 },
-          height: { ideal: 720, min: 480 },
+          width: { ideal: 1920, min: 1280 },
+          height: { ideal: 1080, min: 720 },
         },
         audio: false,
       }
@@ -301,7 +374,7 @@ const EnhancedBarcodeScanner = ({
     }
   }, [facingMode])
 
-  // Start barcode detection (same as original but enhanced)
+  // Start barcode detection with optional AI
   const startBarcodeDetection = async () => {
     if (!videoRef.current || !canvasRef.current) {
       addDebugInfo("Cannot start detection: video or canvas ref not available")
@@ -311,7 +384,7 @@ const EnhancedBarcodeScanner = ({
     setIsScanning(true)
     addDebugInfo("Starting barcode detection")
 
-    // Try native BarcodeDetector first
+    // Start traditional scanning
     if (isBarcodeDetectorSupported) {
       try {
         const barcodeDetector = new (window as any).BarcodeDetector({
@@ -319,25 +392,29 @@ const EnhancedBarcodeScanner = ({
         })
         addDebugInfo("Using native BarcodeDetector API")
         startNativeDetection(barcodeDetector)
-        return
       } catch (error) {
         addDebugInfo(`BarcodeDetector failed: ${(error as Error).message}`)
+        if (quaggaLoaded) {
+          startQuaggaDetection()
+        } else {
+          startZXingDetection()
+        }
       }
-    }
-
-    // Fallback to Quagga if available
-    if (quaggaLoaded) {
+    } else if (quaggaLoaded) {
       addDebugInfo("Using Quagga library")
       startQuaggaDetection()
-      return
+    } else {
+      addDebugInfo("Using ZXing library")
+      startZXingDetection()
     }
 
-    // Final fallback to ZXing
-    addDebugInfo("Using ZXing library")
-    startZXingDetection()
+    // Start real-time AI if enabled
+    if (aiReadingEnabled) {
+      startRealTimeAI()
+    }
   }
 
-  // Native BarcodeDetector scanning (same as original)
+  // Native BarcodeDetector scanning (same as before)
   const startNativeDetection = (detector: any) => {
     if (scanIntervalRef.current) {
       clearInterval(scanIntervalRef.current)
@@ -362,12 +439,12 @@ const EnhancedBarcodeScanner = ({
           }
         }
       } catch (error) {
-        // Ignore detection errors, they're normal when no barcode is present
+        // Ignore detection errors
       }
     }, 300)
   }
 
-  // Quagga scanning (same as original)
+  // Other scanning methods (same as before)
   const startQuaggaDetection = async () => {
     if (!videoRef.current) {
       addDebugInfo("Cannot start Quagga: video element not available")
@@ -426,7 +503,6 @@ const EnhancedBarcodeScanner = ({
     }
   }
 
-  // ZXing scanning (same as original)
   const startZXingDetection = async () => {
     try {
       const ZXing = await import("@zxing/library")
@@ -471,14 +547,15 @@ const EnhancedBarcodeScanner = ({
     }
   }
 
-  // Handle successful scan (same as original)
+  // Handle successful scan (same as before)
   const handleSuccessfulScan = (barcode: string) => {
     setLastDetectedCode(barcode)
-    // Stop scanning
+    // Stop all scanning
     if (scanIntervalRef.current) {
       clearInterval(scanIntervalRef.current)
       scanIntervalRef.current = null
     }
+    stopRealTimeAI()
     setIsScanning(false)
     // Play success sound
     try {
@@ -489,7 +566,7 @@ const EnhancedBarcodeScanner = ({
     onScan(barcode)
   }
 
-  // Other functions (same as original)
+  // Other utility functions (same as before)
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
@@ -499,6 +576,7 @@ const EnhancedBarcodeScanner = ({
       clearInterval(scanIntervalRef.current)
       scanIntervalRef.current = null
     }
+    stopRealTimeAI()
     setIsScanning(false)
     addDebugInfo("Camera stopped")
   }, [])
@@ -535,6 +613,20 @@ const EnhancedBarcodeScanner = ({
     }
   }
 
+  // Toggle AI reading
+  const toggleAIReading = () => {
+    setAiReadingEnabled(!aiReadingEnabled)
+    if (!aiReadingEnabled) {
+      addDebugInfo("Real-time AI reading enabled")
+      if (isScanning) {
+        startRealTimeAI()
+      }
+    } else {
+      addDebugInfo("Real-time AI reading disabled")
+      stopRealTimeAI()
+    }
+  }
+
   useEffect(() => {
     if (isActive) {
       startCamera()
@@ -545,6 +637,9 @@ const EnhancedBarcodeScanner = ({
       stopCamera()
     }
   }, [isActive, startCamera, stopCamera])
+
+  // Check if BarcodeDetector is available
+  const isBarcodeDetectorSupported = typeof window !== "undefined" && "BarcodeDetector" in window
 
   return (
     <div className="relative w-full h-full bg-black rounded-lg overflow-hidden">
@@ -581,39 +676,126 @@ const EnhancedBarcodeScanner = ({
               }}
             />
 
-            {/* AI indicator when using AI */}
-            {isUsingAI && (
+            {/* AI reading indicator */}
+            {aiReadingEnabled && (
               <motion.div
-                className="absolute inset-0 flex items-center justify-center"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
+                className="absolute top-2 right-2 bg-primary/90 text-white px-2 py-1 rounded text-xs flex items-center gap-1"
+                animate={{ opacity: isAiReading ? [0.5, 1, 0.5] : 1 }}
+                transition={{ duration: 1, repeat: isAiReading ? Number.POSITIVE_INFINITY : 0 }}
               >
-                <div className="bg-primary/90 text-white px-3 py-1 rounded-full text-xs flex items-center gap-2">
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
-                  >
-                    <Brain className="h-3 w-3" />
-                  </motion.div>
-                  AI Reading...
-                </div>
+                <Brain className="h-3 w-3" />
+                AI
               </motion.div>
             )}
           </div>
 
-          {/* Enhanced instructions */}
+          {/* Instructions */}
           <div className="absolute -bottom-20 left-1/2 transform -translate-x-1/2 text-center">
             <p className="text-white text-sm font-medium">Position barcode within frame</p>
             <p className="text-white/70 text-xs mt-1">
               {isScanning
-                ? isUsingAI
-                  ? "AI is reading the barcode..."
-                  : "Scanning automatically..."
-                : "Tap capture for AI-assisted reading"}
+                ? aiReadingEnabled
+                  ? "Traditional + AI scanning active"
+                  : "Traditional scanning active"
+                : "Tap capture for manual scan"}
             </p>
           </div>
         </div>
       </div>
+
+      {/* AI Suggestions Overlay */}
+      <AnimatePresence>
+        {aiSuggestions.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="absolute bottom-20 left-4 right-4 pointer-events-auto"
+          >
+            <div className="bg-black/90 backdrop-blur-sm rounded-lg p-3 border border-white/20">
+              <div className="flex items-center gap-2 mb-2">
+                <Brain className="h-4 w-4 text-primary" />
+                <span className="text-white text-sm font-medium">AI Detected Barcodes</span>
+              </div>
+              <div className="space-y-2">
+                {aiSuggestions.map((suggestion, index) => (
+                  <motion.div
+                    key={suggestion.barcode}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="flex items-center justify-between bg-white/10 rounded p-2"
+                  >
+                    <div className="flex-1">
+                      <div className="text-white font-mono text-sm">{suggestion.barcode}</div>
+                      <div className="text-white/70 text-xs">{Math.round(suggestion.confidence * 100)}% confidence</div>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 px-2 text-xs bg-green-600/20 border-green-500/50 text-green-100 hover:bg-green-600/40"
+                        onClick={() => handleConfirmBarcode(suggestion.barcode)}
+                      >
+                        ✓ Use
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 px-2 text-xs bg-red-600/20 border-red-500/50 text-red-100 hover:bg-red-600/40"
+                        onClick={() => handleRejectBarcode(suggestion.barcode)}
+                      >
+                        ✗
+                      </Button>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Manual Confirmation Dialog */}
+      <AnimatePresence>
+        {showConfirmDialog && pendingBarcode && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 bg-black/80 flex items-center justify-center pointer-events-auto"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-lg p-6 max-w-sm mx-4"
+            >
+              <div className="text-center">
+                <Brain className="h-12 w-12 mx-auto mb-4 text-primary" />
+                <h3 className="text-lg font-semibold mb-2">AI Detected Barcode</h3>
+                <div className="bg-gray-100 rounded p-3 mb-4">
+                  <div className="font-mono text-lg font-bold">{pendingBarcode}</div>
+                </div>
+                <p className="text-sm text-gray-600 mb-6">
+                  Is this barcode correct? AI detected it when traditional scanning failed.
+                </p>
+                <div className="flex gap-3">
+                  <Button
+                    variant="outline"
+                    className="flex-1 bg-transparent"
+                    onClick={() => handleRejectBarcode(pendingBarcode)}
+                  >
+                    ✗ No, try again
+                  </Button>
+                  <Button className="flex-1" onClick={() => handleConfirmBarcode(pendingBarcode)}>
+                    ✓ Yes, use this
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Play button for browsers that require user interaction */}
       {needsUserInteraction && (
@@ -627,6 +809,19 @@ const EnhancedBarcodeScanner = ({
 
       {/* Camera controls */}
       <div className="absolute top-4 right-4 flex flex-col gap-2">
+        {/* AI Toggle */}
+        <Button
+          variant="secondary"
+          size="icon"
+          className={`w-10 h-10 rounded-full ${
+            aiReadingEnabled ? "bg-primary/80 hover:bg-primary" : "bg-black/50 hover:bg-black/70"
+          }`}
+          onClick={toggleAIReading}
+          title={aiReadingEnabled ? "Disable AI Reading" : "Enable AI Reading"}
+        >
+          <Brain className={`h-4 w-4 ${aiReadingEnabled ? "text-white" : "text-white"}`} />
+        </Button>
+
         {hasFlash && (
           <Button
             variant="secondary"
@@ -647,40 +842,20 @@ const EnhancedBarcodeScanner = ({
         </Button>
       </div>
 
-      {/* Enhanced manual capture button */}
+      {/* Manual capture button */}
       <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
         <Button
           size="lg"
-          className="rounded-full w-16 h-16 bg-primary hover:bg-primary/90 relative"
+          className="rounded-full w-16 h-16 bg-primary hover:bg-primary/90"
           onClick={enhancedManualCapture}
-          disabled={isUsingAI}
         >
-          {isUsingAI ? (
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
-            >
-              <Brain className="h-6 w-6" />
-            </motion.div>
-          ) : (
-            <Camera className="h-6 w-6" />
-          )}
+          <Camera className="h-6 w-6" />
         </Button>
       </div>
 
       {/* Enhanced scanning status */}
       <div className="absolute top-4 left-4 bg-black/50 text-white px-3 py-1 rounded-full text-sm">
-        {isUsingAI ? (
-          <div className="flex items-center gap-2">
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
-            >
-              <Brain className="h-4 w-4" />
-            </motion.div>
-            AI Reading...
-          </div>
-        ) : isScanning ? (
+        {isScanning ? (
           <div className="flex items-center gap-2">
             <motion.div
               animate={{ rotate: 360 }}
@@ -688,22 +863,15 @@ const EnhancedBarcodeScanner = ({
             >
               <Scan className="h-4 w-4" />
             </motion.div>
-            Scanning...
+            {aiReadingEnabled ? "Smart Scanning..." : "Scanning..."}
           </div>
         ) : (
           <div className="flex items-center gap-2">
             <Zap className="h-4 w-4" />
-            AI Enhanced
+            {aiReadingEnabled ? "AI Enhanced" : "Traditional"}
           </div>
         )}
       </div>
-
-      {/* AI attempts indicator */}
-      {aiAttempts > 0 && (
-        <div className="absolute bottom-4 left-4 bg-primary/80 text-white px-2 py-1 rounded text-xs">
-          AI: {aiAttempts}/{maxAiAttempts} attempts
-        </div>
-      )}
 
       {/* Debug info (only show in development) */}
       {process.env.NODE_ENV === "development" && debugInfo.length > 0 && (
