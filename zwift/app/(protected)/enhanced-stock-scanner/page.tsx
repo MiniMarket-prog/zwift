@@ -71,9 +71,13 @@ type ScanResult = {
 const EnhancedBarcodeScanner = ({
   onScan,
   isActive,
+  aiReadingEnabled,
+  onToggleAIReading,
 }: {
   onScan: (barcode: string) => void
   isActive: boolean
+  aiReadingEnabled: boolean
+  onToggleAIReading: () => void
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -90,7 +94,6 @@ const EnhancedBarcodeScanner = ({
   const [debugInfo, setDebugInfo] = useState<string[]>([])
 
   // Real-time AI reading states
-  const [aiReadingEnabled, setAiReadingEnabled] = useState(false)
   const [aiSuggestions, setAiSuggestions] = useState<
     Array<{
       barcode: string
@@ -613,20 +616,6 @@ const EnhancedBarcodeScanner = ({
     }
   }
 
-  // Toggle AI reading
-  const toggleAIReading = () => {
-    setAiReadingEnabled(!aiReadingEnabled)
-    if (!aiReadingEnabled) {
-      addDebugInfo("Real-time AI reading enabled")
-      if (isScanning) {
-        startRealTimeAI()
-      }
-    } else {
-      addDebugInfo("Real-time AI reading disabled")
-      stopRealTimeAI()
-    }
-  }
-
   useEffect(() => {
     if (isActive) {
       startCamera()
@@ -689,15 +678,13 @@ const EnhancedBarcodeScanner = ({
             )}
           </div>
 
-          {/* Instructions */}
+          {/* Enhanced instructions */}
           <div className="absolute -bottom-20 left-1/2 transform -translate-x-1/2 text-center">
             <p className="text-white text-sm font-medium">Position barcode within frame</p>
             <p className="text-white/70 text-xs mt-1">
-              {isScanning
-                ? aiReadingEnabled
-                  ? "Traditional + AI scanning active"
-                  : "Traditional scanning active"
-                : "Tap capture for manual scan"}
+              {aiReadingEnabled
+                ? "Auto Detect: AI will suggest barcodes automatically"
+                : "Manual mode: Tap capture button or enable Auto Detect"}
             </p>
           </div>
         </div>
@@ -807,21 +794,22 @@ const EnhancedBarcodeScanner = ({
         </div>
       )}
 
-      {/* Camera controls */}
+      {/* Enhanced Camera controls with Auto Detect toggle */}
       <div className="absolute top-4 right-4 flex flex-col gap-2">
-        {/* AI Toggle */}
+        {/* Auto Detect Toggle - Most prominent */}
         <Button
-          variant="secondary"
-          size="icon"
-          className={`w-10 h-10 rounded-full ${
-            aiReadingEnabled ? "bg-primary/80 hover:bg-primary" : "bg-black/50 hover:bg-black/70"
+          variant={aiReadingEnabled ? "default" : "secondary"}
+          size="sm"
+          className={`px-3 py-2 rounded-full text-xs font-medium transition-all ${
+            aiReadingEnabled ? "bg-primary text-white shadow-lg" : "bg-black/50 hover:bg-black/70 text-white"
           }`}
-          onClick={toggleAIReading}
-          title={aiReadingEnabled ? "Disable AI Reading" : "Enable AI Reading"}
+          onClick={onToggleAIReading}
         >
-          <Brain className={`h-4 w-4 ${aiReadingEnabled ? "text-white" : "text-white"}`} />
+          <Brain className="h-3 w-3 mr-1" />
+          {aiReadingEnabled ? "Auto Detect ON" : "Auto Detect OFF"}
         </Button>
 
+        {/* Flash control */}
         {hasFlash && (
           <Button
             variant="secondary"
@@ -832,6 +820,8 @@ const EnhancedBarcodeScanner = ({
             {flashOn ? <FlashlightOff className="h-4 w-4 text-white" /> : <Flashlight className="h-4 w-4 text-white" />}
           </Button>
         )}
+
+        {/* Camera switch */}
         <Button
           variant="secondary"
           size="icon"
@@ -853,22 +843,44 @@ const EnhancedBarcodeScanner = ({
         </Button>
       </div>
 
-      {/* Enhanced scanning status */}
-      <div className="absolute top-4 left-4 bg-black/50 text-white px-3 py-1 rounded-full text-sm">
-        {isScanning ? (
-          <div className="flex items-center gap-2">
+      {/* Enhanced scanning status with Auto Detect indicator */}
+      <div className="absolute top-4 left-4 space-y-2">
+        {/* Main status */}
+        <div className="bg-black/50 text-white px-3 py-1 rounded-full text-sm">
+          {isScanning ? (
+            <div className="flex items-center gap-2">
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
+              >
+                <Scan className="h-4 w-4" />
+                Traditional Scanning...
+              </motion.div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Zap className="h-4 w-4" />
+              Ready to Scan
+            </div>
+          )}
+        </div>
+
+        {/* Auto Detect status */}
+        {aiReadingEnabled && (
+          <div className="bg-primary/80 text-white px-3 py-1 rounded-full text-xs flex items-center gap-2">
             <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
+              animate={{
+                scale: isAiReading ? [1, 1.2, 1] : 1,
+                opacity: isAiReading ? [0.7, 1, 0.7] : 1,
+              }}
+              transition={{
+                duration: 1.5,
+                repeat: isAiReading ? Number.POSITIVE_INFINITY : 0,
+              }}
             >
-              <Scan className="h-4 w-4" />
+              <Brain className="h-3 w-3" />
             </motion.div>
-            {aiReadingEnabled ? "Smart Scanning..." : "Scanning..."}
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <Zap className="h-4 w-4" />
-            {aiReadingEnabled ? "AI Enhanced" : "Traditional"}
+            {isAiReading ? "AI Analyzing..." : "Auto Detect Active"}
           </div>
         )}
       </div>
@@ -1283,6 +1295,11 @@ export default function EnhancedStockScannerPage() {
   const [isUpdating, setIsUpdating] = useState(false)
   const { toast } = useToast()
   const supabase = createClient()
+  const [aiReadingEnabled, setAiReadingEnabled] = useState(false)
+
+  const toggleAIReading = () => {
+    setAiReadingEnabled(!aiReadingEnabled)
+  }
 
   // Fetch categories
   useEffect(() => {
@@ -1436,18 +1453,29 @@ export default function EnhancedStockScannerPage() {
             <CardTitle className="flex items-center gap-2">
               <Brain className="h-5 w-5 text-primary" />
               AI Enhanced Barcode Scanner
+              {isCameraActive && (
+                <Badge variant={aiReadingEnabled ? "default" : "secondary"} className="text-xs ml-2">
+                  Auto Detect {aiReadingEnabled ? "ON" : "OFF"}
+                </Badge>
+              )}
             </CardTitle>
             <div className="text-sm text-muted-foreground">
               <div className="flex items-center gap-4">
                 <span className="flex items-center gap-1">
                   <CheckCircle className="h-4 w-4 text-green-600" />
-                  Traditional scanning
+                  Traditional scanning always active
                 </span>
                 <span className="flex items-center gap-1">
                   <Brain className="h-4 w-4 text-primary" />
-                  AI fallback for unclear codes
+                  Auto Detect for unclear barcodes
                 </span>
               </div>
+              {isCameraActive && aiReadingEnabled && (
+                <div className="mt-2 p-2 bg-primary/10 rounded text-xs">
+                  💡 <strong>Auto Detect is ON</strong> - AI will automatically suggest barcodes when traditional
+                  scanning fails
+                </div>
+              )}
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -1462,6 +1490,27 @@ export default function EnhancedStockScannerPage() {
                     <p className="text-muted-foreground">AI Enhanced Camera is off</p>
                   </div>
                 </div>
+
+                {/* Auto Detect explanation */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-left">
+                  <div className="flex items-start gap-3">
+                    <Brain className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <h4 className="font-medium text-blue-900 mb-1">Auto Detect Feature</h4>
+                      <p className="text-sm text-blue-800 mb-2">
+                        When enabled, AI will automatically analyze unclear barcodes and suggest results for your
+                        confirmation.
+                      </p>
+                      <ul className="text-xs text-blue-700 space-y-1">
+                        <li>• Traditional scanning always works first</li>
+                        <li>• AI only activates when needed</li>
+                        <li>• You confirm all AI suggestions</li>
+                        <li>• Toggle on/off anytime during scanning</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
                 <Button onClick={() => setIsCameraActive(true)} size="lg" className="w-full">
                   <Camera className="h-4 w-4 mr-2" />
                   Start AI Enhanced Scanner
@@ -1469,7 +1518,12 @@ export default function EnhancedStockScannerPage() {
               </div>
             ) : (
               <div className="w-full h-64">
-                <EnhancedBarcodeScanner onScan={handleScan} isActive={isCameraActive} />
+                <EnhancedBarcodeScanner
+                  onScan={handleScan}
+                  isActive={isCameraActive}
+                  aiReadingEnabled={aiReadingEnabled}
+                  onToggleAIReading={toggleAIReading}
+                />
               </div>
             )}
             {isCameraActive && (
