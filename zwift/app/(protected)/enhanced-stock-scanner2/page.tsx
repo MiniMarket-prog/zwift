@@ -1973,39 +1973,13 @@ export default function ProfessionalStockScannerPage() {
                 </div>
 
                 {/* Professional features explanation */}
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-left">
-                  <div className="flex items-start gap-3">
-                    <Camera className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <h4 className="font-medium text-blue-900 mb-1">Professional Camera Features</h4>
-                      <p className="text-sm text-blue-800 mb-2">
-                        Advanced camera controls designed for challenging barcode scanning scenarios.
-                      </p>
-                      <ul className="text-xs text-blue-700 space-y-1">
-                        <li>
-                          • <strong>Zoom Control:</strong> Up to 5x zoom for small barcodes
-                        </li>
-                        <li>
-                          • <strong>Tap-to-Focus:</strong> Tap screen to focus on specific areas
-                        </li>
-                        <li>
-                          • <strong>Exposure Control:</strong> Adjust brightness for plastic/reflective surfaces
-                        </li>
-                        <li>
-                          • <strong>AI Pro Enhancement:</strong> Advanced AI with camera metadata
-                        </li>
-                        <li>
-                          • <strong>Image Stabilization:</strong> Reduces blur from hand movement
-                        </li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
+               
 
                 <Button onClick={() => setIsCameraActive(true)} size="lg" className="w-full">
                   <Camera className="h-4 w-4 mr-2" />
                   Start Professional Scanner
                 </Button>
+                
               </div>
             ) : (
               <div className="w-full h-64">
@@ -2035,6 +2009,7 @@ export default function ProfessionalStockScannerPage() {
               Manual Search
             </CardTitle>
           </CardHeader>
+          
           <CardContent>
             <div className="flex gap-2">
               <Input
@@ -2050,7 +2025,34 @@ export default function ProfessionalStockScannerPage() {
             </div>
           </CardContent>
         </Card>
-
+ <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-left">
+                  <div className="flex items-start gap-3">
+                    <Camera className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <h4 className="font-medium text-blue-900 mb-1">Professional Camera Features</h4>
+                      <p className="text-sm text-blue-800 mb-2">
+                        Advanced camera controls designed for challenging barcode scanning scenarios.
+                      </p>
+                      <ul className="text-xs text-blue-700 space-y-1">
+                        <li>
+                          • <strong>Zoom Control:</strong> Up to 5x zoom for small barcodes
+                        </li>
+                        <li>
+                          • <strong>Tap-to-Focus:</strong> Tap screen to focus on specific areas
+                        </li>
+                        <li>
+                          • <strong>Exposure Control:</strong> Adjust brightness for plastic/reflective surfaces
+                        </li>
+                        <li>
+                          • <strong>AI Pro Enhancement:</strong> Advanced AI with camera metadata
+                        </li>
+                        <li>
+                          • <strong>Image Stabilization:</strong> Reduces blur from hand movement
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>  
         {/* Scan Result with Professional indicator */}
         <AnimatePresence>
           {scanResult.isLoading && (

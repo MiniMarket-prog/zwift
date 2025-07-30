@@ -349,6 +349,11 @@ export function AppSidebar() {
           label: "AI restocking",
           icon: <Package className="h-4 w-4" />,
         },
+                                        {
+          href: "roiAI",
+          label: "ROI",
+          icon: <Package className="h-4 w-4" />,
+        },
         
 
       ],
