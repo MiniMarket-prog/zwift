@@ -70,6 +70,75 @@ class RateLimitManager {
   }
 }
 
+// Helper function to summarize data for AI processing
+function summarizeBusinessData(salesData: any[], productsData: any[], investmentsData: any[]) {
+  // Summarize sales data to prevent memory issues
+  const salesSummary = {
+    totalSales: salesData?.length || 0,
+    totalRevenue: salesData?.reduce((sum, sale) => sum + (sale.total_amount || 0), 0) || 0,
+    averageSaleAmount:
+      salesData?.length > 0 ? salesData.reduce((sum, sale) => sum + (sale.total_amount || 0), 0) / salesData.length : 0,
+    recentSales:
+      salesData?.slice(0, 5).map((sale) => ({
+        date: sale.created_at,
+        amount: sale.total_amount,
+        items_count: sale.sale_items?.length || 0,
+      })) || [],
+    monthlyTrend: calculateMonthlyTrend(salesData || []),
+  }
+
+  // Summarize products data
+  const productsSummary = {
+    totalProducts: productsData?.length || 0,
+    averagePrice:
+      productsData?.length > 0
+        ? productsData.reduce((sum, product) => sum + (product.price || 0), 0) / productsData.length
+        : 0,
+    categories: [...new Set(productsData?.map((p) => p.category).filter(Boolean) || [])],
+    topProducts:
+      productsData?.slice(0, 5).map((product) => ({
+        name: product.name,
+        price: product.price,
+        category: product.category,
+      })) || [],
+  }
+
+  // Summarize investments data
+  const investmentsSummary = {
+    totalInvestments: investmentsData?.length || 0,
+    totalAmount: investmentsData?.reduce((sum, inv) => sum + (inv.amount || 0), 0) || 0,
+    averageInvestment:
+      investmentsData?.length > 0
+        ? investmentsData.reduce((sum, inv) => sum + (inv.amount || 0), 0) / investmentsData.length
+        : 0,
+    recentInvestments:
+      investmentsData?.slice(0, 3).map((inv) => ({
+        date: inv.investment_date,
+        amount: inv.amount,
+        description: inv.description?.substring(0, 50) || "No description",
+      })) || [],
+  }
+
+  return { salesSummary, productsSummary, investmentsSummary }
+}
+
+// Helper function to calculate monthly trend
+function calculateMonthlyTrend(salesData: any[]) {
+  const monthlyData: { [key: string]: number } = {}
+
+  salesData.forEach((sale) => {
+    if (sale.created_at && sale.total_amount) {
+      const month = new Date(sale.created_at).toISOString().substring(0, 7) // YYYY-MM
+      monthlyData[month] = (monthlyData[month] || 0) + sale.total_amount
+    }
+  })
+
+  return Object.entries(monthlyData)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-6) // Last 6 months
+    .map(([month, amount]) => ({ month, amount }))
+}
+
 export async function POST(request: NextRequest) {
   const rateLimitManager = RateLimitManager.getInstance()
 
@@ -99,34 +168,66 @@ export async function POST(request: NextRequest) {
 
     const supabase = createClient()
 
-    // Get additional business context
+    // Get additional business context with limited data to prevent memory issues
     const [salesData, productsData, investmentsData] = await Promise.all([
       supabase
         .from("sales")
-        .select("*, sale_items(*)")
+        .select("created_at, total_amount, sale_items(quantity)")
         .gte("created_at", dateRange?.from || new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString())
         .lte("created_at", dateRange?.to || new Date().toISOString())
         .order("created_at", { ascending: false })
-        .limit(100),
-      supabase.from("products").select("*").limit(50),
-      supabase.from("investments").select("*").order("investment_date", { ascending: false }).limit(20),
+        .limit(50), // Reduced limit to prevent memory issues
+      supabase
+        .from("products")
+        .select("name, price, category")
+        .limit(20), // Reduced limit
+      supabase
+        .from("investments")
+        .select("investment_date, amount, description")
+        .order("investment_date", { ascending: false })
+        .limit(10), // Reduced limit
     ])
+
+    // Summarize data to reduce payload size
+    const { salesSummary, productsSummary, investmentsSummary } = summarizeBusinessData(
+      salesData.data || [],
+      productsData.data || [],
+      investmentsData.data || [],
+    )
+
+    // Create a condensed ROI data summary
+    const roiSummary = {
+      roi: roiData.roi,
+      annualizedRoi: roiData.annualizedRoi,
+      totalInvestment: roiData.totalInvestment,
+      netProfit: roiData.netProfit,
+      paybackPeriod: roiData.paybackPeriod,
+      profitabilityIndex: roiData.profitabilityIndex,
+      monthlyDataSummary: {
+        count: roiData.monthlyData?.length || 0,
+        avgROI:
+          roiData.monthlyData?.length > 0
+            ? roiData.monthlyData.reduce((sum: number, month: any) => sum + month.roi, 0) / roiData.monthlyData.length
+            : 0,
+        trend: roiData.monthlyData?.slice(-3) || [], // Last 3 months only
+      },
+    }
 
     let prompt = ""
     const systemPrompt = `You are an expert financial analyst and business strategist specializing in ROI analysis and business optimization. 
     Provide actionable, data-driven insights in valid JSON format only. Focus on practical recommendations that can improve business performance.
-    Consider industry benchmarks, seasonal trends, and growth opportunities in your analysis.`
+    Consider industry benchmarks, seasonal trends, and growth opportunities in your analysis. Keep responses concise and focused.`
 
     switch (action) {
       case "performance_analysis":
         prompt = `
           Analyze this business's ROI performance and provide comprehensive insights:
           
-          ROI Data: ${JSON.stringify(roiData, null, 2)}
+          ROI Summary: ${JSON.stringify(roiSummary)}
           Period: ${period}
-          Sales Data: ${JSON.stringify(salesData.data?.slice(0, 20), null, 2)}
-          Products Count: ${productsData.data?.length || 0}
-          Recent Investments: ${JSON.stringify(investmentsData.data?.slice(0, 10), null, 2)}
+          Sales Summary: ${JSON.stringify(salesSummary)}
+          Products Summary: ${JSON.stringify(productsSummary)}
+          Investments Summary: ${JSON.stringify(investmentsSummary)}
           
           Provide analysis on:
           1. Overall ROI performance vs industry benchmarks
@@ -153,11 +254,11 @@ export async function POST(request: NextRequest) {
         prompt = `
           Provide specific optimization recommendations to improve ROI:
           
-          Current ROI Data: ${JSON.stringify(roiData, null, 2)}
+          Current ROI Summary: ${JSON.stringify(roiSummary)}
           Business Context: 
-          - Sales Performance: ${JSON.stringify(salesData.data?.slice(0, 15), null, 2)}
-          - Product Portfolio: ${productsData.data?.length || 0} products
-          - Investment History: ${JSON.stringify(investmentsData.data?.slice(0, 8), null, 2)}
+          - Sales Summary: ${JSON.stringify(salesSummary)}
+          - Products Summary: ${JSON.stringify(productsSummary)}
+          - Investments Summary: ${JSON.stringify(investmentsSummary)}
           
           Focus on actionable recommendations for:
           1. Cost reduction opportunities
@@ -185,9 +286,9 @@ export async function POST(request: NextRequest) {
         prompt = `
           Create predictive forecasts for ROI performance based on current trends:
           
-          Historical ROI Data: ${JSON.stringify(roiData, null, 2)}
-          Sales Trends: ${JSON.stringify(salesData.data?.slice(0, 25), null, 2)}
-          Investment Pattern: ${JSON.stringify(investmentsData.data, null, 2)}
+          Historical ROI Summary: ${JSON.stringify(roiSummary)}
+          Sales Trends: ${JSON.stringify(salesSummary.monthlyTrend)}
+          Investment Pattern: ${JSON.stringify(investmentsSummary)}
           Current Period: ${period}
           
           Analyze patterns and predict:
@@ -230,9 +331,9 @@ export async function POST(request: NextRequest) {
         prompt = `
           Analyze investment strategy and provide strategic recommendations:
           
-          ROI Performance: ${JSON.stringify(roiData, null, 2)}
-          Investment History: ${JSON.stringify(investmentsData.data, null, 2)}
-          Business Performance: ${JSON.stringify(salesData.data?.slice(0, 20), null, 2)}
+          ROI Performance: ${JSON.stringify(roiSummary)}
+          Investment History: ${JSON.stringify(investmentsSummary)}
+          Business Performance: ${JSON.stringify(salesSummary)}
           
           Analyze and recommend:
           1. Investment allocation effectiveness
@@ -271,9 +372,9 @@ export async function POST(request: NextRequest) {
         prompt = `
           Provide competitive and market positioning analysis:
           
-          Business ROI: ${JSON.stringify(roiData, null, 2)}
-          Sales Performance: ${JSON.stringify(salesData.data?.slice(0, 15), null, 2)}
-          Product Portfolio Size: ${productsData.data?.length || 0}
+          Business ROI: ${JSON.stringify(roiSummary)}
+          Sales Performance: ${JSON.stringify(salesSummary)}
+          Product Portfolio: ${JSON.stringify(productsSummary)}
           
           Analyze:
           1. Market position based on ROI performance
@@ -308,10 +409,10 @@ export async function POST(request: NextRequest) {
     // Use rate limiting for the AI request
     const result = await rateLimitManager.queueRequest(async () => {
       const { text } = await generateText({
-        model: openai("gpt-4o"), // Using gpt-4o for more sophisticated financial analysis
+        model: openai("gpt-4o-mini"), // Using gpt-4o-mini for better performance and lower memory usage
         system: systemPrompt,
         prompt: prompt,
-        maxTokens: 3000,
+        maxTokens: 2000, // Reduced token limit to prevent memory issues
         temperature: 0.2, // Low temperature for consistent financial analysis
       })
 
@@ -351,6 +452,78 @@ export async function POST(request: NextRequest) {
               implementation: ["Conduct operational audit", "Identify bottlenecks", "Implement improvements"],
             },
           ]
+          break
+        case "predictive_forecast":
+          parsedResult = {
+            forecast3Months: {
+              expectedROI: roiData?.roi || 10,
+              confidence: 0.7,
+              factors: ["Historical performance trends", "Current market conditions"],
+            },
+            forecast6Months: {
+              expectedROI: (roiData?.roi || 10) * 1.1,
+              confidence: 0.6,
+              factors: ["Seasonal adjustments", "Investment pipeline"],
+            },
+            forecast12Months: {
+              expectedROI: (roiData?.roi || 10) * 1.2,
+              confidence: 0.5,
+              factors: ["Long-term growth projections", "Market expansion"],
+            },
+            scenarios: {
+              conservative: (roiData?.roi || 10) * 0.8,
+              realistic: roiData?.roi || 10,
+              optimistic: (roiData?.roi || 10) * 1.3,
+            },
+            keyVariables: ["Revenue growth", "Cost management", "Market conditions"],
+            seasonalFactors: ["Quarterly sales patterns", "Holiday impacts"],
+            monitoringMetrics: ["Monthly ROI", "Cash flow", "Investment efficiency"],
+          }
+          break
+        case "investment_strategy":
+          parsedResult = {
+            currentAllocationAnalysis: "Investment allocation requires detailed review for optimization",
+            allocationEffectiveness: "Medium",
+            recommendedAllocations: [
+              {
+                category: "Operations",
+                currentPercentage: 60,
+                recommendedPercentage: 50,
+                reasoning: "Optimize operational efficiency",
+              },
+              {
+                category: "Growth",
+                currentPercentage: 40,
+                recommendedPercentage: 50,
+                reasoning: "Increase growth investments",
+              },
+            ],
+            investmentPriorities: [
+              {
+                priority: "High",
+                area: "Technology Infrastructure",
+                expectedReturn: "15-20%",
+                timeframe: "6-12 months",
+              },
+            ],
+            strategicOpportunities: ["Digital transformation", "Market expansion"],
+            riskMitigation: ["Diversify investment portfolio", "Monitor cash flow"],
+          }
+          break
+        case "competitive_analysis":
+          parsedResult = {
+            marketPosition: "Average",
+            competitiveAdvantages: ["Strong customer base", "Operational efficiency"],
+            competitiveDisadvantages: ["Limited market reach", "Technology gaps"],
+            marketOpportunities: ["Digital expansion", "New market segments"],
+            benchmarkComparison: {
+              industryAverageROI: "12-15%",
+              performanceVsIndustry: "At",
+              percentilRanking: "50th percentile",
+            },
+            strategicRecommendations: ["Invest in technology", "Expand market presence"],
+            marketThreats: ["Increased competition", "Economic uncertainty"],
+          }
           break
         default:
           parsedResult = { analysis: "AI analysis completed but response format needs adjustment" }

@@ -171,7 +171,7 @@ export default function ROIPage() {
     fetchData()
   }, [period, customDateRange, toast])
 
-  // AI Analysis Functions
+  // AI Analysis Functions with optimized data handling
   const getAIAnalysis = async (action: string) => {
     if (!roiData) return
 
@@ -196,12 +196,24 @@ export default function ROIPage() {
         to: period === "custom" ? customDateRange.to : new Date(),
       }
 
+      // Create optimized payload to prevent memory issues
+      const optimizedROIData = {
+        roi: roiData.roi,
+        annualizedRoi: roiData.annualizedRoi,
+        totalInvestment: roiData.totalInvestment,
+        netProfit: roiData.netProfit,
+        paybackPeriod: roiData.paybackPeriod,
+        profitabilityIndex: roiData.profitabilityIndex,
+        monthlyData: roiData.monthlyData?.slice(-6) || [], // Only last 6 months to reduce payload
+        investments: roiData.investments?.slice(0, 5) || [], // Only top 5 investments
+      }
+
       const response = await fetch("/api/ai-roi-insights", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action,
-          roiData,
+          roiData: optimizedROIData, // Use optimized data
           period,
           dateRange,
         }),
@@ -234,7 +246,7 @@ export default function ROIPage() {
       console.error("Error getting AI analysis:", error)
       toast({
         title: "AI Analysis Error",
-        description: error.message || "Failed to generate AI insights",
+        description: error.message || "Failed to generate AI insights. Please try again in a moment.",
         variant: "destructive",
       })
     } finally {
@@ -671,14 +683,16 @@ export default function ROIPage() {
                         </CardHeader>
                         <CardContent>
                           <div className="text-2xl font-bold mb-2">
-                            {aiForecast.forecast3Months.expectedROI.toFixed(1)}%
+                            {aiForecast?.forecast3Months?.expectedROI?.toFixed(1) || "N/A"}%
                           </div>
                           <div className="flex items-center space-x-2 mb-2">
-                            <Progress value={aiForecast.forecast3Months.confidence * 100} className="flex-1" />
-                            <span className="text-sm">{(aiForecast.forecast3Months.confidence * 100).toFixed(0)}%</span>
+                            <Progress value={(aiForecast?.forecast3Months?.confidence || 0) * 100} className="flex-1" />
+                            <span className="text-sm">
+                              {((aiForecast?.forecast3Months?.confidence || 0) * 100).toFixed(0)}%
+                            </span>
                           </div>
                           <ul className="text-xs space-y-1">
-                            {aiForecast.forecast3Months.factors.slice(0, 2).map((factor, index) => (
+                            {(aiForecast?.forecast3Months?.factors || []).slice(0, 2).map((factor, index) => (
                               <li key={index} className="text-muted-foreground">
                                 • {factor}
                               </li>
@@ -693,14 +707,16 @@ export default function ROIPage() {
                         </CardHeader>
                         <CardContent>
                           <div className="text-2xl font-bold mb-2">
-                            {aiForecast.forecast6Months.expectedROI.toFixed(1)}%
+                            {aiForecast?.forecast6Months?.expectedROI?.toFixed(1) || "N/A"}%
                           </div>
                           <div className="flex items-center space-x-2 mb-2">
-                            <Progress value={aiForecast.forecast6Months.confidence * 100} className="flex-1" />
-                            <span className="text-sm">{(aiForecast.forecast6Months.confidence * 100).toFixed(0)}%</span>
+                            <Progress value={(aiForecast?.forecast6Months?.confidence || 0) * 100} className="flex-1" />
+                            <span className="text-sm">
+                              {((aiForecast?.forecast6Months?.confidence || 0) * 100).toFixed(0)}%
+                            </span>
                           </div>
                           <ul className="text-xs space-y-1">
-                            {aiForecast.forecast6Months.factors.slice(0, 2).map((factor, index) => (
+                            {(aiForecast?.forecast6Months?.factors || []).slice(0, 2).map((factor, index) => (
                               <li key={index} className="text-muted-foreground">
                                 • {factor}
                               </li>
@@ -715,16 +731,19 @@ export default function ROIPage() {
                         </CardHeader>
                         <CardContent>
                           <div className="text-2xl font-bold mb-2">
-                            {aiForecast.forecast12Months.expectedROI.toFixed(1)}%
+                            {aiForecast?.forecast12Months?.expectedROI?.toFixed(1) || "N/A"}%
                           </div>
                           <div className="flex items-center space-x-2 mb-2">
-                            <Progress value={aiForecast.forecast12Months.confidence * 100} className="flex-1" />
+                            <Progress
+                              value={(aiForecast?.forecast12Months?.confidence || 0) * 100}
+                              className="flex-1"
+                            />
                             <span className="text-sm">
-                              {(aiForecast.forecast12Months.confidence * 100).toFixed(0)}%
+                              {((aiForecast?.forecast12Months?.confidence || 0) * 100).toFixed(0)}%
                             </span>
                           </div>
                           <ul className="text-xs space-y-1">
-                            {aiForecast.forecast12Months.factors.slice(0, 2).map((factor, index) => (
+                            {(aiForecast?.forecast12Months?.factors || []).slice(0, 2).map((factor, index) => (
                               <li key={index} className="text-muted-foreground">
                                 • {factor}
                               </li>
@@ -742,19 +761,19 @@ export default function ROIPage() {
                         <div className="grid gap-4 md:grid-cols-3">
                           <div className="text-center">
                             <div className="text-lg font-bold text-red-600">
-                              {aiForecast.scenarios.conservative.toFixed(1)}%
+                              {aiForecast?.scenarios?.conservative?.toFixed(1) || "N/A"}%
                             </div>
                             <div className="text-sm text-muted-foreground">Conservative</div>
                           </div>
                           <div className="text-center">
                             <div className="text-lg font-bold text-blue-600">
-                              {aiForecast.scenarios.realistic.toFixed(1)}%
+                              {aiForecast?.scenarios?.realistic?.toFixed(1) || "N/A"}%
                             </div>
                             <div className="text-sm text-muted-foreground">Realistic</div>
                           </div>
                           <div className="text-center">
                             <div className="text-lg font-bold text-green-600">
-                              {aiForecast.scenarios.optimistic.toFixed(1)}%
+                              {aiForecast?.scenarios?.optimistic?.toFixed(1) || "N/A"}%
                             </div>
                             <div className="text-sm text-muted-foreground">Optimistic</div>
                           </div>
@@ -769,7 +788,7 @@ export default function ROIPage() {
                         </CardHeader>
                         <CardContent>
                           <ul className="text-sm space-y-1">
-                            {aiForecast.keyVariables.map((variable, index) => (
+                            {(aiForecast?.keyVariables || []).map((variable, index) => (
                               <li key={index} className="flex items-start">
                                 <BarChart3 className="h-3 w-3 text-blue-500 mr-2 mt-0.5 flex-shrink-0" />
                                 {variable}
@@ -785,7 +804,7 @@ export default function ROIPage() {
                         </CardHeader>
                         <CardContent>
                           <ul className="text-sm space-y-1">
-                            {aiForecast.seasonalFactors.map((factor, index) => (
+                            {(aiForecast?.seasonalFactors || []).map((factor, index) => (
                               <li key={index} className="flex items-start">
                                 <Calendar className="h-3 w-3 text-green-500 mr-2 mt-0.5 flex-shrink-0" />
                                 {factor}
