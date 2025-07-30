@@ -354,6 +354,11 @@ export function AppSidebar() {
           label: "ROI",
           icon: <Package className="h-4 w-4" />,
         },
+                                                {
+          href: "profit-adviceAI",
+          label: "Profit Advice",
+          icon: <TrendingUp className="h-4 w-4" />,
+        },
         
 
       ],
