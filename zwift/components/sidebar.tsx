@@ -26,7 +26,8 @@ import {
   LineChart,
   BarChart,
   Lightbulb,
-} from "lucide-react"
+  Bot,
+  } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useTheme } from "next-themes"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
@@ -249,12 +250,7 @@ export function AppSidebar() {
     { href: "/expenses02", label: "expenses" as AppTranslationKey, icon: <CircleDollarSign className="h-5 w-5" /> },
     { href: "/enhanced-stock-scanner2", label: "Enhanced Stock Scanner" as AppTranslationKey, icon: <Scan className="h-5 w-5" /> },
     { href: "/sammury02", label: "sammury" as AppTranslationKey, icon: <TrendingUp className="h-5 w-5" /> },
-    {
-      key: "financial",
-      href: "#",
-      label: "Financial Analytics",
-      icon: <Calculator className="h-5 w-5" />,
-      hasSubmenu: true,
+    { key: "financial", href: "#", label: "Financial Analytics", icon: <Calculator className="h-5 w-5" />, hasSubmenu: true, 
       submenu: [
         {
           href: "/initial-investments",
@@ -311,22 +307,49 @@ export function AppSidebar() {
           label: "Products History",
           icon: <Package className="h-4 w-4" />,
         },
-                {
-          href: "restocking-insights",
-          label: "restocking insights",
+
+
+
+      ],
+    },
+     { key: "AI Tools", href: "#", label: "AI Tools", icon: <Bot className="h-5 w-5" />, hasSubmenu: true, 
+      submenu: [
+        {
+          href: "/posAI",
+          label: "Post Of Sale AI",
+          icon: <DollarSign className="h-4 w-4" />,
+        },
+        {
+          href: "/enhanced-stock-scanner2",
+          label: "Enhanced Stock Scanner",
+          icon: <Scan className="h-4 w-4" />,
+        },
+        {
+          href: "/alertsAI",
+          label: "alerts",
+          icon: <AlertTriangle className="h-4 w-4" />,
+        },
+        {
+          href: "/ai-management-assistant",
+          label: "Ai Management Assistant",
           icon: <Package className="h-4 w-4" />,
         },
-                        {
+        {
+          href: "/sammuryAI",
+          label: "sammury",
+          icon: <TrendingUp className="h-4 w-4" />,
+        },
+                {
+          href: "/restocking-insightsAI",
+          label: "Restocking Insights",
+          icon: <TrendingUp className="h-4 w-4" />,
+        },
+                                {
           href: "ai-restocking",
           label: "AI restocking",
           icon: <Package className="h-4 w-4" />,
         },
-                        {
-          href: "ai-management-assistant",
-          label: "AI management assistant",
-          icon: <Package className="h-4 w-4" />,
-        },
-
+        
 
       ],
     },
