@@ -247,7 +247,7 @@ export function AppSidebar() {
     { href: "/products", label: "products" as AppTranslationKey, icon: <Package className="h-5 w-5" /> },
     { href: "/sales", label: "sales" as AppTranslationKey, icon: <DollarSign className="h-5 w-5" /> },
     { href: "/expenses02", label: "expenses" as AppTranslationKey, icon: <CircleDollarSign className="h-5 w-5" /> },
-    { href: "/stock-scanner", label: "stock-scanner" as AppTranslationKey, icon: <Scan className="h-5 w-5" /> },
+    { href: "/enhanced-stock-scanner2", label: "Enhanced Stock Scanner" as AppTranslationKey, icon: <Scan className="h-5 w-5" /> },
     { href: "/sammury02", label: "sammury" as AppTranslationKey, icon: <TrendingUp className="h-5 w-5" /> },
     {
       key: "financial",
@@ -326,16 +326,8 @@ export function AppSidebar() {
           label: "AI management assistant",
           icon: <Package className="h-4 w-4" />,
         },
-                                {
-          href: "ai-product-scanner",
-          label: "ai product scanner",
-          icon: <Package className="h-4 w-4" />,
-        },
-                                {
-          href: "enhanced-stock-scanner",
-          label: "enhanced stock scanner",
-          icon: <Package className="h-4 w-4" />,
-        },
+
+
       ],
     },
     { href: "/settings", label: "settings" as AppTranslationKey, icon: <Settings className="h-5 w-5" /> },
