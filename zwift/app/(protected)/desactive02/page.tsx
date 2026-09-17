@@ -34,6 +34,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
+import { useToast } from "@/hooks/use-toast"
 import {
   createSale,
   getSettings,
@@ -65,6 +66,7 @@ const playBeepSound = () => {
 }
 
 export default function POSPage() {
+  const { toast } = useToast()
   const [products, setProducts] = useState<Product[]>([])
   const [recentlyScannedProducts, setRecentlyScannedProducts] = useState<Product[]>([])
   const [recentlySoldProducts, setRecentlySoldProducts] = useState<Product[]>([])
@@ -488,11 +490,13 @@ export default function POSPage() {
         discount: item.discount, // Include the discount percentage
       }))
 
+      console.log("[v0] handleConfirmSale: submitting sale", { saleData, itemCount: saleItems.length })
+
       // Create sale in Supabase
       const { data, error } = await createSale(saleData, saleItems)
 
       if (error) {
-        console.error("Error creating sale:", error)
+        console.error("[v0] handleConfirmSale: createSale returned an error", error)
         throw error
       }
 
@@ -506,8 +510,27 @@ export default function POSPage() {
       if (shouldPrint) {
         console.log("Printing receipt for sale:", data)
       }
-    } catch (error) {
-      console.error("Error processing sale:", error)
+
+      toast({ title: "Sale completed" })
+    } catch (error: any) {
+      console.error("[v0] handleConfirmSale: sale failed", error)
+
+      // Postgres foreign key violation — usually a stale DB trigger/constraint issue,
+      // not a problem with the cart data itself.
+      if (error?.code === "23503") {
+        toast({
+          title: "Sale failed: a database constraint blocked it",
+          description: error?.details || error?.message || "Foreign key violation.",
+          variant: "destructive",
+        })
+      } else {
+        toast({
+          title: "Sale failed",
+          description:
+            error?.message || "Something went wrong while completing this sale. Check the console logs for details.",
+          variant: "destructive",
+        })
+      }
     } finally {
       setIsProcessing(false)
       setIsCheckoutOpen(false)

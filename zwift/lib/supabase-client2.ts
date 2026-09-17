@@ -99,6 +99,12 @@ export async function getProductById(id: string): Promise<Product | null> {
 export async function createSale(saleData: Sale, saleItems: SaleItem[]) {
   const supabase = createClient()
 
+  console.log("[v0] createSale: starting", {
+    saleData,
+    itemCount: saleItems.length,
+    productIds: saleItems.map((i) => i.product_id),
+  })
+
   try {
     // Insert the sale - only include fields that exist in the table
     const { data: saleResult, error: saleError } = await supabase
@@ -113,9 +119,16 @@ export async function createSale(saleData: Sale, saleItems: SaleItem[]) {
       .single()
 
     if (saleError) {
-      console.error("Error creating sale:", saleError)
+      console.error("[v0] createSale: failed inserting into 'sales'", {
+        code: saleError.code,
+        message: saleError.message,
+        details: saleError.details,
+        hint: saleError.hint,
+      })
       throw saleError
     }
+
+    console.log("[v0] createSale: 'sales' row created", { saleId: saleResult.id })
 
     // Add the sale_id to each sale item
     const itemsWithSaleId = saleItems.map((item) => ({
@@ -129,9 +142,21 @@ export async function createSale(saleData: Sale, saleItems: SaleItem[]) {
     const { error: itemsError } = await supabase.from("sale_items").insert(itemsWithSaleId)
 
     if (itemsError) {
-      console.error("Error creating sale items:", itemsError)
+      // Postgres foreign key violations (code 23503) surfaced here usually come from a
+      // database TRIGGER on sale_items/products, not from this function itself — check
+      // itemsError.details below for the exact constraint name (e.g. an
+      // "..._inventory_id_fkey" pointing at a stale/unrelated "inventory" table).
+      console.error("[v0] createSale: failed inserting into 'sale_items'", {
+        code: itemsError.code,
+        message: itemsError.message,
+        details: itemsError.details,
+        hint: itemsError.hint,
+        saleId: saleResult.id,
+      })
       throw itemsError
     }
+
+    console.log("[v0] createSale: 'sale_items' inserted", { count: itemsWithSaleId.length })
 
     // Update product stock levels
     for (const item of saleItems) {
@@ -143,7 +168,11 @@ export async function createSale(saleData: Sale, saleItems: SaleItem[]) {
         .single()
 
       if (productError) {
-        console.error(`Error fetching product ${item.product_id}:`, productError)
+        console.error(`[v0] createSale: failed fetching product ${item.product_id}`, {
+          code: productError.code,
+          message: productError.message,
+          details: productError.details,
+        })
         continue
       }
 
@@ -158,7 +187,12 @@ export async function createSale(saleData: Sale, saleItems: SaleItem[]) {
         .eq("id", item.product_id)
 
       if (stockError) {
-        console.error(`Error updating stock for product ${item.product_id}:`, stockError)
+        console.error(`[v0] createSale: failed updating stock for product ${item.product_id}`, {
+          code: stockError.code,
+          message: stockError.message,
+          details: stockError.details,
+          hint: stockError.hint,
+        })
         continue
       }
 
@@ -188,9 +222,10 @@ export async function createSale(saleData: Sale, saleItems: SaleItem[]) {
       }
     }
 
+    console.log("[v0] createSale: completed successfully", { saleId: saleResult.id })
     return { data: saleResult, error: null }
   } catch (error) {
-    console.error("Error creating sale:", error)
+    console.error("[v0] createSale: aborted", error)
     return { data: null, error }
   }
 }
