@@ -530,6 +530,19 @@ export default function POSPage() {
             .divider { border-top: 1px dashed #000; margin: 8px 0; }
             .totals td { padding: 2px 0; }
             .grand { font-size: 16px; font-weight: bold; }
+            .stamp-wrap { text-align: center; margin-top: 12px; }
+            .stamp {
+              width: 170px;
+              height: auto;
+              opacity: 0.85;
+              transform: rotate(-8deg);
+              mix-blend-mode: multiply;
+              border: 0;
+              outline: 0;
+              background: transparent;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
             @media print { body { width: auto; } }
           </style>
         </head>
@@ -546,6 +559,9 @@ export default function POSPage() {
           </table>
           <div class="divider"></div>
           <div class="center muted">Payment: ${escapeHtml(receipt.paymentMethod)}</div>
+          <div class="stamp-wrap">
+            <img class="stamp" src="${window.location.origin}/receipt-stamp.png" alt="Store stamp" />
+          </div>
           <div class="center muted" style="margin-top:8px;">Thank you!</div>
         </body>
       </html>`
