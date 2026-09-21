@@ -18,6 +18,7 @@ import {
   ShoppingCart,
   Loader2,
   RefreshCw,
+  Printer,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -104,6 +105,9 @@ const SalesPage = () => {
   const [isLoadingSaleDetails, setIsLoadingSaleDetails] = useState(false)
   const { getAppTranslation, language, isRTL } = useLanguage()
   const [currentCurrency, setCurrentCurrency] = useState<string>("USD")
+  const [storeName, setStoreName] = useState<string>("")
+  const [taxRate, setTaxRate] = useState<number>(0)
+  const [printingSaleId, setPrintingSaleId] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [paginatedSales, setPaginatedSales] = useState<Sale[]>([])
@@ -217,12 +221,14 @@ const SalesPage = () => {
     try {
       const { data: settingsData, error } = await supabase
         .from("settings")
-        .select("currency")
+        .select("currency, store_name, tax_rate")
         .eq("type", "global")
         .single()
 
-      if (!error && settingsData?.currency) {
-        setCurrentCurrency(settingsData.currency)
+      if (!error && settingsData) {
+        if (settingsData.currency) setCurrentCurrency(settingsData.currency)
+        if (settingsData.store_name) setStoreName(settingsData.store_name)
+        if (typeof settingsData.tax_rate === "number") setTaxRate(settingsData.tax_rate)
       }
     } catch (error) {
       console.error("Error fetching currency setting:", error)
@@ -406,6 +412,152 @@ const SalesPage = () => {
   useEffect(() => {
     fetchSales()
   }, [pageSize, currentPage, fetchSales])
+
+  // Build and print a receipt for a sale in a hidden iframe. Using an iframe
+  // (instead of window.open) keeps printing working inside the preview iframe
+  // and avoids popup blockers silently swallowing the print window.
+  const renderAndPrintReceipt = (sale: Sale) => {
+    const items = sale.items || []
+
+    const fmt = (amount: number) =>
+      new Intl.NumberFormat("en-US", { style: "currency", currency: currentCurrency }).format(amount)
+
+    const escapeHtml = (value: string) =>
+      value.replace(/[&<>"']/g, (char) => {
+        switch (char) {
+          case "&":
+            return "&amp;"
+          case "<":
+            return "&lt;"
+          case ">":
+            return "&gt;"
+          case '"':
+            return "&quot;"
+          default:
+            return "&#39;"
+        }
+      })
+
+    const subtotal = items.reduce(
+      (sum, item) => sum + item.price * item.quantity * (1 - (item.discount ?? 0) / 100),
+      0,
+    )
+    // The sales table stores the final total; derive the tax portion from it.
+    const taxAmount = taxRate > 0 ? sale.total - sale.total / (1 + taxRate) : 0
+
+    const rows = items
+      .map((item) => {
+        const lineTotal = item.price * item.quantity * (1 - (item.discount ?? 0) / 100)
+        return `
+          <tr>
+            <td>
+              ${escapeHtml(item.product?.name || "Item")}${
+                (item.discount ?? 0) > 0 ? ` <span class="muted">(-${item.discount}%)</span>` : ""
+              }
+              <div class="muted">${fmt(item.price)} × ${item.quantity}</div>
+            </td>
+            <td class="right">${fmt(lineTotal)}</td>
+          </tr>`
+      })
+      .join("")
+
+    const html = `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Receipt</title>
+          <style>
+            * { box-sizing: border-box; }
+            body { font-family: ui-monospace, "Courier New", monospace; color: #000; margin: 0; padding: 16px; width: 300px; }
+            h1 { font-size: 18px; text-align: center; margin: 0 0 4px; }
+            .muted { color: #555; font-size: 11px; }
+            .center { text-align: center; }
+            .right { text-align: right; white-space: nowrap; }
+            table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+            td { padding: 4px 0; vertical-align: top; font-size: 12px; }
+            .divider { border-top: 1px dashed #000; margin: 8px 0; }
+            .totals td { padding: 2px 0; }
+            .grand { font-size: 16px; font-weight: bold; }
+            @media print { body { width: auto; } }
+          </style>
+        </head>
+        <body>
+          <h1>${escapeHtml(storeName || "Receipt")}</h1>
+          <div class="center muted">${new Date(sale.created_at).toLocaleString()}</div>
+          <div class="center muted">Sale #${escapeHtml(String(sale.id))}</div>
+          <div class="divider"></div>
+          <table>${rows}</table>
+          <div class="divider"></div>
+          <table class="totals">
+            <tr><td>Subtotal</td><td class="right">${fmt(subtotal)}</td></tr>
+            ${taxRate > 0 ? `<tr><td>Tax (${(taxRate * 100).toFixed(0)}%)</td><td class="right">${fmt(taxAmount)}</td></tr>` : ""}
+            <tr class="grand"><td>Total</td><td class="right">${fmt(sale.total)}</td></tr>
+          </table>
+          <div class="divider"></div>
+          <div class="center muted">Payment: ${escapeHtml(sale.payment_method)}</div>
+          <div class="center muted" style="margin-top:8px;">Thank you!</div>
+        </body>
+      </html>`
+
+    const iframe = document.createElement("iframe")
+    iframe.setAttribute("aria-hidden", "true")
+    iframe.style.position = "fixed"
+    iframe.style.right = "0"
+    iframe.style.bottom = "0"
+    iframe.style.width = "0"
+    iframe.style.height = "0"
+    iframe.style.border = "0"
+    document.body.appendChild(iframe)
+
+    const cleanup = () => {
+      if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
+    }
+
+    const doc = iframe.contentWindow?.document
+    if (!doc) {
+      console.error("[v0] renderAndPrintReceipt: could not access iframe document")
+      cleanup()
+      return
+    }
+
+    doc.open()
+    doc.write(html)
+    doc.close()
+
+    setTimeout(() => {
+      try {
+        iframe.contentWindow?.focus()
+        iframe.contentWindow?.print()
+        console.log("[v0] renderAndPrintReceipt: print dialog invoked", { saleId: sale.id })
+      } catch (err) {
+        console.error("[v0] renderAndPrintReceipt: failed to invoke print", err)
+      }
+      setTimeout(cleanup, 1000)
+    }, 250)
+  }
+
+  const handlePrintReceipt = async (sale: Sale) => {
+    setPrintingSaleId(sale.id)
+    try {
+      // Ensure items are loaded before printing.
+      let saleWithItems = sale
+      if (!sale.items || sale.items.length === 0) {
+        const items = await fetchSaleItems(sale.id)
+        saleWithItems = { ...sale, items }
+        setPaginatedSales((prevSales) => prevSales.map((s) => (s.id === sale.id ? saleWithItems : s)))
+      }
+      renderAndPrintReceipt(saleWithItems)
+    } catch (error) {
+      console.error("[v0] handlePrintReceipt: failed", error)
+      toast({
+        title: getAppTranslation("error", language),
+        description: "Failed to print receipt",
+        variant: "destructive",
+      })
+    } finally {
+      setPrintingSaleId(null)
+    }
+  }
 
   const handleViewDetails = async (sale: Sale) => {
     // Only fetch items if they haven't been fetched yet
@@ -957,6 +1109,19 @@ const SalesPage = () => {
                             )}
                             <span className="sr-only">Edit</span>
                           </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handlePrintReceipt(sale)}
+                            disabled={printingSaleId === sale.id}
+                          >
+                            {printingSaleId === sale.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Printer className="h-4 w-4" />
+                            )}
+                            <span className="sr-only">Print receipt</span>
+                          </Button>
                           <Button variant="ghost" size="sm" onClick={() => handleDeleteClick(sale)}>
                             <Trash2 className="h-4 w-4 text-destructive" />
                             <span className="sr-only">Delete</span>
@@ -1131,6 +1296,20 @@ const SalesPage = () => {
                       <span>{formatCurrency(selectedSale.total, currentCurrency, language)}</span>
                     </div>
                   </div>
+                  <DialogFooter className="mt-4">
+                    <Button
+                      variant="outline"
+                      onClick={() => handlePrintReceipt(selectedSale)}
+                      disabled={printingSaleId === selectedSale.id}
+                    >
+                      {printingSaleId === selectedSale.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : (
+                        <Printer className="h-4 w-4 mr-2" />
+                      )}
+                      Print Receipt
+                    </Button>
+                  </DialogFooter>
                 </div>
               )}
             </DialogContent>
