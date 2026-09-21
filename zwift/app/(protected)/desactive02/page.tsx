@@ -470,6 +470,125 @@ export default function POSPage() {
     setIsCheckoutOpen(true)
   }
 
+  // Build and print a receipt in a hidden iframe. Using an iframe (instead of
+  // window.open) keeps printing working inside the preview iframe and avoids
+  // popup blockers silently swallowing the print window.
+  const printReceipt = (receipt: {
+    items: Array<{ name: string; quantity: number; price: number; discount: number; lineTotal: number }>
+    subtotal: number
+    tax: number
+    total: number
+    paymentMethod: string
+    date: Date
+  }) => {
+    const fmt = (amount: number) =>
+      new Intl.NumberFormat("en-US", { style: "currency", currency: settings.currency }).format(amount)
+
+    const escapeHtml = (value: string) =>
+      value.replace(/[&<>"']/g, (char) => {
+        switch (char) {
+          case "&":
+            return "&amp;"
+          case "<":
+            return "&lt;"
+          case ">":
+            return "&gt;"
+          case '"':
+            return "&quot;"
+          default:
+            return "&#39;"
+        }
+      })
+
+    const rows = receipt.items
+      .map(
+        (item) => `
+          <tr>
+            <td>
+              ${escapeHtml(item.name)}${item.discount ? ` <span class="muted">(-${item.discount}%)</span>` : ""}
+              <div class="muted">${fmt(item.price)} × ${item.quantity}</div>
+            </td>
+            <td class="right">${fmt(item.lineTotal)}</td>
+          </tr>`,
+      )
+      .join("")
+
+    const html = `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Receipt</title>
+          <style>
+            * { box-sizing: border-box; }
+            body { font-family: ui-monospace, "Courier New", monospace; color: #000; margin: 0; padding: 16px; width: 300px; }
+            h1 { font-size: 18px; text-align: center; margin: 0 0 4px; }
+            .muted { color: #555; font-size: 11px; }
+            .center { text-align: center; }
+            .right { text-align: right; white-space: nowrap; }
+            table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+            td { padding: 4px 0; vertical-align: top; font-size: 12px; }
+            .divider { border-top: 1px dashed #000; margin: 8px 0; }
+            .totals td { padding: 2px 0; }
+            .grand { font-size: 16px; font-weight: bold; }
+            @media print { body { width: auto; } }
+          </style>
+        </head>
+        <body>
+          <h1>${escapeHtml(settings.store_name || "Receipt")}</h1>
+          <div class="center muted">${receipt.date.toLocaleString()}</div>
+          <div class="divider"></div>
+          <table>${rows}</table>
+          <div class="divider"></div>
+          <table class="totals">
+            <tr><td>Subtotal</td><td class="right">${fmt(receipt.subtotal)}</td></tr>
+            <tr><td>Tax (${(settings.tax_rate * 100).toFixed(0)}%)</td><td class="right">${fmt(receipt.tax)}</td></tr>
+            <tr class="grand"><td>Total</td><td class="right">${fmt(receipt.total)}</td></tr>
+          </table>
+          <div class="divider"></div>
+          <div class="center muted">Payment: ${escapeHtml(receipt.paymentMethod)}</div>
+          <div class="center muted" style="margin-top:8px;">Thank you!</div>
+        </body>
+      </html>`
+
+    const iframe = document.createElement("iframe")
+    iframe.setAttribute("aria-hidden", "true")
+    iframe.style.position = "fixed"
+    iframe.style.right = "0"
+    iframe.style.bottom = "0"
+    iframe.style.width = "0"
+    iframe.style.height = "0"
+    iframe.style.border = "0"
+    document.body.appendChild(iframe)
+
+    const cleanup = () => {
+      if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
+    }
+
+    const doc = iframe.contentWindow?.document
+    if (!doc) {
+      console.error("[v0] printReceipt: could not access iframe document")
+      cleanup()
+      return
+    }
+
+    doc.open()
+    doc.write(html)
+    doc.close()
+
+    // Give the iframe a tick to lay out before invoking the print dialog.
+    setTimeout(() => {
+      try {
+        iframe.contentWindow?.focus()
+        iframe.contentWindow?.print()
+        console.log("[v0] printReceipt: print dialog invoked")
+      } catch (err) {
+        console.error("[v0] printReceipt: failed to invoke print", err)
+      }
+      // Remove the iframe after the print dialog has had a chance to open.
+      setTimeout(cleanup, 1000)
+    }, 250)
+  }
+
   // Handle sale confirmation
   const handleConfirmSale = async (shouldPrint?: boolean) => {
     setIsProcessing(true)
@@ -490,7 +609,28 @@ export default function POSPage() {
         discount: item.discount, // Include the discount percentage
       }))
 
-      console.log("[v0] handleConfirmSale: submitting sale", { saleData, itemCount: saleItems.length })
+      // Snapshot the receipt data BEFORE clearing the cart, so printing still
+      // has the line items after clearCart() runs below.
+      const receiptSnapshot = {
+        items: cart.map((item) => ({
+          name: item.product.name,
+          quantity: item.quantity,
+          price: item.price,
+          discount: item.discount,
+          lineTotal: item.subtotal,
+        })),
+        subtotal,
+        tax,
+        total,
+        paymentMethod,
+        date: new Date(),
+      }
+
+      console.log("[v0] handleConfirmSale: submitting sale", {
+        saleData,
+        itemCount: saleItems.length,
+        shouldPrint: !!shouldPrint,
+      })
 
       // Create sale in Supabase
       const { data, error } = await createSale(saleData, saleItems)
@@ -508,7 +648,8 @@ export default function POSPage() {
 
       // Handle printing if needed
       if (shouldPrint) {
-        console.log("Printing receipt for sale:", data)
+        console.log("[v0] handleConfirmSale: printing receipt", { saleId: data?.id })
+        printReceipt(receiptSnapshot)
       }
 
       toast({ title: "Sale completed" })
