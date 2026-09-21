@@ -532,11 +532,14 @@ export default function POSPage() {
             .grand { font-size: 16px; font-weight: bold; }
             .stamp-wrap { text-align: center; margin-top: 12px; }
             .stamp {
-              width: 150px;
-              height: 150px;
+              width: 170px;
+              height: auto;
               opacity: 0.85;
               transform: rotate(-8deg);
               mix-blend-mode: multiply;
+              border: 0;
+              outline: 0;
+              background: transparent;
               -webkit-print-color-adjust: exact;
               print-color-adjust: exact;
             }
